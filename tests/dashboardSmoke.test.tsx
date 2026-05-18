@@ -53,23 +53,33 @@ const counts = {
 
 vi.mock("@/lib/polymarket/markets", async () => ({
   ...(await vi.importActual<typeof import("@/lib/polymarket/markets")>("@/lib/polymarket/markets")),
-  getCachedMarketCountsSnapshot: vi.fn(() => counts),
+  getCachedMarketCountsState: vi.fn(() => ({ loading: false, counts, source: "polymarket" })),
 }));
 
 describe("DashboardPage", () => {
   beforeEach(() => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response(JSON.stringify({
-        counts,
-        source: "polymarket",
-        markets: markets.slice(0, 100),
-        limit: 100,
-        offset: 0,
-        total: 150,
-        returned: 100,
-        hasMore: true,
-      }), { status: 200 })),
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/counts")) {
+          return new Response(JSON.stringify({ loading: false, counts, source: "polymarket" }), { status: 200 });
+        }
+        if (url.includes("/prewarm")) {
+          return new Response(JSON.stringify({ started: true }), { status: 200 });
+        }
+        return new Response(JSON.stringify({
+          counts,
+          countsLoading: false,
+          source: "polymarket",
+          markets: markets.slice(0, 100),
+          limit: 100,
+          offset: 0,
+          total: 150,
+          returned: 100,
+          hasMore: true,
+        }), { status: 200 });
+      }),
     );
   });
 

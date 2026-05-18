@@ -67,12 +67,19 @@ describe("MarketsExplorer", () => {
   it("calls the markets API with filter params", async () => {
     const requestedUrls: string[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      requestedUrls.push(String(input));
-      return new Response(JSON.stringify({ ...initialPage, counts, source: "polymarket" }), { status: 200 });
+      const url = String(input);
+      requestedUrls.push(url);
+      if (url.includes("/counts")) {
+        return new Response(JSON.stringify({ loading: false, counts, source: "polymarket" }), { status: 200 });
+      }
+      if (url.includes("/prewarm")) {
+        return new Response(JSON.stringify({ started: true }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ...initialPage, counts, countsLoading: false, source: "polymarket" }), { status: 200 });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<MarketsExplorer counts={counts} initialPage={initialPage} source="polymarket" />);
+    render(<MarketsExplorer counts={counts} countsLoading={false} initialPage={initialPage} source="polymarket" />);
 
     fireEvent.click(screen.getByRole("button", { name: "NBA" }));
     fireEvent.click(screen.getByRole("button", { name: "live" }));
@@ -82,9 +89,9 @@ describe("MarketsExplorer", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     await waitFor(
       () => {
-        const lastCall = requestedUrls[requestedUrls.length - 1];
-        expect(lastCall).toContain("/api/polymarket/markets?");
-        const params = new URL(lastCall, "http://localhost").searchParams;
+        const lastCall = [...requestedUrls].reverse().find((url) => url.includes("/api/polymarket/markets?"));
+        expect(lastCall).toBeDefined();
+        const params = new URL(lastCall as string, "http://localhost").searchParams;
         expect(params.get("limit")).toBe("100");
         expect(params.get("offset")).toBe("0");
         expect(params.get("sport")).toBe("NBA");
@@ -101,10 +108,19 @@ describe("MarketsExplorer", () => {
     const pending = new Promise<void>((resolve) => {
       resolveFetch = resolve;
     });
-    const fetchMock = vi.fn(async () => pending.then(() => new Response(JSON.stringify({ ...initialPage, counts, source: "polymarket" }), { status: 200 })));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/counts")) {
+        return new Response(JSON.stringify({ loading: false, counts, source: "polymarket" }), { status: 200 });
+      }
+      if (url.includes("/prewarm")) {
+        return new Response(JSON.stringify({ started: true }), { status: 200 });
+      }
+      return pending.then(() => new Response(JSON.stringify({ ...initialPage, counts, countsLoading: false, source: "polymarket" }), { status: 200 }));
+    });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<MarketsExplorer counts={counts} initialPage={initialPage} source="polymarket" />);
+    render(<MarketsExplorer counts={counts} countsLoading={false} initialPage={initialPage} source="polymarket" />);
 
     expect(screen.getByText("NBA market 1")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "UFC" }));

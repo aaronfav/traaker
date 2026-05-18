@@ -5,7 +5,7 @@ import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { MarketRows } from "@/components/MarketRows";
-import type { MarketPage, MarketQuerySort, MarketQueryStatus, SportsMarketDiscovery } from "@/lib/polymarket/markets";
+import type { MarketCountsApiResponse, MarketPage, MarketQuerySort, MarketQueryStatus, SportsMarketDiscovery } from "@/lib/polymarket/markets";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
 const sports = ["All", "NBA", "NFL", "Soccer", "UFC", "Tennis"] as const;
@@ -22,6 +22,7 @@ const PAGE_LIMIT = 100;
 
 type MarketsResponse = MarketPage & {
   counts: SportsMarketDiscovery["counts"];
+  countsLoading?: boolean;
   source: SportsMarketDiscovery["source"];
 };
 
@@ -45,11 +46,13 @@ function buildMarketsUrl(params: {
 
 export function MarketsExplorer({
   counts,
+  countsLoading = false,
   includeDebugFilters = false,
   initialPage,
   source,
 }: {
   counts: SportsMarketDiscovery["counts"];
+  countsLoading?: boolean;
   includeDebugFilters?: boolean;
   initialPage: MarketPage;
   source: SportsMarketDiscovery["source"];
@@ -67,11 +70,65 @@ export function MarketsExplorer({
   const [latestSource, setLatestSource] = useState(source);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isCountsLoading, setIsCountsLoading] = useState(countsLoading);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query), 300);
     return () => window.clearTimeout(timer);
   }, [query]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let retryTimer: number | undefined;
+    const controller = new AbortController();
+
+    const loadCounts = async () => {
+      try {
+        const response = await fetch("/api/polymarket/markets/counts", { signal: controller.signal });
+        if (!response.ok) throw new Error("Unable to load market counts");
+        const payload = (await response.json()) as MarketCountsApiResponse;
+        if (cancelled) return;
+        if (payload.loading) {
+          setIsCountsLoading(true);
+          retryTimer = window.setTimeout(loadCounts, 1000);
+          return;
+        }
+        setLatestCounts(payload.counts);
+        setLatestSource(payload.source);
+        setIsCountsLoading(false);
+      } catch (error) {
+        if ((error as Error).name !== "AbortError") console.error(error);
+      }
+    };
+
+    void loadCounts();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (retryTimer) window.clearTimeout(retryTimer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const schedule = () => {
+      const prewarmUrl = new URL("/api/polymarket/markets/prewarm", window.location.origin).toString();
+      void fetch(prewarmUrl).catch((error) => console.error(error));
+    };
+
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+
+    if (idleWindow.requestIdleCallback) {
+      const handle = idleWindow.requestIdleCallback(schedule, { timeout: 2000 });
+      return () => idleWindow.cancelIdleCallback?.(handle);
+    }
+
+    const timer = window.setTimeout(schedule, 1500);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     if (firstRender.current) firstRender.current = false;
@@ -90,6 +147,7 @@ export function MarketsExplorer({
         setPage(nextPage);
         setLatestCounts(nextPage.counts);
         setLatestSource(nextPage.source);
+        setIsCountsLoading(nextPage.countsLoading ?? false);
       })
       .catch((error) => {
         if ((error as Error).name !== "AbortError") console.error(error);
@@ -111,6 +169,7 @@ export function MarketsExplorer({
       setPage(nextPage);
       setLatestCounts(nextPage.counts);
       setLatestSource(nextPage.source);
+      setIsCountsLoading(nextPage.countsLoading ?? false);
     } catch (error) {
       console.error(error);
     } finally {
@@ -159,6 +218,7 @@ export function MarketsExplorer({
           Showing {markets.length} of {page.total} matching markets. {latestCounts.staleOrUnknownSportsMarkets} stale/unknown excluded from the default view.
         </p>
         <div className="flex items-center gap-2">
+          {isCountsLoading ? <span className="text-xs text-cyan-200">Calculating</span> : null}
           {isRefreshing ? <span className="text-xs text-cyan-200">Refreshing</span> : null}
           {latestSource === "mock" ? <span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-xs text-amber-200">Mock fallback</span> : null}
         </div>

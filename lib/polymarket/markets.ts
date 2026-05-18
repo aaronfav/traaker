@@ -91,8 +91,19 @@ export type MarketPage = {
 
 export type MarketsApiPayload = MarketPage & {
   counts: MarketDiscoveryCounts;
+  countsLoading?: boolean;
   source: SportsMarketDiscovery["source"];
 };
+
+export type MarketCountsApiResponse =
+  | {
+      loading: true;
+    }
+  | {
+      loading: false;
+      counts: MarketDiscoveryCounts;
+      source: SportsMarketDiscovery["source"];
+    };
 
 export const DEFAULT_MARKET_PAGE_LIMIT = 100;
 export const MAX_MARKET_PAGE_LIMIT = 500;
@@ -112,6 +123,7 @@ type MarketSnapshot = {
 type TraakMarketSnapshotStore = {
   snapshot: CacheEntry<MarketSnapshot> | null;
   refreshPromise: Promise<MarketSnapshot> | null;
+  warmupStartedAt: number | null;
 };
 
 declare global {
@@ -120,7 +132,7 @@ declare global {
 
 function getMarketSnapshotStore() {
   if (!globalThis.__TRAAK_MARKET_SNAPSHOT__) {
-    globalThis.__TRAAK_MARKET_SNAPSHOT__ = { snapshot: null, refreshPromise: null };
+    globalThis.__TRAAK_MARKET_SNAPSHOT__ = { snapshot: null, refreshPromise: null, warmupStartedAt: null };
   }
   return globalThis.__TRAAK_MARKET_SNAPSHOT__;
 }
@@ -341,6 +353,125 @@ export function getMarketPage(discovery: SportsMarketDiscovery, params: MarketQu
   };
 }
 
+type FastMarketPageResult = MarketsApiPayload & {
+  warmupStarted: boolean;
+  pagesFetched: number;
+  requestDurationMs: number;
+};
+
+async function fetchGammaEventPage(offset: number) {
+  const params = new URLSearchParams({
+    closed: "false",
+    order: "id",
+    ascending: "false",
+    limit: String(GAMMA_PAGE_LIMIT),
+    offset: String(offset),
+  });
+  const response = await fetch(`${GAMMA_HOST}/events?${params.toString()}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Gamma events fetch failed with status ${response.status}`);
+  }
+  return (await response.json()) as GammaEvent[];
+}
+
+async function buildFastMarketPagePayload(params: MarketQueryParams = {}): Promise<FastMarketPageResult> {
+  const requestStartedAt = Date.now();
+  const limit = Math.min(Math.max(Number.isFinite(params.limit) ? Math.trunc(params.limit as number) : DEFAULT_MARKET_PAGE_LIMIT, 1), MAX_MARKET_PAGE_LIMIT);
+  const offset = Math.max(Number.isFinite(params.offset) ? Math.trunc(params.offset as number) : 0, 0);
+  const targetCount = offset + limit;
+  const collectedMarkets: TerminalMarket[] = [];
+  let pagesFetched = 0;
+  let rawMarkets = 0;
+  let eligibleSports = 0;
+  let tradableSports = 0;
+  let currentOffset = 0;
+  let stoppedEarly = false;
+
+  while (collectedMarkets.length < targetCount) {
+    const page = await fetchGammaEventPage(currentOffset);
+    if (!page.length) {
+      break;
+    }
+    pagesFetched += 1;
+    currentOffset += page.length;
+
+    for (const event of page) {
+      const markets = event.markets ?? [];
+      for (const market of markets) {
+        rawMarkets += 1;
+        const rawMarket = {
+          ...market,
+          __eventClosed: event.closed,
+          events: market.events ?? [
+            {
+              slug: event.slug,
+              tags: event.tags,
+              title: event.title,
+              category: event.category,
+              closed: event.closed,
+              startDate: event.startDate,
+              endDate: event.endDate,
+              startTime: event.startTime,
+              eventDate: event.eventDate,
+              gameStartTime: event.gameStartTime,
+            },
+          ],
+          tags: market.tags ?? event.tags,
+        };
+        const eligibility = getMarketEligibility(rawMarket);
+        if (!eligibility.isSports) continue;
+        eligibleSports += 1;
+        if (eligibility.excludedReason) continue;
+        const normalized = normalizeGammaMarket(rawMarket);
+        if (!normalized) continue;
+        tradableSports += 1;
+        collectedMarkets.push(normalized);
+        if (collectedMarkets.length >= targetCount) {
+          stoppedEarly = true;
+          break;
+        }
+      }
+      if (collectedMarkets.length >= targetCount) break;
+    }
+
+    if (page.length < GAMMA_PAGE_LIMIT) {
+      break;
+    }
+  }
+
+  const discovery = createMarketDiscoveryFromMarkets(collectedMarkets);
+  const page = getMarketPage(discovery, params);
+  if (stoppedEarly) {
+    page.hasMore = true;
+    page.total = Math.max(page.total, page.offset + page.returned + 1);
+  }
+  const requestDurationMs = Date.now() - requestStartedAt;
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[Traak] fast market page", {
+      pagesFetched,
+      rawMarkets,
+      eligibleSports,
+      tradableSports,
+      returned: page.returned,
+      requestDurationMs,
+      warmupStarted: false,
+    });
+  }
+
+  return {
+    counts: createEmptyMarketCounts(),
+    countsLoading: true,
+    source: "polymarket",
+    ...page,
+    warmupStarted: false,
+    pagesFetched,
+    requestDurationMs,
+  };
+}
+
 export function normalizeGammaMarket(raw: GammaMarket): TerminalMarket | null {
   const title = asString(pick(raw, ["question", "title", "q", "name"]), "");
   const slug = asString(pick(raw, ["market_slug", "slug"]), title.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
@@ -512,6 +643,15 @@ function createMockDiscovery(): SportsMarketDiscovery {
   };
 }
 
+function createMarketDiscoveryFromMarkets(markets: TerminalMarket[]): SportsMarketDiscovery {
+  return {
+    markets,
+    debugMarkets: markets,
+    counts: createMarketDiscoveryCounts(),
+    source: "polymarket",
+  };
+}
+
 async function buildMarketSnapshot(): Promise<MarketSnapshot> {
   const discovery = await discoverSportsMarketDiscovery();
   const now = Date.now();
@@ -525,10 +665,19 @@ async function buildMarketSnapshot(): Promise<MarketSnapshot> {
 function startSnapshotRefresh() {
   const store = getMarketSnapshotStore();
   if (store.refreshPromise) return store.refreshPromise;
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[Traak] market snapshot warmup started");
+  }
+  store.warmupStartedAt = Date.now();
 
   store.refreshPromise = buildMarketSnapshot()
     .then((snapshot) => {
       store.snapshot = { value: snapshot, expiresAt: snapshot.expiresAt };
+      if (process.env.NODE_ENV !== "production" && store.warmupStartedAt) {
+        console.log("[Traak] market snapshot warmup completed", {
+          durationMs: Date.now() - store.warmupStartedAt,
+        });
+      }
       return snapshot;
     })
     .catch((error) => {
@@ -539,32 +688,10 @@ function startSnapshotRefresh() {
     })
     .finally(() => {
       store.refreshPromise = null;
+      store.warmupStartedAt = null;
     });
 
   return store.refreshPromise;
-}
-
-async function getMarketSnapshot(allowStale = true) {
-  const store = getMarketSnapshotStore();
-  const now = Date.now();
-  const cached = store.snapshot;
-
-  if (cached && cached.expiresAt > now) {
-    return { snapshot: cached.value, cacheState: "hit" as const };
-  }
-
-  if (cached && allowStale) {
-    void startSnapshotRefresh().catch(() => undefined);
-    return { snapshot: cached.value, cacheState: "stale" as const };
-  }
-
-  if (store.refreshPromise) {
-    const snapshot = await store.refreshPromise;
-    return { snapshot, cacheState: cached ? "stale" as const : "miss" as const };
-  }
-
-  const snapshot = await startSnapshotRefresh();
-  return { snapshot, cacheState: cached ? "stale" as const : "miss" as const };
 }
 
 async function discoverSportsMarketDiscovery(): Promise<SportsMarketDiscovery> {
@@ -663,32 +790,87 @@ export function getCachedMarketCountsSnapshot() {
   return store.snapshot?.value.discovery.counts ?? createEmptyMarketCounts();
 }
 
+export function getCachedMarketCountsState(): MarketCountsApiResponse {
+  const store = getMarketSnapshotStore();
+  if (!store.snapshot) {
+    return { loading: true };
+  }
+  return {
+    loading: false,
+    counts: store.snapshot.value.discovery.counts,
+    source: store.snapshot.value.discovery.source,
+  };
+}
+
+export function getMarketCountsApiResponse(): MarketCountsApiResponse {
+  const store = getMarketSnapshotStore();
+  if (!store.snapshot) {
+    void startSnapshotRefresh().catch(() => undefined);
+    return { loading: true };
+  }
+  return {
+    loading: false,
+    counts: store.snapshot.value.discovery.counts,
+    source: store.snapshot.value.discovery.source,
+  };
+}
+
+export function prewarmMarketSnapshot() {
+  const store = getMarketSnapshotStore();
+  const started = !store.refreshPromise;
+  void startSnapshotRefresh().catch(() => undefined);
+  return started;
+}
+
 export async function getCachedMarketsApiPayload(params: MarketQueryParams = {}): Promise<MarketsApiPayload> {
   const requestStartedAt = Date.now();
-  const { snapshot, cacheState } = await getMarketSnapshot(true);
-  const filterStartedAt = Date.now();
-  const page = getMarketPage(snapshot.discovery, params);
-  const payload: MarketsApiPayload = {
-    counts: snapshot.discovery.counts,
-    source: snapshot.discovery.source,
-    ...page,
-  };
-  const filterDurationMs = Date.now() - filterStartedAt;
+  const store = getMarketSnapshotStore();
+  const cached = store.snapshot;
+
+  if (cached) {
+    const filterStartedAt = Date.now();
+    const page = getMarketPage(cached.value.discovery, params);
+    const payload: MarketsApiPayload = {
+      counts: cached.value.discovery.counts,
+      countsLoading: false,
+      source: cached.value.discovery.source,
+      ...page,
+    };
+    const filterDurationMs = Date.now() - filterStartedAt;
+    const requestDurationMs = Date.now() - requestStartedAt;
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[Traak] markets api request", {
+        cacheState: cached.expiresAt > Date.now() ? "hit" : "stale",
+        filterDurationMs,
+        numberReturned: payload.returned,
+        requestDurationMs,
+        totalMarkets: cached.value.discovery.markets.length,
+      });
+    }
+    if (cached.expiresAt <= Date.now()) {
+      void startSnapshotRefresh().catch(() => undefined);
+    }
+    return payload;
+  }
+
+  const fastPayload = await buildFastMarketPagePayload(params);
+  const warmupStarted = prewarmMarketSnapshot();
   const requestDurationMs = Date.now() - requestStartedAt;
   if (process.env.NODE_ENV !== "production") {
     console.log("[Traak] markets api request", {
-      cacheState,
-      filterDurationMs,
-      numberReturned: payload.returned,
+      cacheState: "miss",
+      filterDurationMs: fastPayload.requestDurationMs,
+      numberReturned: fastPayload.returned,
       requestDurationMs,
-      totalMarkets: snapshot.discovery.markets.length,
+      totalMarkets: fastPayload.total,
+      warmupStarted,
     });
   }
-  return payload;
+  return fastPayload;
 }
 
 export function resetMarketSnapshotCache() {
-  globalThis.__TRAAK_MARKET_SNAPSHOT__ = { snapshot: null, refreshPromise: null };
+  globalThis.__TRAAK_MARKET_SNAPSHOT__ = { snapshot: null, refreshPromise: null, warmupStartedAt: null };
 }
 
 export function seedMarketSnapshotCache(discovery: SportsMarketDiscovery, expiresAt = Date.now() + MARKET_SNAPSHOT_CACHE_MS) {
@@ -702,6 +884,7 @@ export function seedMarketSnapshotCache(discovery: SportsMarketDiscovery, expire
       expiresAt,
     },
     refreshPromise: null,
+    warmupStartedAt: null,
   };
 }
 

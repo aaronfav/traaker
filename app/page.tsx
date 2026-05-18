@@ -1,11 +1,12 @@
 import { MarketsExplorer } from "@/components/MarketsExplorer";
 import { MetricCard } from "@/components/MetricCard";
-import { createEmptyMarketPage, getCachedMarketCountsSnapshot } from "@/lib/polymarket/markets";
+import { createEmptyMarketCounts, createEmptyMarketPage, getCachedMarketCountsState } from "@/lib/polymarket/markets";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const counts = getCachedMarketCountsSnapshot();
+  const countsState = getCachedMarketCountsState();
+  const counts = countsState.loading ? createEmptyMarketCounts() : countsState.counts;
   const initialPage = createEmptyMarketPage();
 
   return (
@@ -20,16 +21,23 @@ export default async function DashboardPage() {
 
       <section className="grid gap-4 md:grid-cols-4">
         <MetricCard
-          detail={counts.tradableSportsMarkets ? `${counts.tradableSportsMarkets} tradable sports` : "Loading counts"}
+          badge={countsState.loading ? "Calculating" : undefined}
+          detail={countsState.loading ? "Waiting for cached counts" : `${counts.tradableSportsMarkets} tradable sports`}
           label="Eligible Markets"
-          value={counts.displayedMarkets ? String(counts.displayedMarkets) : "..."}
+          value={countsState.loading ? "..." : String(counts.displayedMarkets)}
         />
-        <MetricCard label="Live" value={counts.liveSportsMarkets ? String(counts.liveSportsMarkets) : "..."} />
-        <MetricCard label="Upcoming" value={counts.upcomingSportsMarkets ? String(counts.upcomingSportsMarkets) : "..."} />
-        <MetricCard label="Stale Excluded" value={counts.staleOrUnknownSportsMarkets ? String(counts.staleOrUnknownSportsMarkets) : "..."} detail="Dev filter only" />
+        <MetricCard label="Live" value={countsState.loading ? "..." : String(counts.liveSportsMarkets)} />
+        <MetricCard label="Upcoming" value={countsState.loading ? "..." : String(counts.upcomingSportsMarkets)} />
+        <MetricCard label="Stale Excluded" value={countsState.loading ? "..." : String(counts.staleOrUnknownSportsMarkets)} detail="Dev filter only" />
       </section>
 
-      <MarketsExplorer counts={counts} includeDebugFilters={process.env.NODE_ENV !== "production"} initialPage={initialPage} source="polymarket" />
+      <MarketsExplorer
+        counts={counts}
+        countsLoading={countsState.loading}
+        includeDebugFilters={process.env.NODE_ENV !== "production"}
+        initialPage={initialPage}
+        source="polymarket"
+      />
     </main>
   );
 }
