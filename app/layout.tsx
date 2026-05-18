@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Providers } from "@/components/Providers";
+import { WalletConnectButton } from "@/components/WalletConnectButton";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Traak",
-  description: "Prediction market portfolio tracker",
+  title: "Traak Sports Terminal",
+  description: "Polymarket sports trading terminal and analytics layer",
 };
 
 export default function RootLayout({
@@ -26,16 +28,44 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <div className="min-h-screen bg-slate-950 text-slate-100">
-          <header className="border-b border-slate-800/80 bg-slate-950/85 backdrop-blur">
-            <div className="mx-auto flex w-full max-w-6xl items-center px-4 py-4 sm:px-6 lg:px-8">
-              <Link href="/portfolio" className="text-base font-semibold tracking-wide text-slate-100">
-                Traak
-              </Link>
-            </div>
-          </header>
-          {children}
-        </div>
+        <Providers>
+          <div className="min-h-screen bg-slate-950 text-slate-100">
+            <header className="sticky top-0 z-40 border-b border-slate-800/80 bg-slate-950/85 backdrop-blur">
+              <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+                <div className="flex items-center gap-5">
+                  <Link href="/" className="text-base font-semibold tracking-wide text-slate-100">
+                    Traak
+                  </Link>
+                  <nav className="hidden items-center gap-1 text-sm text-slate-400 md:flex">
+                    <Link className="rounded-md px-3 py-2 transition hover:bg-slate-900 hover:text-slate-100" href="/">
+                      Markets
+                    </Link>
+                    <Link className="rounded-md px-3 py-2 transition hover:bg-slate-900 hover:text-slate-100" href="/portfolio">
+                      Portfolio
+                    </Link>
+                    <Link className="rounded-md px-3 py-2 transition hover:bg-slate-900 hover:text-slate-100" href="/settings">
+                      Settings
+                    </Link>
+                  </nav>
+                </div>
+                <WalletConnectButton />
+              </div>
+            </header>
+            {children}
+            <footer className="border-t border-slate-800/80 px-4 py-6 text-xs text-slate-500 sm:px-6 lg:px-8">
+              <div className="mx-auto flex max-w-7xl flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <p>
+                  Prediction markets involve risk. Users can lose money. Traak is non-custodial, not financial advice, and geographic restrictions may apply.
+                </p>
+                <div className="flex gap-4">
+                  <Link href="/settings">Terms</Link>
+                  <Link href="/settings">Privacy</Link>
+                  <Link href="/settings">Risk Disclosure</Link>
+                </div>
+              </div>
+            </footer>
+          </div>
+        </Providers>
       </body>
     </html>
   );

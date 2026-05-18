@@ -1,406 +1,388 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useMemo, useSyncExternalStore, useState } from "react";
+import { useEffect, useState } from "react";
+import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { Wallet, Loader2, AlertTriangle, X, Info } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { cancelOrder } from "@/lib/polymarket/orders";
+import { getDepositWalletStatus } from "@/lib/polymarket/depositWallet";
+import { getPnLPlaceholder, getPositions } from "@/lib/polymarket/portfolio";
+import type { PortfolioBalanceState, Position } from "@/lib/polymarket/types";
+import type { OpenOrder } from "@polymarket/clob-client-v2";
+import type { Address } from "viem";
 
-import OptionCard from "@/components/OptionCard";
-import PositionDetailModal from "@/components/PositionDetailModal";
-import { formatWalletAddress } from "@/src/lib/display";
-import { computePerformance, getCurrentPriceForTx } from "@/src/lib/performance";
-import type { SearchEventRow, SearchMarketResult } from "@/src/lib/gammaSearch";
-import { findMatchingPortfolioMarket, getWalletImportedConditionId, getWalletImportedEventSlug } from "@/src/lib/portfolioLookup";
-import { derivePortfolioPositions, getPortfolioPositionDisplayStatus } from "@/src/lib/positions";
-import {
-  clearTransactions,
-  initTransactionsFromStorage,
-  listTransactions,
-  resolveTransactionTimestamp,
-  subscribeTransactions,
-  type Transaction,
-} from "@/src/lib/storage";
-
-type SearchResponse = {
-  results: SearchEventRow[];
-};
-
-type EventDetailResponse = {
-  event?: SearchEventRow;
-  markets: SearchMarketResult[];
-};
-
-const EMPTY_TX: Transaction[] = [];
-
-const formatMoney = (value: number): string => `$${value.toFixed(2)}`;
-const formatSignedMoney = (value: number): string => `${value >= 0 ? "+" : "-"}$${Math.abs(value).toFixed(2)}`;
-const formatPct = (value: number): string => `${value >= 0 ? "+" : ""}${(value * 100).toFixed(2)}%`;
-const formatDate = (transaction: Transaction): string => {
-  const normalized = resolveTransactionTimestamp(transaction);
-  if (!normalized) return "Unknown date";
-  return new Date(normalized).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
-};
-const formatSourceLabel = (value: Transaction["source"]): string => (value === "wallet" ? "Wallet" : "Manual");
-const formatSourceValue = (transaction: Transaction): string => {
-  if (transaction.source !== "wallet") return "";
-  return formatWalletAddress(transaction.proxyWallet ?? transaction.walletAddress);
-};
-
-const getPortfolioLookupKey = (transaction: Transaction): string => {
-  if (transaction.source !== "wallet") {
-    return transaction.marketId || transaction.marketTitle;
-  }
-
-  const conditionId = getWalletImportedConditionId(transaction);
-  const eventSlug = getWalletImportedEventSlug(transaction);
-  return ["wallet", conditionId ?? transaction.marketId.trim(), transaction.outcome, eventSlug ?? ""].join("|");
-};
-
-const resolveCurrentPriceForTransaction = async (tx: Transaction, signal: AbortSignal): Promise<number | null> => {
-  if (tx.source === "wallet") {
-    const conditionId = getWalletImportedConditionId(tx);
-    const eventSlug = getWalletImportedEventSlug(tx);
-    if (!conditionId || !eventSlug) return null;
-
-    const detailResponse = await fetch(`/api/markets/event/${encodeURIComponent(eventSlug)}`, { signal });
-    const detailData = (await detailResponse.json()) as EventDetailResponse;
-    const markets = Array.isArray(detailData.markets) ? detailData.markets : [];
-    const matchedMarket = findMatchingPortfolioMarket(tx, markets);
-    if (!matchedMarket) return null;
-
-    return getCurrentPriceForTx(tx, matchedMarket);
-  }
-
-  const query = tx.marketTitle.trim() || tx.marketId.trim();
-  if (!query) return null;
-
-  const searchResponse = await fetch(`/api/markets/search?q=${encodeURIComponent(query)}&limit_per_type=8&events_status=all`, { signal });
-  const searchData = (await searchResponse.json()) as SearchResponse;
-  const events = Array.isArray(searchData.results) ? searchData.results : [];
-
-  for (const event of events.slice(0, 4)) {
-    try {
-      const detailResponse = await fetch(`/api/markets/event/${encodeURIComponent(event.eventSlug)}`, { signal });
-      const detailData = (await detailResponse.json()) as EventDetailResponse;
-      const markets = Array.isArray(detailData.markets) ? detailData.markets : [];
-      const matchedMarket = findMatchingPortfolioMarket(tx, markets);
-      if (!matchedMarket) continue;
-
-      const resolved = getCurrentPriceForTx(tx, matchedMarket);
-      if (resolved !== null) return resolved;
-    } catch {
-      continue;
-    }
-  }
-
-  for (const event of events) {
-    const resolved = getCurrentPriceForTx(tx, event.displayMarket);
-    if (resolved !== null) return resolved;
-  }
-
-  return null;
+const emptyBalance: PortfolioBalanceState = {
+  usdc: {
+    balance: 0,
+    rawBalance: "0",
+    allowances: {},
+    exchangeAllowance: null,
+    ctfAllowance: null,
+    hasExchangeAllowance: false,
+    hasCtfAllowance: false,
+  },
+  pUsd: null,
+  conditional: null,
+  source: "mock",
 };
 
 export default function PortfolioClient() {
-  const transactions = useSyncExternalStore(subscribeTransactions, listTransactions, () => EMPTY_TX);
-  const [currentPriceById, setCurrentPriceById] = useState<Record<string, number>>({});
-  const [selectedPositionKey, setSelectedPositionKey] = useState<string | null>(null);
+  const { address, chainId, isConnected } = useAccount();
+  const { data: walletClient } = useWalletClient({ chainId: 137 });
+  const publicClient = usePublicClient({ chainId: 137 });
+  const [loading, setLoading] = useState(false);
+  const [balance, setBalance] = useState<PortfolioBalanceState>(emptyBalance);
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [openOrders, setOpenOrders] = useState<OpenOrder[]>([]);
+  const [trades, setTrades] = useState<unknown[]>([]);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [depositWallet, setDepositWallet] = useState<{ depositWallet: string; initialized: boolean } | null>(null);
+  const [cancellingOrderId, setCancellingOrderId] = useState("");
 
   useEffect(() => {
-    initTransactionsFromStorage();
-  }, []);
+    let active = true;
 
-  useEffect(() => {
-    if (process.env.NODE_ENV === "production") return;
+    async function load() {
+      setLoading(true);
+      setError("");
+      setNotice("");
 
-    const firstTransaction = transactions[0];
-    if (!firstTransaction) return;
+      try {
+        const fallbackPositions = await getPositions();
 
-    console.debug("[portfolio] rendered transaction", {
-      transaction: firstTransaction,
-      displayedTimestamp: firstTransaction.timestamp,
-      resolvedTimestamp: resolveTransactionTimestamp(firstTransaction) ?? "Unknown date",
-    });
-  }, [transactions]);
-
-  useEffect(() => {
-    if (transactions.length === 0) return;
-
-    let cancelled = false;
-    const controller = new AbortController();
-
-    const run = async () => {
-      const uniqueMarkets = new Map<string, Transaction>();
-      for (const tx of transactions) {
-        const key = getPortfolioLookupKey(tx);
-        if (!uniqueMarkets.has(key)) uniqueMarkets.set(key, tx);
-      }
-
-      const lookups = await Promise.all(
-        [...uniqueMarkets.values()].map(async (tx) => {
-          try {
-            const price = await resolveCurrentPriceForTransaction(tx, controller.signal);
-            return { key: getPortfolioLookupKey(tx), price };
-          } catch {
-            return { key: getPortfolioLookupKey(tx), price: null };
-          }
-        }),
-      );
-
-      if (cancelled) return;
-
-      const priceByMarketKey: Record<string, number> = {};
-      for (const lookup of lookups) {
-        if (lookup.price !== null && Number.isFinite(lookup.price)) {
-          priceByMarketKey[lookup.key] = lookup.price;
+        if (!walletClient || !isConnected || chainId !== 137) {
+          if (!active) return;
+          setPositions(fallbackPositions);
+          setBalance(emptyBalance);
+          setOpenOrders([]);
+          setTrades([]);
+          setDepositWallet(null);
+          return;
         }
+
+        const walletStatus = await getDepositWalletStatus(address as Address, publicClient);
+        const accountResponse = await fetch("/api/polymarket/account", { cache: "no-store" });
+        const accountData = await accountResponse.json();
+        if (!accountResponse.ok || !accountData.ok) throw new Error(accountData.error ?? "Unable to load Polymarket account data.");
+
+        if (!active) return;
+        setDepositWallet(walletStatus);
+        setBalance({
+          usdc: {
+            balance: Number(accountData.balance?.balance ?? 0) / 1_000_000,
+            rawBalance: String(accountData.balance?.balance ?? "0"),
+            allowances: accountData.balance?.allowances ?? {},
+            exchangeAllowance: (Object.values(accountData.balance?.allowances ?? {})[0] as string | undefined) ?? null,
+            ctfAllowance: (Object.values(accountData.balance?.allowances ?? {})[1] as string | undefined) ?? null,
+            hasExchangeAllowance: Boolean(Object.values(accountData.balance?.allowances ?? {})[0]),
+            hasCtfAllowance: Boolean(Object.values(accountData.balance?.allowances ?? {})[1]),
+          },
+          pUsd: null,
+          conditional: null,
+          source: "polymarket",
+        });
+        setPositions(fallbackPositions);
+        setOpenOrders(Array.isArray(accountData.openOrders) ? accountData.openOrders : []);
+        setTrades(Array.isArray(accountData.trades) ? accountData.trades : []);
+      } catch (err) {
+        if (!active) return;
+        setError(err instanceof Error ? err.message : "Unable to load portfolio.");
+      } finally {
+        if (active) setLoading(false);
       }
+    }
 
-      const nextById: Record<string, number> = {};
-      for (const tx of transactions) {
-        const key = getPortfolioLookupKey(tx);
-        const price = priceByMarketKey[key];
-        if (typeof price === "number") nextById[tx.id] = price;
-      }
-
-      setCurrentPriceById(nextById);
-    };
-
-    void run();
+    void load();
 
     return () => {
-      cancelled = true;
-      controller.abort();
+      active = false;
     };
-  }, [transactions]);
+  }, [address, chainId, isConnected, publicClient, walletClient]);
 
-  const { openPositions, closedPositions } = useMemo(() => derivePortfolioPositions(transactions), [transactions]);
-  const selectedPosition = useMemo(
-    () => openPositions.find((position) => position.positionKey === selectedPositionKey) ?? null,
-    [openPositions, selectedPositionKey],
-  );
+  const pnl = getPnLPlaceholder(positions);
+  const positionsBySport = positions.reduce<Record<string, Position[]>>((groups, position) => {
+    const text = position.market.toLowerCase();
+    const sport = text.includes("nba") || text.includes("basketball")
+      ? "Basketball"
+      : text.includes("nfl") || text.includes("football")
+        ? "Football"
+        : text.includes("soccer") || text.includes("league")
+          ? "Soccer"
+          : text.includes("ufc")
+            ? "UFC"
+            : "Other";
+    groups[sport] = [...(groups[sport] ?? []), position];
+    return groups;
+  }, {});
+  const approvalWarnings = [
+    !depositWallet?.initialized && isConnected && chainId === 137 ? "Polymarket deposit wallet is not initialized. Trading wallet setup is required before real orders can settle." : "",
+    balance.source === "polymarket" && !balance.usdc.hasExchangeAllowance ? "Exchange allowance is missing or zero." : "",
+    balance.source === "polymarket" && !balance.usdc.hasCtfAllowance ? "CTF allowance is missing or zero." : "",
+  ].filter(Boolean);
 
-  const positionMetrics = useMemo(
-    () =>
-      openPositions.map((position) => {
-        const currentPrice = currentPriceById[position.latestFillId];
-        const performance =
-          typeof currentPrice === "number" && Number.isFinite(currentPrice)
-            ? computePerformance(position, currentPrice)
-            : null;
+  async function refreshPortfolio() {
+    if (!isConnected || chainId !== 137) return;
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const walletStatus = await getDepositWalletStatus(address as Address, publicClient);
+      const accountResponse = await fetch("/api/polymarket/account", { cache: "no-store" });
+      const accountData = await accountResponse.json();
+      if (!accountResponse.ok || !accountData.ok) throw new Error(accountData.error ?? "Unable to load Polymarket account data.");
+      setDepositWallet(walletStatus);
+      setBalance({
+        usdc: {
+          balance: Number(accountData.balance?.balance ?? 0) / 1_000_000,
+          rawBalance: String(accountData.balance?.balance ?? "0"),
+          allowances: accountData.balance?.allowances ?? {},
+          exchangeAllowance: Object.values(accountData.balance?.allowances ?? {})[0] as string | null ?? null,
+          ctfAllowance: Object.values(accountData.balance?.allowances ?? {})[1] as string | null ?? null,
+          hasExchangeAllowance: Boolean(Object.values(accountData.balance?.allowances ?? {})[0]),
+          hasCtfAllowance: Boolean(Object.values(accountData.balance?.allowances ?? {})[1]),
+        },
+        pUsd: null,
+        conditional: null,
+        source: "polymarket",
+      });
+      setOpenOrders(Array.isArray(accountData.openOrders) ? accountData.openOrders : []);
+      setTrades(Array.isArray(accountData.trades) ? accountData.trades : []);
+      setPositions(await getPositions());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to refresh portfolio.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
-        return { position, currentPrice, performance };
-      }),
-    [currentPriceById, openPositions],
-  );
-
-  const portfolioSummary = useMemo(() => {
-    return positionMetrics.reduce(
-      (summary, item) => {
-        if (!item.performance) return summary;
-
-        summary.invested += item.performance.invested;
-        summary.currentValue += item.performance.currentValue;
-        summary.pnl += item.performance.pnl;
-        return summary;
-      },
-      { invested: 0, currentValue: 0, pnl: 0 },
-    );
-  }, [positionMetrics]);
-
-  const portfolioPnlPct = portfolioSummary.invested > 0 ? portfolioSummary.pnl / portfolioSummary.invested : 0;
-  const quotedPositions = positionMetrics.filter((item) => item.performance).length;
-  const hasTransactions = transactions.length > 0;
-  const selectedCurrentPrice = selectedPosition ? currentPriceById[selectedPosition.latestFillId] : undefined;
-
-  const handleReset = () => {
-    if (!window.confirm("Clear all transactions? This cannot be undone.")) return;
-    clearTransactions();
-    setSelectedPositionKey(null);
-  };
-
-  if (!hasTransactions) {
-    return (
-      <main className="mx-auto flex min-h-[calc(100vh-65px)] w-full max-w-6xl items-center justify-center px-4 py-10 sm:px-6 lg:px-8">
-        <section className="w-full max-w-2xl rounded-3xl border border-slate-800 bg-slate-950/80 p-6 shadow-2xl shadow-black/30 sm:p-8">
-          <h1 className="text-3xl font-semibold tracking-tight text-slate-50">Portfolio</h1>
-          <p className="mt-3 text-base text-slate-300">Let&apos;s get started with your first portfolio.</p>
-
-          <div className="mt-8 grid gap-4">
-            <OptionCard
-              href="/portfolio/connect"
-              title="Connect a wallet"
-              description="Connect your wallet, resolve the Polymarket proxy wallet, and sync trades."
-            />
-            <OptionCard
-              href="/portfolio/manual"
-              title="Add positions manually"
-              description="Enter your positions at your own pace to track your portfolio."
-            />
-          </div>
-        </section>
-      </main>
-    );
+  async function handleCancel(orderId: string) {
+    if (!depositWallet) return;
+    setCancellingOrderId(orderId);
+    setError("");
+    setNotice("");
+    try {
+      await cancelOrder(orderId);
+      await refreshPortfolio();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to cancel order.");
+    } finally {
+      setCancellingOrderId("");
+    }
   }
 
   return (
-    <main className="mx-auto w-full max-w-[980px] px-4 py-8 sm:px-6 lg:px-8">
-      <section className="relative overflow-hidden rounded-[36px] border border-white/8 bg-[radial-gradient(circle_at_top,#1e293b_0%,#0f172a_48%,#020617_100%)] p-6 shadow-[0_30px_120px_rgba(2,6,23,0.85)] sm:p-8">
-        <div className="absolute inset-x-0 top-0 h-52 bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.14),transparent_58%)]" />
+    <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-sm uppercase tracking-[0.24em] text-cyan-200/80">Wallet portfolio</p>
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-50">Balances, positions, and history</h1>
+        </div>
+        <Badge tone={isConnected && chainId === 137 ? "green" : "amber"}>
+          <Wallet className="h-3 w-3" />
+          {isConnected ? (chainId === 137 ? "Polygon connected" : "Wrong network") : "Wallet disconnected"}
+        </Badge>
+      </div>
 
-        <div className="relative">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="max-w-2xl">
-              <p className="text-[11px] uppercase tracking-[0.32em] text-cyan-200/70">Traak Portfolio</p>
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-50 sm:text-4xl">Portfolio Positions</h1>
-              <p className="mt-3 max-w-xl text-sm leading-6 text-slate-400">
-                Netted positions only. This page mirrors the manual flow by summarizing remaining exposure per market with simple current or resolved P/L.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleReset}
-                className="rounded-2xl border border-white/10 px-4 py-2.5 text-sm text-slate-300 transition hover:bg-white/5"
-              >
-                Reset
-              </button>
-              <Link
-                href="/portfolio/connect"
-                className="rounded-2xl border border-white/10 px-4 py-2.5 text-sm text-slate-300 transition hover:bg-white/5"
-              >
-                Sync Wallet
-              </Link>
-              <Link
-                href="/portfolio/manual"
-                className="rounded-2xl bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300"
-              >
-                Add Transaction
-              </Link>
+      {error ? <div className="mb-4 rounded-lg border border-rose-400/30 bg-rose-400/10 p-3 text-sm text-rose-200">{error}</div> : null}
+      {notice ? <div className="mb-4 rounded-lg border border-emerald-400/30 bg-emerald-400/10 p-3 text-sm text-emerald-200">{notice}</div> : null}
+      {approvalWarnings.length > 0 ? (
+        <div className="mb-4 rounded-lg border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100">
+          <div className="flex gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4" />
+            <div className="space-y-1">
+              {approvalWarnings.map((warning) => (
+                <p key={warning}>{warning}</p>
+              ))}
             </div>
           </div>
+        </div>
+      ) : null}
 
-          <div className="mt-8 grid gap-4 md:grid-cols-4">
-            <div className="rounded-[30px] border border-white/8 bg-white/[0.04] p-6 shadow-[0_20px_50px_rgba(15,23,42,0.35)] md:col-span-2">
-              <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Net portfolio value</p>
-              <p className="mt-4 text-4xl font-semibold tracking-tight text-slate-50">{formatMoney(portfolioSummary.currentValue)}</p>
-              <p className={`mt-3 text-sm font-medium ${portfolioSummary.pnl >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-                {formatSignedMoney(portfolioSummary.pnl)} ({formatPct(portfolioPnlPct)})
-              </p>
-            </div>
-            {[
-              { label: "Invested capital", value: formatMoney(portfolioSummary.invested) },
-              { label: "Open positions", value: String(openPositions.length) },
-              { label: "Closed positions", value: String(closedPositions.length) },
-              { label: "Quoted positions", value: `${quotedPositions}/${openPositions.length || 0}` },
-            ].map((item) => (
-              <div key={item.label} className="rounded-[30px] border border-white/8 bg-white/[0.04] p-6 shadow-[0_20px_50px_rgba(15,23,42,0.28)]">
-                <p className="text-xs uppercase tracking-[0.22em] text-slate-500">{item.label}</p>
-                <p className="mt-4 text-2xl font-semibold text-slate-100">{item.value}</p>
+      {isConnected && chainId === 137 && depositWallet && !depositWallet.initialized ? (
+        <Card className="mb-6 border-cyan-400/30 bg-cyan-400/10">
+          <CardContent className="p-5">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div className="flex gap-3">
+                <Info className="mt-1 h-5 w-5 text-cyan-200" />
+                <div>
+                  <h2 className="font-semibold text-cyan-50">Set up your Polymarket trading wallet</h2>
+                  <p className="mt-1 max-w-3xl text-sm leading-6 text-cyan-100/80">
+                    Polymarket deposit wallets are non-custodial smart wallets used as the CLOB funder address. They let your connected wallet sign while the trading wallet holds balances and allowances.
+                  </p>
+                  <p className="mt-2 break-all font-mono text-xs text-cyan-100/70">{depositWallet.depositWallet}</p>
+                </div>
               </div>
-            ))}
-          </div>
-
-          <div className="mt-10">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-100">Positions</h2>
-              <p className="mt-1 text-sm text-slate-400">No raw fills are rendered here. Each card represents one derived net position.</p>
+              <Button disabled type="button" variant="secondary">
+                Setup handled on Polymarket
+              </Button>
             </div>
+            <p className="mt-3 text-xs text-cyan-100/70">Relayer deployment is intentionally not wired in Traak. Use the official Polymarket setup flow, then refresh balances here.</p>
+          </CardContent>
+        </Card>
+      ) : null}
 
-            {positionMetrics.length > 0 ? (
-              <div className="mt-5 space-y-4">
-                {positionMetrics.map(({ position, currentPrice, performance }) => (
-                  (() => {
-                    const displayStatus = getPortfolioPositionDisplayStatus(position, currentPrice);
-                    const statusClass =
-                      displayStatus === "WON"
-                        ? "border border-emerald-400/20 bg-emerald-400/10 text-emerald-200"
-                        : displayStatus === "LOST"
-                          ? "border border-rose-400/20 bg-rose-400/10 text-rose-200"
-                          : displayStatus === "CLOSED"
-                            ? "border border-slate-400/20 bg-slate-400/10 text-slate-200"
-                            : "border border-cyan-400/20 bg-cyan-400/10 text-cyan-200";
+      <section className="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Connected wallet</p>
+            <p className="mt-3 break-all text-sm font-medium text-slate-100">{address ?? "Not connected"}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Deposit wallet</p>
+            <p className="mt-3 break-all text-sm font-medium text-slate-100">{depositWallet?.depositWallet ?? "Not initialized or wallet disconnected"}</p>
+            <p className="mt-1 text-xs text-slate-500">{depositWallet?.initialized ? "Trading wallet deployed" : "Expected address derived with CREATE2"}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">USDC / pUSD</p>
+            <p className="mt-3 text-2xl font-semibold text-slate-50">${balance.usdc.balance.toFixed(2)}</p>
+            <p className="mt-1 text-xs text-slate-500">{balance.source === "mock" ? "Connect wallet for live balance" : "Live CLOB balance allowance"}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">PnL placeholder</p>
+            <p className={pnl.total >= 0 ? "mt-3 text-2xl font-semibold text-emerald-300" : "mt-3 text-2xl font-semibold text-rose-300"}>
+              ${pnl.total.toFixed(2)}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">Not real PnL. Requires production fill reconciliation.</p>
+          </CardContent>
+        </Card>
+      </section>
 
-                    return (
-                  <button
-                    key={position.positionKey}
-                    type="button"
-                    onClick={() => setSelectedPositionKey(position.positionKey)}
-                    className="w-full cursor-pointer rounded-[30px] border border-white/8 bg-white/[0.03] p-5 text-left shadow-[0_18px_50px_rgba(2,6,23,0.24)] transition hover:border-white/15 hover:bg-white/[0.05] focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2.5">
-                          <p className="text-base font-semibold leading-6 text-slate-100">{position.marketTitle}</p>
-                        <span className="inline-flex w-fit flex-none items-center justify-center self-center whitespace-nowrap rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase leading-none tracking-[0.18em] text-slate-300">
-                          {formatSourceLabel(position.source)}
-                        </span>
-                        <span className={`inline-flex w-fit flex-none items-center justify-center self-center whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] uppercase leading-none tracking-[0.18em] ${statusClass}`}>
-                          {displayStatus}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-sm text-slate-500">{position.category ?? "Uncategorized"}</p>
-                    </div>
-                      <p className={`text-sm font-semibold ${performance && performance.pnl >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-                        {performance ? formatSignedMoney(performance.pnl) : "--"}
-                      </p>
-                    </div>
+      <section className="mt-6 grid gap-4 md:grid-cols-3">
+        {[
+          { label: "Exchange allowance", value: balance.usdc.exchangeAllowance, ok: balance.usdc.hasExchangeAllowance },
+          { label: "CTF allowance", value: balance.usdc.ctfAllowance, ok: balance.usdc.hasCtfAllowance },
+          { label: "pUSD balance", value: balance.pUsd ? `$${balance.pUsd.balance.toFixed(2)}` : "Unavailable", ok: Boolean(balance.pUsd) },
+        ].map((item) => (
+          <Card key={item.label}>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{item.label}</p>
+                <Badge tone={item.ok ? "green" : "amber"}>{item.ok ? "OK" : "Missing"}</Badge>
+              </div>
+              <p className="mt-3 truncate font-mono text-xs text-slate-300" title={item.value ?? "0"}>
+                {item.value ?? "0"}
+              </p>
+            </CardContent>
+          </Card>
+        ))}
+      </section>
 
-                    <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                      <div className="rounded-2xl border border-white/8 bg-slate-950/40 px-4 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Side</p>
-                        <p className="mt-2 text-sm font-medium text-slate-100">
-                          {position.side} {position.outcome}
+      <section className="mt-6 grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Open positions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {Object.entries(positionsBySport).map(([sport, sportPositions]) => (
+                <div key={sport}>
+                  <h3 className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">{sport}</h3>
+                  <div className="space-y-2">
+                    {sportPositions.map((position) => (
+                      <div className="rounded-md border border-slate-800 p-3 text-sm" key={`${position.market}-${position.outcome}`}>
+                        <div className="flex justify-between gap-3">
+                          <span className="font-medium text-slate-100">{position.market}</span>
+                          <span>${position.value.toFixed(2)}</span>
+                        </div>
+                        <p className="mt-1 text-slate-400">
+                          {position.shares.toFixed(2)} {position.outcome} at {(position.avgPrice * 100).toFixed(1)}c avg
                         </p>
                       </div>
-                      <div className="rounded-2xl border border-white/8 bg-slate-950/40 px-4 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Net shares</p>
-                        <p className="mt-2 text-sm font-medium text-slate-100">{position.shares.toFixed(2)}</p>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {positions.length === 0 ? <p className="text-sm text-slate-400">No open positions found.</p> : null}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Open orders</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <p className="flex items-center gap-2 text-sm text-slate-400">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading CLOB account data
+              </p>
+            ) : openOrders.length > 0 ? (
+              <div className="space-y-2">
+                {openOrders.slice(0, 10).map((order) => (
+                  <div className="rounded-md border border-slate-800 p-3 text-sm" key={order.id}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-slate-100">{order.outcome || order.asset_id}</p>
+                        <p className="mt-1 text-slate-400">
+                          {order.side} {Number(order.original_size || 0).toFixed(2)} at {(Number(order.price || 0) * 100).toFixed(1)}c
+                        </p>
+                        <p className="mt-1 break-all font-mono text-xs text-slate-500">{order.id}</p>
                       </div>
-                      <div className="rounded-2xl border border-white/8 bg-slate-950/40 px-4 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Avg entry</p>
-                        <p className="mt-2 text-sm font-medium text-slate-100">{formatMoney(position.price)}</p>
-                      </div>
-                      <div className="rounded-2xl border border-white/8 bg-slate-950/40 px-4 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Current value</p>
-                        <p className="mt-2 text-sm font-medium text-slate-100">{performance ? formatMoney(performance.currentValue) : "--"}</p>
-                      </div>
-                      <div className="rounded-2xl border border-white/8 bg-slate-950/40 px-4 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Last activity</p>
-                        <p className="mt-2 text-sm font-medium text-slate-100">{formatDate(position)}</p>
-                        <p className="mt-1 text-xs text-slate-500">Avg entry across {position.tradeCount} fill{position.tradeCount === 1 ? "" : "s"}</p>
-                        {position.source === "wallet" && (position.proxyWallet || position.walletAddress) ? (
-                          <p
-                            className="mt-1 max-w-full truncate whitespace-nowrap text-xs text-slate-500"
-                            title={position.proxyWallet ?? position.walletAddress}
-                          >
-                            {formatSourceValue(position)}
-                          </p>
-                        ) : null}
-                      </div>
+                      <Button
+                        disabled={cancellingOrderId === order.id}
+                        onClick={() => void handleCancel(order.id)}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        {cancellingOrderId === order.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}
+                        Cancel
+                      </Button>
                     </div>
-                  </button>
-                    );
-                  })()
+                  </div>
                 ))}
               </div>
             ) : (
-              <div className="mt-5 rounded-[30px] border border-white/8 bg-white/[0.03] p-6 text-sm text-slate-400">
-                No open positions remain. Closed positions are summarized above.
-              </div>
+              <p className="text-sm text-slate-400">No open orders.</p>
             )}
-          </div>
-        </div>
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Trade history</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {trades.length > 0 ? (
+              <div className="space-y-2">
+                {trades.slice(0, 12).map((trade, index) => {
+                  const row = trade as Record<string, unknown>;
+                  return (
+                    <div className="grid gap-2 rounded-md border border-slate-800 p-3 text-sm md:grid-cols-[1fr_100px_100px_140px]" key={String(row.id ?? index)}>
+                      <span className="truncate text-slate-100">{String(row.outcome ?? row.asset_id ?? row.market ?? "Trade")}</span>
+                      <span className={String(row.side) === "BUY" ? "text-emerald-300" : "text-rose-300"}>{String(row.side ?? "-")}</span>
+                      <span className="text-slate-300">{row.price ? `${(Number(row.price) * 100).toFixed(1)}c` : "-"}</span>
+                      <span className="text-slate-500">{String(row.match_time ?? row.created_at ?? "")}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400">No CLOB trades loaded for this wallet.</p>
+            )}
+          </CardContent>
+        </Card>
       </section>
 
-      {selectedPosition ? (
-        <PositionDetailModal
-          key={selectedPosition.positionKey}
-          transaction={selectedPosition}
-          currentPrice={selectedCurrentPrice}
-          onDelete={() => {}}
-          onEdit={() => null}
-          onClose={() => setSelectedPositionKey(null)}
-          allowEditing={false}
-        />
+      <div className="mt-6">
+        <Button disabled={!walletClient || loading} onClick={() => void refreshPortfolio()} variant="secondary">
+          Refresh portfolio
+        </Button>
+      </div>
+
+      {error ? (
+        <div className="fixed bottom-4 right-4 z-50 max-w-sm rounded-lg border border-rose-400/30 bg-rose-950 p-4 text-sm text-rose-100 shadow-2xl">
+          {error}
+        </div>
       ) : null}
     </main>
   );

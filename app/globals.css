@@ -17,6 +17,14 @@ body {
   font-family: var(--font-geist-sans), "Segoe UI", sans-serif;
   min-height: 100vh;
   background-image:
-    radial-gradient(circle at top, rgba(34, 211, 238, 0.08), transparent 28%),
+    linear-gradient(180deg, rgba(34, 211, 238, 0.08), transparent 22rem),
     linear-gradient(180deg, #020617 0%, #020817 55%, #01040c 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: rgba(34, 211, 238, 0.25);
 }
