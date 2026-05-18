@@ -13,6 +13,12 @@ function parseIntParam(value: string | null) {
   return Number.isFinite(parsed) ? Math.trunc(parsed) : undefined;
 }
 
+function parseVolumeParam(value: string | null) {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : undefined;
+}
+
 export async function GET(request: Request) {
   try {
     const searchParams = new URL(request.url).searchParams;
@@ -25,6 +31,7 @@ export async function GET(request: Request) {
       limit: parseIntParam(searchParams.get("limit")),
       offset: parseIntParam(searchParams.get("offset")),
       search: searchParams.get("search") ?? undefined,
+      minVolume: parseVolumeParam(searchParams.get("minVolume")),
       sort: sortParam && sorts.has(sortParam as MarketQuerySort) ? (sortParam as MarketQuerySort) : "opportunity",
       sport: searchParams.get("sport") ?? undefined,
       status,

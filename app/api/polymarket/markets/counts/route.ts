@@ -4,9 +4,17 @@ import { logError } from "@/lib/server/logger";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+function parseVolumeParam(value: string | null) {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : undefined;
+}
+
+export async function GET(request: Request) {
   try {
-    return NextResponse.json(getMarketCountsApiResponse(), {
+    const searchParams = new URL(request.url).searchParams;
+    const minVolume = parseVolumeParam(searchParams.get("minVolume"));
+    return NextResponse.json(getMarketCountsApiResponse(minVolume), {
       headers: { "Cache-Control": "s-maxage=60, stale-while-revalidate=60" },
     });
   } catch (error) {

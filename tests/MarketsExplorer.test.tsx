@@ -42,6 +42,12 @@ const counts: SportsMarketDiscovery["counts"] = {
   upcomingSportsMarkets: 0,
   staleOrUnknownSportsMarkets: 0,
   displayedMarkets: 1,
+  totalEligibleSportsMarkets: 1,
+  marketsWithMinVolume: 1,
+  liveWithMinVolume: 1,
+  upcomingWithMinVolume: 0,
+  staleExcluded: 0,
+  minVolume: 2000,
   excludedClosed: 0,
   excludedInactive: 0,
   excludedMissingClobTokenIds: 0,
@@ -94,6 +100,7 @@ describe("MarketsExplorer", () => {
         const params = new URL(lastCall as string, "http://localhost").searchParams;
         expect(params.get("limit")).toBe("100");
         expect(params.get("offset")).toBe("0");
+        expect(params.get("minVolume")).toBe("2000");
         expect(params.get("sport")).toBe("NBA");
         expect(params.get("status")).toBe("live");
         expect(params.get("sort")).toBe("volume");
@@ -131,5 +138,37 @@ describe("MarketsExplorer", () => {
 
     resolveFetch();
     await pending;
+  });
+
+  it("keeps minVolume on load more requests", async () => {
+    const requestedUrls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      requestedUrls.push(url);
+      if (url.includes("/counts")) {
+        return new Response(JSON.stringify({ loading: false, counts, source: "polymarket" }), { status: 200 });
+      }
+      if (url.includes("/prewarm")) {
+        return new Response(JSON.stringify({ started: true }), { status: 200 });
+      }
+      if (url.includes("offset=1")) {
+        return new Response(JSON.stringify({ ...initialPage, markets: [{ ...market, id: "market-2", slug: "nba-market-2", conditionId: "condition-2" }], counts, countsLoading: false, source: "polymarket" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ...initialPage, hasMore: true, counts, countsLoading: false, source: "polymarket" }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<MarketsExplorer counts={counts} countsLoading={false} initialPage={{ ...initialPage, hasMore: true }} source="polymarket" />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+
+    await waitFor(() => {
+      const lastCall = [...requestedUrls].reverse().find((url) => url.includes("/api/polymarket/markets?"));
+      expect(lastCall).toBeDefined();
+      const params = new URL(lastCall as string, "http://localhost").searchParams;
+      expect(params.get("minVolume")).toBe("2000");
+      expect(params.get("offset")).toBe("1");
+    });
   });
 });

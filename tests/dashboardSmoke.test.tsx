@@ -44,6 +44,12 @@ const counts = {
   upcomingSportsMarkets: 0,
   staleOrUnknownSportsMarkets: 0,
   displayedMarkets: 150,
+  totalEligibleSportsMarkets: 150,
+  marketsWithMinVolume: 150,
+  liveWithMinVolume: 150,
+  upcomingWithMinVolume: 0,
+  staleExcluded: 0,
+  minVolume: 2000,
   excludedClosed: 0,
   excludedInactive: 0,
   excludedMissingClobTokenIds: 0,
@@ -95,7 +101,7 @@ describe("DashboardPage", () => {
 
   it("does not render every discovered market on first paint", async () => {
     render(await DashboardPage());
-    await waitFor(() => expect(screen.getByText(/Showing 100 of 150 matching markets/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Showing 100 of 150 markets with \$2K\+ volume/i)).toBeInTheDocument());
     expect(screen.queryByText("NBA test market 149")).not.toBeInTheDocument();
   });
 });

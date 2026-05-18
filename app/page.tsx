@@ -1,11 +1,11 @@
 import { MarketsExplorer } from "@/components/MarketsExplorer";
 import { MetricCard } from "@/components/MetricCard";
-import { createEmptyMarketCounts, createEmptyMarketPage, getCachedMarketCountsState } from "@/lib/polymarket/markets";
+import { createEmptyMarketCounts, createEmptyMarketPage, DEFAULT_MARKET_MIN_VOLUME, getCachedMarketCountsState } from "@/lib/polymarket/markets";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const countsState = getCachedMarketCountsState();
+  const countsState = getCachedMarketCountsState(DEFAULT_MARKET_MIN_VOLUME);
   const counts = countsState.loading ? createEmptyMarketCounts() : countsState.counts;
   const initialPage = createEmptyMarketPage();
 
@@ -22,13 +22,13 @@ export default async function DashboardPage() {
       <section className="grid gap-4 md:grid-cols-4">
         <MetricCard
           badge={countsState.loading ? "Calculating" : undefined}
-          detail={countsState.loading ? "Waiting for cached counts" : `${counts.tradableSportsMarkets} tradable sports`}
-          label="Eligible Markets"
-          value={countsState.loading ? "..." : String(counts.displayedMarkets)}
+          detail={countsState.loading ? "Waiting for cached counts" : `${counts.totalEligibleSportsMarkets} eligible sports`}
+          label="$2K+ Markets"
+          value={countsState.loading ? "..." : String(counts.marketsWithMinVolume)}
         />
-        <MetricCard label="Live" value={countsState.loading ? "..." : String(counts.liveSportsMarkets)} />
-        <MetricCard label="Upcoming" value={countsState.loading ? "..." : String(counts.upcomingSportsMarkets)} />
-        <MetricCard label="Stale Excluded" value={countsState.loading ? "..." : String(counts.staleOrUnknownSportsMarkets)} detail="Dev filter only" />
+        <MetricCard label="Live" value={countsState.loading ? "..." : String(counts.liveWithMinVolume)} />
+        <MetricCard label="Upcoming" value={countsState.loading ? "..." : String(counts.upcomingWithMinVolume)} />
+        <MetricCard label="Stale Excluded" value={countsState.loading ? "..." : String(counts.staleExcluded)} detail="Dev filter only" />
       </section>
 
       <MarketsExplorer

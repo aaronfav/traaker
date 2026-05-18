@@ -47,6 +47,12 @@ const discovery: SportsMarketDiscovery = {
     upcomingSportsMarkets: 2,
     staleOrUnknownSportsMarkets: 0,
     displayedMarkets: 3,
+    totalEligibleSportsMarkets: 3,
+    marketsWithMinVolume: 3,
+    liveWithMinVolume: 1,
+    upcomingWithMinVolume: 2,
+    staleExcluded: 0,
+    minVolume: 2000,
     excludedClosed: 0,
     excludedInactive: 0,
     excludedMissingClobTokenIds: 0,
@@ -79,6 +85,7 @@ function makeGammaEventPage(page: number, eventCount = 1) {
         outcomes: ["YES", "NO"],
         outcomePrices: [0.55, 0.45],
         bestAsk: 0.55,
+        volume: 5000,
         volume24h: 100,
         liquidity: 200,
         tags: [{ label: "NBA" }],
@@ -96,7 +103,7 @@ async function callMarketsApi(query = "") {
 
 async function callCountsApi() {
   const { GET } = await import("@/app/api/polymarket/markets/counts/route");
-  const response = await GET();
+  const response = await GET(new Request("http://localhost/api/polymarket/markets/counts"));
   return response.json();
 }
 
@@ -120,7 +127,7 @@ describe("/api/polymarket/markets", () => {
   it("respects limit and offset from cached snapshot", async () => {
     seedMarketSnapshotCache(discovery);
 
-    const payload = await callMarketsApi("?limit=1&offset=1");
+    const payload = await callMarketsApi("?limit=1&offset=1&minVolume=0");
 
     expect(payload.limit).toBe(1);
     expect(payload.offset).toBe(1);
@@ -193,7 +200,7 @@ describe("/api/polymarket/markets", () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify([]), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const payload = await callMarketsApi("?limit=1&offset=1");
+    const payload = await callMarketsApi("?limit=1&offset=1&minVolume=0");
 
     expect(payload.limit).toBe(1);
     expect(payload.offset).toBe(1);
@@ -201,6 +208,55 @@ describe("/api/polymarket/markets", () => {
     expect(payload.total).toBe(3);
     expect(payload.markets[0].id).toBe("market-2");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("excludes markets below the default minVolume and includes markets equal to it", async () => {
+    const lowDiscovery = {
+      ...discovery,
+      markets: [
+        { ...discovery.markets[0], id: "market-low", volume: 1500, volume24h: 1500 },
+        { ...discovery.markets[1], id: "market-equal", volume: 2000, volume24h: 2000 },
+      ],
+      debugMarkets: [
+        { ...discovery.debugMarkets[0], id: "market-low", volume: 1500, volume24h: 1500 },
+        { ...discovery.debugMarkets[1], id: "market-equal", volume: 2000, volume24h: 2000 },
+      ],
+    };
+    seedMarketSnapshotCache(lowDiscovery);
+
+    const payload = await callMarketsApi();
+
+    expect(payload.total).toBe(1);
+    expect(payload.markets[0].id).toBe("market-equal");
+  });
+
+  it("respects the minVolume query param", async () => {
+    seedMarketSnapshotCache(discovery);
+
+    const payload = await callMarketsApi("?minVolume=3000");
+
+    expect(payload.total).toBe(1);
+    expect(payload.markets[0].id).toBe("market-3");
+  });
+
+  it("defaults minVolume to 2000", async () => {
+    const lowDiscovery = {
+      ...discovery,
+      markets: [
+        { ...discovery.markets[0], id: "market-low", volume: 1500, volume24h: 1500 },
+        { ...discovery.markets[1], id: "market-equal", volume: 2000, volume24h: 2000 },
+      ],
+      debugMarkets: [
+        { ...discovery.debugMarkets[0], id: "market-low", volume: 1500, volume24h: 1500 },
+        { ...discovery.debugMarkets[1], id: "market-equal", volume: 2000, volume24h: 2000 },
+      ],
+    };
+    seedMarketSnapshotCache(lowDiscovery);
+
+    const payload = await callMarketsApi();
+
+    expect(payload.total).toBe(1);
+    expect(payload.markets[0].id).toBe("market-equal");
   });
 
   it("does not refetch Gamma for filter changes when the snapshot exists", async () => {
@@ -218,5 +274,16 @@ describe("/api/polymarket/markets", () => {
 
     await callMarketsApi("?limit=1&sport=NBA&status=live&sort=volume");
     expect(fetchMock.mock.calls.length).toBe(fetchesAfterFirst);
+  });
+
+  it("keeps minVolume in load more requests", async () => {
+    seedMarketSnapshotCache(discovery);
+
+    const payload = await callMarketsApi("?limit=1&offset=1&minVolume=2000");
+
+    expect(payload.limit).toBe(1);
+    expect(payload.offset).toBe(1);
+    expect(payload.total).toBe(2);
+    expect(payload.markets[0].id).toBe("market-2");
   });
 });

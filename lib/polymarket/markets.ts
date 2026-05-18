@@ -53,6 +53,12 @@ type MarketDiscoveryCounts = {
   upcomingSportsMarkets: number;
   staleOrUnknownSportsMarkets: number;
   displayedMarkets: number;
+  totalEligibleSportsMarkets: number;
+  marketsWithMinVolume: number;
+  liveWithMinVolume: number;
+  upcomingWithMinVolume: number;
+  staleExcluded: number;
+  minVolume: number;
   excludedClosed: number;
   excludedInactive: number;
   excludedMissingClobTokenIds: number;
@@ -77,6 +83,7 @@ export type MarketQueryParams = {
   limit?: number;
   offset?: number;
   search?: string;
+  minVolume?: number;
   includeStale?: boolean;
 };
 
@@ -107,6 +114,7 @@ export type MarketCountsApiResponse =
 
 export const DEFAULT_MARKET_PAGE_LIMIT = 100;
 export const MAX_MARKET_PAGE_LIMIT = 500;
+export const DEFAULT_MARKET_MIN_VOLUME = 2000;
 const MARKET_SNAPSHOT_CACHE_MS = 300_000;
 
 type CacheEntry<T> = {
@@ -320,12 +328,43 @@ function compareMarkets(sort: MarketQuerySort) {
   };
 }
 
+function normalizeMinVolume(minVolume: number | undefined) {
+  if (!Number.isFinite(minVolume)) return DEFAULT_MARKET_MIN_VOLUME;
+  return Math.max(0, Math.trunc(minVolume as number));
+}
+
+function getMarketVolume(market: TerminalMarket) {
+  return Number.isFinite(market.volume) ? market.volume : 0;
+}
+
+function buildMarketCountsForDiscovery(discovery: SportsMarketDiscovery, minVolume = DEFAULT_MARKET_MIN_VOLUME): MarketDiscoveryCounts {
+  const threshold = normalizeMinVolume(minVolume);
+  const counts = createMarketDiscoveryCounts();
+  const sportsMarkets = discovery.debugMarkets.filter((market) => market.status !== "stale");
+  const marketsWithMinVolume = discovery.markets.filter((market) => getMarketVolume(market) >= threshold);
+  counts.totalEligibleSportsMarkets = discovery.debugMarkets.length;
+  counts.marketsWithMinVolume = marketsWithMinVolume.length;
+  counts.liveWithMinVolume = marketsWithMinVolume.filter((market) => market.status === "live").length;
+  counts.upcomingWithMinVolume = marketsWithMinVolume.filter((market) => market.status === "upcoming").length;
+  counts.staleExcluded = discovery.debugMarkets.filter((market) => market.status === "stale").length;
+  counts.minVolume = threshold;
+  counts.displayedMarkets = marketsWithMinVolume.length;
+  counts.tradableSportsMarkets = discovery.debugMarkets.length;
+  counts.liveSportsMarkets = sportsMarkets.filter((market) => market.status === "live").length;
+  counts.upcomingSportsMarkets = sportsMarkets.filter((market) => market.status === "upcoming").length;
+  counts.staleOrUnknownSportsMarkets = counts.staleExcluded;
+  counts.tradableMarkets = discovery.debugMarkets.length;
+  counts.openSportsMarkets = discovery.debugMarkets.length;
+  return counts;
+}
+
 export function getMarketPage(discovery: SportsMarketDiscovery, params: MarketQueryParams = {}): MarketPage {
   const includeStale = params.includeStale === true;
   const status = params.status ?? "all";
   const sort = params.sort ?? "opportunity";
   const rawLimit = Number.isFinite(params.limit) ? Math.trunc(params.limit as number) : DEFAULT_MARKET_PAGE_LIMIT;
   const rawOffset = Number.isFinite(params.offset) ? Math.trunc(params.offset as number) : 0;
+  const minVolume = normalizeMinVolume(params.minVolume);
   const limit = Math.min(Math.max(rawLimit, 1), MAX_MARKET_PAGE_LIMIT);
   const offset = Math.max(rawOffset, 0);
   const search = params.search?.trim().toLowerCase() ?? "";
@@ -334,6 +373,7 @@ export function getMarketPage(discovery: SportsMarketDiscovery, params: MarketQu
   const filtered = sourceMarkets.filter((market) => {
     if (!includeStale && market.status === "stale") return false;
     if (status !== "all" && market.status !== status) return false;
+    if (getMarketVolume(market) < minVolume) return false;
     if (!matchesSportFilter(market, params.sport)) return false;
     if (!search) return true;
     const text = `${market.title} ${market.outcomes.yes} ${market.outcomes.no} ${market.league} ${market.sport}`.toLowerCase();
@@ -380,6 +420,7 @@ async function buildFastMarketPagePayload(params: MarketQueryParams = {}): Promi
   const requestStartedAt = Date.now();
   const limit = Math.min(Math.max(Number.isFinite(params.limit) ? Math.trunc(params.limit as number) : DEFAULT_MARKET_PAGE_LIMIT, 1), MAX_MARKET_PAGE_LIMIT);
   const offset = Math.max(Number.isFinite(params.offset) ? Math.trunc(params.offset as number) : 0, 0);
+  const minVolume = normalizeMinVolume(params.minVolume);
   const targetCount = offset + limit;
   const collectedMarkets: TerminalMarket[] = [];
   let pagesFetched = 0;
@@ -401,6 +442,8 @@ async function buildFastMarketPagePayload(params: MarketQueryParams = {}): Promi
       const markets = event.markets ?? [];
       for (const market of markets) {
         rawMarkets += 1;
+        const rawVolume = asNumber(pick(market, ["volume", "totalVolume", "total_volume", "volumeNum", "volume_num"], 0));
+        if (rawVolume < minVolume) continue;
         const rawMarket = {
           ...market,
           __eventClosed: event.closed,
@@ -455,6 +498,7 @@ async function buildFastMarketPagePayload(params: MarketQueryParams = {}): Promi
       rawMarkets,
       eligibleSports,
       tradableSports,
+      minVolume,
       returned: page.returned,
       requestDurationMs,
       warmupStarted: false,
@@ -462,7 +506,10 @@ async function buildFastMarketPagePayload(params: MarketQueryParams = {}): Promi
   }
 
   return {
-    counts: createEmptyMarketCounts(),
+    counts: {
+      ...createEmptyMarketCounts(),
+      minVolume,
+    },
     countsLoading: true,
     source: "polymarket",
     ...page,
@@ -560,6 +607,12 @@ function createMarketDiscoveryCounts(): MarketDiscoveryCounts {
     upcomingSportsMarkets: 0,
     staleOrUnknownSportsMarkets: 0,
     displayedMarkets: 0,
+    totalEligibleSportsMarkets: 0,
+    marketsWithMinVolume: 0,
+    liveWithMinVolume: 0,
+    upcomingWithMinVolume: 0,
+    staleExcluded: 0,
+    minVolume: DEFAULT_MARKET_MIN_VOLUME,
     excludedClosed: 0,
     excludedInactive: 0,
     excludedMissingClobTokenIds: 0,
@@ -625,20 +678,16 @@ function logRawDateSamples(allEvents: GammaEvent[]) {
 }
 
 function createMockDiscovery(): SportsMarketDiscovery {
+  const counts = buildMarketCountsForDiscovery({
+    markets: mockMarkets,
+    debugMarkets: mockMarkets,
+    counts: createMarketDiscoveryCounts(),
+    source: "mock",
+  }, DEFAULT_MARKET_MIN_VOLUME);
   return {
     markets: mockMarkets,
     debugMarkets: mockMarkets,
-    counts: {
-      ...createMarketDiscoveryCounts(),
-      sportsMarkets: mockMarkets.length,
-      openSportsMarkets: mockMarkets.length,
-      tradableMarkets: mockMarkets.length,
-      tradableSportsMarkets: mockMarkets.length,
-      liveSportsMarkets: mockMarkets.filter((market) => market.status === "live").length,
-      upcomingSportsMarkets: mockMarkets.filter((market) => market.status === "upcoming").length,
-      staleOrUnknownSportsMarkets: mockMarkets.filter((market) => market.status === "stale").length,
-      displayedMarkets: mockMarkets.filter((market) => market.status === "live" || market.status === "upcoming").length,
-    },
+    counts,
     source: "mock",
   };
 }
@@ -772,10 +821,35 @@ async function discoverSportsMarketDiscovery(): Promise<SportsMarketDiscovery> {
     debugMarkets.sort((a, b) => b.opportunityScore - a.opportunityScore);
     const markets = debugMarkets.filter((market) => market.status === "live" || market.status === "upcoming");
     counts.displayedMarkets = markets.length;
+    const summaryCounts = buildMarketCountsForDiscovery(
+      {
+        markets,
+        debugMarkets,
+        counts,
+        source: "polymarket",
+      },
+      DEFAULT_MARKET_MIN_VOLUME,
+    );
+    summaryCounts.eventPagesFetched = counts.eventPagesFetched;
+    summaryCounts.eventsFetched = counts.eventsFetched;
+    summaryCounts.rawMarkets = counts.rawMarkets;
+    summaryCounts.sportsMarkets = counts.sportsMarkets;
+    summaryCounts.openSportsMarkets = counts.openSportsMarkets;
+    summaryCounts.tradableMarkets = counts.tradableMarkets;
+    summaryCounts.tradableSportsMarkets = counts.tradableSportsMarkets;
+    summaryCounts.liveSportsMarkets = counts.liveSportsMarkets;
+    summaryCounts.upcomingSportsMarkets = counts.upcomingSportsMarkets;
+    summaryCounts.staleOrUnknownSportsMarkets = counts.staleOrUnknownSportsMarkets;
+    summaryCounts.displayedMarkets = counts.displayedMarkets;
+    summaryCounts.excludedClosed = counts.excludedClosed;
+    summaryCounts.excludedInactive = counts.excludedInactive;
+    summaryCounts.excludedMissingClobTokenIds = counts.excludedMissingClobTokenIds;
+    summaryCounts.excludedNoOrderbook = counts.excludedNoOrderbook;
+    summaryCounts.excludedInvalidPrices = counts.excludedInvalidPrices;
 
     logMarketDiscoveryCounts(counts);
 
-    return markets.length > 0 ? { markets, debugMarkets, counts, source: "polymarket" } : createMockDiscovery();
+    return markets.length > 0 ? { markets, debugMarkets, counts: summaryCounts, source: "polymarket" } : createMockDiscovery();
   } catch {
     return createMockDiscovery();
   }
@@ -790,19 +864,19 @@ export function getCachedMarketCountsSnapshot() {
   return store.snapshot?.value.discovery.counts ?? createEmptyMarketCounts();
 }
 
-export function getCachedMarketCountsState(): MarketCountsApiResponse {
+export function getCachedMarketCountsState(minVolume = DEFAULT_MARKET_MIN_VOLUME): MarketCountsApiResponse {
   const store = getMarketSnapshotStore();
   if (!store.snapshot) {
     return { loading: true };
   }
   return {
     loading: false,
-    counts: store.snapshot.value.discovery.counts,
+    counts: buildMarketCountsForDiscovery(store.snapshot.value.discovery, minVolume),
     source: store.snapshot.value.discovery.source,
   };
 }
 
-export function getMarketCountsApiResponse(): MarketCountsApiResponse {
+export function getMarketCountsApiResponse(minVolume = DEFAULT_MARKET_MIN_VOLUME): MarketCountsApiResponse {
   const store = getMarketSnapshotStore();
   if (!store.snapshot) {
     void startSnapshotRefresh().catch(() => undefined);
@@ -810,7 +884,7 @@ export function getMarketCountsApiResponse(): MarketCountsApiResponse {
   }
   return {
     loading: false,
-    counts: store.snapshot.value.discovery.counts,
+    counts: buildMarketCountsForDiscovery(store.snapshot.value.discovery, minVolume),
     source: store.snapshot.value.discovery.source,
   };
 }
@@ -826,12 +900,13 @@ export async function getCachedMarketsApiPayload(params: MarketQueryParams = {})
   const requestStartedAt = Date.now();
   const store = getMarketSnapshotStore();
   const cached = store.snapshot;
+  const minVolume = normalizeMinVolume(params.minVolume);
 
   if (cached) {
     const filterStartedAt = Date.now();
-    const page = getMarketPage(cached.value.discovery, params);
+    const page = getMarketPage(cached.value.discovery, { ...params, minVolume });
     const payload: MarketsApiPayload = {
-      counts: cached.value.discovery.counts,
+      counts: buildMarketCountsForDiscovery(cached.value.discovery, minVolume),
       countsLoading: false,
       source: cached.value.discovery.source,
       ...page,
@@ -845,6 +920,7 @@ export async function getCachedMarketsApiPayload(params: MarketQueryParams = {})
         numberReturned: payload.returned,
         requestDurationMs,
         totalMarkets: cached.value.discovery.markets.length,
+        minVolume,
       });
     }
     if (cached.expiresAt <= Date.now()) {
@@ -853,7 +929,7 @@ export async function getCachedMarketsApiPayload(params: MarketQueryParams = {})
     return payload;
   }
 
-  const fastPayload = await buildFastMarketPagePayload(params);
+  const fastPayload = await buildFastMarketPagePayload({ ...params, minVolume });
   const warmupStarted = prewarmMarketSnapshot();
   const requestDurationMs = Date.now() - requestStartedAt;
   if (process.env.NODE_ENV !== "production") {
@@ -863,6 +939,7 @@ export async function getCachedMarketsApiPayload(params: MarketQueryParams = {})
       numberReturned: fastPayload.returned,
       requestDurationMs,
       totalMarkets: fastPayload.total,
+      minVolume,
       warmupStarted,
     });
   }

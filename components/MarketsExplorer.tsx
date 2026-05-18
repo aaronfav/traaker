@@ -11,6 +11,14 @@ import type { TerminalMarket } from "@/lib/polymarket/types";
 const sports = ["All", "NBA", "NFL", "Soccer", "UFC", "Tennis"] as const;
 const statuses = ["all", "live", "upcoming"] as const;
 const staleStatus = "stale" as const;
+const minVolumeOptions = [
+  { label: "$0+", value: 0 },
+  { label: "$1K+", value: 1000 },
+  { label: "$2K+", value: 2000 },
+  { label: "$5K+", value: 5000 },
+  { label: "$10K+", value: 10000 },
+  { label: "$50K+", value: 50000 },
+] as const;
 const sortOptions: { label: string; value: MarketQuerySort }[] = [
   { label: "Opportunity", value: "opportunity" },
   { label: "Volume", value: "volume" },
@@ -32,10 +40,12 @@ function buildMarketsUrl(params: {
   sort: MarketQuerySort;
   sport: string;
   status: MarketQueryStatus;
+  minVolume: number;
 }) {
   const searchParams = new URLSearchParams({
     limit: String(PAGE_LIMIT),
     offset: String(params.offset),
+    minVolume: String(params.minVolume),
     sort: params.sort,
     status: params.status,
   });
@@ -62,6 +72,7 @@ export function MarketsExplorer({
   const [sport, setSport] = useState<(typeof sports)[number]>("All");
   const [status, setStatus] = useState<MarketQueryStatus>("all");
   const [sort, setSort] = useState<MarketQuerySort>("opportunity");
+  const [minVolume, setMinVolume] = useState(2000);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [markets, setMarkets] = useState<TerminalMarket[]>(initialPage.markets);
@@ -84,7 +95,7 @@ export function MarketsExplorer({
 
     const loadCounts = async () => {
       try {
-        const response = await fetch("/api/polymarket/markets/counts", { signal: controller.signal });
+        const response = await fetch(`/api/polymarket/markets/counts?minVolume=${minVolume}`, { signal: controller.signal });
         if (!response.ok) throw new Error("Unable to load market counts");
         const payload = (await response.json()) as MarketCountsApiResponse;
         if (cancelled) return;
@@ -101,6 +112,7 @@ export function MarketsExplorer({
       }
     };
 
+    setIsCountsLoading(countsLoading);
     void loadCounts();
 
     return () => {
@@ -108,7 +120,7 @@ export function MarketsExplorer({
       controller.abort();
       if (retryTimer) window.clearTimeout(retryTimer);
     };
-  }, []);
+  }, [countsLoading, minVolume]);
 
   useEffect(() => {
     const schedule = () => {
@@ -136,7 +148,7 @@ export function MarketsExplorer({
     const controller = new AbortController();
     const requestId = ++requestIdRef.current;
     setIsLoading(true);
-    fetch(buildMarketsUrl({ offset: 0, search: debouncedQuery, sort, sport, status }), { signal: controller.signal })
+    fetch(buildMarketsUrl({ offset: 0, search: debouncedQuery, sort, sport, status, minVolume }), { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("Unable to load markets");
         return (await response.json()) as MarketsResponse;
@@ -157,12 +169,12 @@ export function MarketsExplorer({
       });
 
     return () => controller.abort();
-  }, [debouncedQuery, sort, sport, status]);
+  }, [debouncedQuery, minVolume, sort, sport, status]);
 
   const loadMore = async () => {
     setIsLoadingMore(true);
     try {
-      const response = await fetch(buildMarketsUrl({ offset: markets.length, search: debouncedQuery, sort, sport, status }));
+      const response = await fetch(buildMarketsUrl({ offset: markets.length, search: debouncedQuery, sort, sport, status, minVolume }));
       if (!response.ok) throw new Error("Unable to load more markets");
       const nextPage = (await response.json()) as MarketsResponse;
       setMarkets((current) => [...current, ...nextPage.markets]);
@@ -180,6 +192,7 @@ export function MarketsExplorer({
   const statusOptions: MarketQueryStatus[] = includeDebugFilters ? [...statuses, staleStatus] : [...statuses];
   const isInitialLoading = isLoading && markets.length === 0;
   const isRefreshing = isLoading && markets.length > 0;
+  const selectedMinVolumeLabel = minVolumeOptions.find((option) => option.value === minVolume)?.label ?? "$2K+";
 
   return (
     <section className="mt-8 space-y-4">
@@ -213,9 +226,33 @@ export function MarketsExplorer({
         ))}
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Minimum volume</label>
+        <select
+          className="h-9 rounded-md border border-slate-700 bg-slate-950 px-3 text-sm text-slate-200"
+          onChange={(event) => setMinVolume(Number(event.target.value))}
+          value={minVolume}
+        >
+          {minVolumeOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-400">
         <p>
-          Showing {markets.length} of {page.total} matching markets. {latestCounts.staleOrUnknownSportsMarkets} stale/unknown excluded from the default view.
+          {isCountsLoading ? (
+            <>
+              Showing {markets.length} markets with {selectedMinVolumeLabel} volume.
+            </>
+          ) : (
+            <>
+              Showing {markets.length} of {page.total} markets with {selectedMinVolumeLabel} volume.
+            </>
+          )}{" "}
+          {latestCounts.staleExcluded} stale/unknown excluded from the default view.
         </p>
         <div className="flex items-center gap-2">
           {isCountsLoading ? <span className="text-xs text-cyan-200">Calculating</span> : null}
