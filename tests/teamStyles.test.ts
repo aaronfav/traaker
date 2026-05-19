@@ -15,9 +15,9 @@ describe("teamStyles", () => {
   });
 
   it("compresses bubble radius and clamps extremes", () => {
-    expect(marketBubbleRadius(0)).toBe(22);
-    expect(marketBubbleRadius(100_000)).toBeGreaterThan(75);
-    expect(marketBubbleRadius(1_000_000_000)).toBe(96);
+    expect(marketBubbleRadius(0)).toBe(34);
+    expect(marketBubbleRadius(100_000)).toBeGreaterThan(120);
+    expect(marketBubbleRadius(1_000_000_000)).toBe(155);
   });
 
   it("uses glow for momentum and high volume", () => {

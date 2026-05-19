@@ -74,15 +74,16 @@ describe("DashboardPage", () => {
         if (url.includes("/prewarm")) {
           return new Response(JSON.stringify({ started: true }), { status: 200 });
         }
+        const limit = Number(new URL(url, "http://localhost").searchParams.get("limit") ?? 50);
         return new Response(JSON.stringify({
           counts,
           countsLoading: false,
           source: "polymarket",
-          markets: markets.slice(0, 100),
-          limit: 100,
+          markets: markets.slice(0, limit),
+          limit,
           offset: 0,
           total: 150,
-          returned: 100,
+          returned: limit,
           hasMore: true,
         }), { status: 200 });
       }),
@@ -99,12 +100,12 @@ describe("DashboardPage", () => {
     expect(screen.queryByRole("heading", { name: /trading terminal/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/polymarket sports/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/minimum volume/i, { selector: "p" })).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("application", { name: /100 sports market bubble map/i })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("application", { name: /50 sports market bubble map/i })).toBeInTheDocument());
   });
 
   it("does not render every discovered market on first paint", async () => {
     render(await DashboardPage());
-    await waitFor(() => expect(screen.getByRole("application", { name: /100 sports market bubble map/i })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("application", { name: /50 sports market bubble map/i })).toBeInTheDocument());
     expect(screen.queryByText("NBA test market 149")).not.toBeInTheDocument();
   });
 });

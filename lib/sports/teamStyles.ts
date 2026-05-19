@@ -121,7 +121,7 @@ export function findTeamStyle(title: string, sport: string) {
 
 export function marketBubbleRadius(volume: number) {
   const numericVolume = Number.isFinite(volume) ? Math.max(0, volume) : 0;
-  return Math.max(22, Math.min(96, 18 + Math.log10(numericVolume + 1) * 12));
+  return Math.max(34, Math.min(155, 28 + Math.log10(numericVolume + 1) * 19));
 }
 
 export function momentumGlowColor(priceChange: number, volume: number) {

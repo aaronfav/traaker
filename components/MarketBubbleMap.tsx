@@ -37,6 +37,8 @@ export type MarketBubbleNode = {
   isTrending: boolean;
   driftPhase: number;
   val: number;
+  targetX: number;
+  targetY: number;
   x?: number;
   y?: number;
 };
@@ -65,14 +67,36 @@ const money = (value: number) => {
 const pct = (value: number) => `${value >= 0 ? "+" : ""}${(value * 100).toFixed(1)}%`;
 const logoCache = new Map<string, HTMLImageElement>();
 
-export const formatCents = (price: number) => `${Math.round(Math.max(0, Math.min(1, price)) * 100)}¢`;
+export const formatCents = (price: number) => `${Math.round(Math.max(0, Math.min(1, price)) * 100)}\u00a2`;
 
-const cleanOutcomeName = (name: string, marketTitle: string) => {
-  const cleaned = name.replace(/\s+/g, " ").trim();
-  if (cleaned && !/^(yes|no)$/i.test(cleaned)) return cleaned;
-  const matchup = marketTitle.split(/\s+(?:vs\.?|v\.?|at)\s+/i).filter(Boolean);
-  const fallback = matchup[0] ?? marketTitle;
-  return fallback.replace(/\?.*$/, "").replace(/\s+/g, " ").trim() || cleaned || "Market";
+const genericOutcomePattern = /^(yes|no|winner|champion|champions?|market|liquid|gaming|team|field|other|others?|draw\/tie)$/i;
+const genericWords = /\b(to win|winner|champions?|championship|market|moneyline|outright|yes|no|will|wins?|advance|qualify|series|game|match|nba|nfl|mlb|nhl|wnba|ncaa|finals?|league|cup|season|playoffs?)\b/gi;
+
+export const cleanOutcomeName = (name: string, marketTitle: string) => {
+  const normalized = name.replace(/\s+/g, " ").trim();
+  const title = marketTitle.replace(/\s+/g, " ").trim();
+  const titleMatchup = title.split(/\s+(?:vs\.?|v\.?|at)\s+/i).filter(Boolean);
+  const source = normalized && !genericOutcomePattern.test(normalized) ? normalized : titleMatchup[0] ?? title;
+  const sourceMatchup = source.split(/\s+(?:vs\.?|v\.?|at)\s+/i).filter(Boolean);
+  let cleaned = (sourceMatchup[0] ?? source)
+    .replace(/\?.*$/, "")
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(genericWords, " ")
+    .replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (genericOutcomePattern.test(cleaned) || cleaned.length < 2) {
+    cleaned =
+      titleMatchup[0]
+        ?.replace(/\?.*$/, "")
+        .replace(genericWords, " ")
+        .replace(/\s+/g, " ")
+        .trim() ?? "";
+  }
+
+  return cleaned || "Market";
 };
 
 const compactOutcomeName = (name: string) => {
@@ -80,7 +104,7 @@ const compactOutcomeName = (name: string) => {
   if (cleaned.length <= 13) return cleaned;
   const words = cleaned.split(" ");
   if (words.length > 1) return words.at(-1) ?? cleaned.slice(0, 13);
-  return `${cleaned.slice(0, 12)}…`;
+  return `${cleaned.slice(0, 12)}...`;
 };
 
 const parseStringArray = (value: unknown) => {
@@ -127,11 +151,12 @@ const hashString = (value: string) => {
 
 const seededPosition = (id: string) => {
   const hash = hashString(id);
-  const angle = ((hash % 360) * Math.PI) / 180;
-  const distance = 20 + (hash % 240);
+  const hashY = hashString(`${id}:y`);
+  const xUnit = (hash % 10_000) / 10_000;
+  const yUnit = (hashY % 10_000) / 10_000;
   return {
-    x: Math.cos(angle) * distance,
-    y: Math.sin(angle) * distance,
+    x: (xUnit - 0.5) * 1800,
+    y: (yUnit - 0.5) * 1050,
   };
 };
 
@@ -172,13 +197,14 @@ function marketColors(market: TerminalMarket, favoredOutcome: string) {
   return { primary: "#3A3F47", secondary: "#9AA4B2" };
 }
 
-export function marketToBubbleNode(market: TerminalMarket): MarketBubbleNode {
+export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBubbleNode {
   const volume = Number.isFinite(market.volume) ? market.volume : market.volume24h;
   const sizeBasis = Math.max(volume, market.liquidity);
   const favored = getFavoredOutcome(market);
   const outcomes = getMarketOutcomes(market);
   const style = marketColors(market, favored.name);
-  const val = marketBubbleRadius(sizeBasis);
+  const rankBoost = index < 5 ? 22 : index < 15 ? 12 : index < 30 ? 6 : 0;
+  const val = Math.min(175, marketBubbleRadius(sizeBasis) + rankBoost);
   const trendScore = trendScoreForMarket(market, volume);
   const position = seededPosition(market.id);
 
@@ -203,6 +229,8 @@ export function marketToBubbleNode(market: TerminalMarket): MarketBubbleNode {
     isTrending: trendScore >= 10 || Math.abs(market.priceMove24h) >= 0.05 || market.recentTradesCount >= 40 || market.volumeAcceleration >= 1.5,
     driftPhase: (hashString(market.id) % 628) / 100,
     val,
+    targetX: position.x,
+    targetY: position.y,
     ...position,
   };
 }
@@ -362,14 +390,14 @@ export function MarketBubbleMap({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<ForceGraphMethods<MarketBubbleNode, object> | null>(null);
-  const hasFitInitialGraph = useRef(false);
+  const lastFitNodeCount = useRef(0);
   const [introStartedAt] = useState(() => Date.now());
   const [selectedMarket, setSelectedMarket] = useState<MarketBubbleNode | null>(null);
   const [hoveredMarket, setHoveredMarket] = useState<MarketBubbleNode | null>(null);
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   const [dimensions, setDimensions] = useState({ width: 1200, height: 680 });
 
-  const nodes = useMemo(() => markets.map(marketToBubbleNode), [markets]);
+  const nodes = useMemo(() => markets.map((market, index) => marketToBubbleNode(market, index)), [markets]);
   const graphData = useMemo(() => ({ nodes, links: [] }), [nodes]);
   const isMobile = dimensions.width < 640;
 
@@ -393,15 +421,15 @@ export function MarketBubbleMap({
   useEffect(() => {
     const graph = graphRef.current;
     if (!graph || typeof graph.d3Force !== "function" || nodes.length === 0) return;
-    graph.d3Force("collide", forceCollide<NodeObject<MarketBubbleNode>>((node) => node.val + (node.val > 70 ? 3 : 2)).strength(0.96));
-    graph.d3Force("charge")?.strength?.(-5);
-    graph.d3Force("clusterX", forceX<NodeObject<MarketBubbleNode>>(0).strength(0.085));
-    graph.d3Force("clusterY", forceY<NodeObject<MarketBubbleNode>>(0).strength(0.085));
+    graph.d3Force("collide", forceCollide<NodeObject<MarketBubbleNode>>((node) => node.val + Math.max(8, node.val * 0.08)).strength(0.92));
+    graph.d3Force("charge")?.strength?.(-18);
+    graph.d3Force("clusterX", forceX<NodeObject<MarketBubbleNode>>((node) => node.targetX).strength(0.028));
+    graph.d3Force("clusterY", forceY<NodeObject<MarketBubbleNode>>((node) => node.targetY).strength(0.028));
     graph.d3Force("center");
     graph.d3ReheatSimulation();
-    if (!hasFitInitialGraph.current) {
-      hasFitInitialGraph.current = true;
-      window.setTimeout(() => graph.zoomToFit?.(900, isMobile ? 8 : 12), 220);
+    if (lastFitNodeCount.current === 0 || Math.abs(nodes.length - lastFitNodeCount.current) >= 10) {
+      lastFitNodeCount.current = nodes.length;
+      window.setTimeout(() => graph.zoomToFit?.(900, isMobile ? 2 : 4), 300);
     }
   }, [isMobile, nodes]);
 
@@ -452,7 +480,7 @@ export function MarketBubbleMap({
   return (
     <div
       aria-label={`${nodes.length} sports market bubble map`}
-      className="relative h-[calc(100vh-6.75rem)] min-h-[460px] w-screen overflow-hidden bg-[#050505] sm:h-[calc(100vh-6.25rem)]"
+      className="relative h-[calc(100vh-5.9rem)] min-h-[480px] w-screen overflow-hidden bg-[#050505] sm:h-[calc(100vh-5.55rem)]"
       onDoubleClick={handleCenterMap}
       onMouseMove={handleMouseMove}
       role="application"
@@ -465,16 +493,16 @@ export function MarketBubbleMap({
           height={dimensions.height}
           autoPauseRedraw={false}
           backgroundColor="#050505"
-          cooldownTicks={240}
-          d3AlphaDecay={0.012}
-          d3VelocityDecay={0.28}
+          cooldownTicks={320}
+          d3AlphaDecay={0.01}
+          d3VelocityDecay={0.32}
           enableNodeDrag
           enablePanInteraction
           enablePointerInteraction
           enableZoomInteraction
           linkVisibility={false}
-          maxZoom={3.4}
-          minZoom={0.25}
+          maxZoom={2.8}
+          minZoom={0.08}
           nodeCanvasObject={drawNode}
           nodeId="id"
           nodeLabel={(node) => `${node.favoredOutcome} ${formatCents(node.favoredPrice)} | ${node.title}`}

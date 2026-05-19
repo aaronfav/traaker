@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { formatCents, getFavoredOutcome, MarketBubbleMap, marketToBubbleNode } from "@/components/MarketBubbleMap";
+import { cleanOutcomeName, formatCents, getFavoredOutcome, MarketBubbleMap, marketToBubbleNode } from "@/components/MarketBubbleMap";
 import type { MarketBubbleNode } from "@/components/MarketBubbleMap";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
@@ -77,20 +77,26 @@ describe("MarketBubbleMap", () => {
     expect(node.favoredOutcome).toBe("Lakers");
     expect(node.favoredPrice).toBe(0.62);
     expect(node.priceCents).toBe(62);
-    expect(node.val).toBeGreaterThan(80);
-    expect(node.val).toBeLessThanOrEqual(96);
+    expect(node.val).toBeGreaterThan(140);
+    expect(node.val).toBeLessThanOrEqual(175);
     expect(node.marketUrl).toBe("/markets/market-1");
   });
 
   it("extracts the favored outcome and formats cents", () => {
     expect(getFavoredOutcome({ ...market, yesPrice: 0.42, noPrice: 0.58 }).name).toBe("Celtics");
-    expect(formatCents(0.755)).toBe("76¢");
+    expect(formatCents(0.755)).toBe("76\u00a2");
+  });
+
+  it("cleans generic outcome labels into recognizable names", () => {
+    expect(cleanOutcomeName("Champion", "Will Oklahoma City Thunder win NBA Finals?")).toBe("Oklahoma City Thunder");
+    expect(cleanOutcomeName("Arsenal to win", "Arsenal vs Chelsea")).toBe("Arsenal");
+    expect(cleanOutcomeName("Winner", "Real Madrid vs Barcelona")).toBe("Real Madrid");
   });
 
   it("uses calmer graph physics controls", () => {
     render(<MarketBubbleMap markets={[market]} />);
 
-    expect(screen.getByTestId("graph-config")).toHaveTextContent("0.28|0.012|0.25|3.4");
+    expect(screen.getByTestId("graph-config")).toHaveTextContent("0.32|0.01|0.08|2.8");
   });
 
   it("shows a readable hover tooltip", () => {
@@ -101,7 +107,7 @@ describe("MarketBubbleMap", () => {
 
     expect(screen.getByText("Liquidity")).toBeInTheDocument();
     expect(screen.getByText("$75.0k")).toBeInTheDocument();
-    expect(screen.getByText("Lakers 62¢")).toBeInTheDocument();
+    expect(screen.getByText("Lakers 62\u00a2")).toBeInTheDocument();
     expect(screen.getByText("+3.0%")).toBeInTheDocument();
   });
 
@@ -113,7 +119,7 @@ describe("MarketBubbleMap", () => {
     expect(screen.getByRole("heading", { name: "Los Angeles Lakers vs Boston Celtics" })).toBeInTheDocument();
     expect(screen.getByText("NBA")).toBeInTheDocument();
     expect(screen.getByText("$250k")).toBeInTheDocument();
-    expect(screen.getAllByText("62¢").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("62\u00a2").length).toBeGreaterThan(0);
     expect(screen.getByText("Celtics")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Trade market" })).toHaveAttribute("href", "/trade/market-1");
     expect(screen.getByRole("link", { name: "Open details" })).toHaveAttribute("href", "/markets/market-1");
