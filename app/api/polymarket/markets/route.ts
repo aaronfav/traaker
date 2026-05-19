@@ -30,7 +30,7 @@ export async function GET(request: Request) {
       offset: parseIntParam(searchParams.get("offset")),
       search: searchParams.get("search") ?? undefined,
       minVolume: parseVolumeParam(searchParams.get("minVolume")),
-      sort: sortParam && sorts.has(sortParam as MarketQuerySort) ? (sortParam as MarketQuerySort) : "opportunity",
+      sort: sortParam && sorts.has(sortParam as MarketQuerySort) ? (sortParam as MarketQuerySort) : "volume",
       sport: searchParams.get("sport") ?? undefined,
       status,
     });

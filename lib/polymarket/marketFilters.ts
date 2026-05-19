@@ -50,6 +50,7 @@ const sportsSlugTokens = [
   "nfl",
   "mlb",
   "nhl",
+  "wnba",
   "ncaa",
   "ncaaf",
   "ncaab",
@@ -66,6 +67,12 @@ const sportsSlugTokens = [
   "uefa",
   "world-cup",
   "mls",
+  "golf",
+  "boxing",
+  "cricket",
+  "formula-1",
+  "f1",
+  "racing",
 ];
 
 const hasSlugToken = (slug: string, token: string) => {
@@ -99,6 +106,6 @@ export function hasSportsSignal(input: {
     /\btournament\b/i.test(title) ||
     /\bleague\b/i.test(title) ||
     /\bcup\b/i.test(title);
-  const leagueCue = /\b(nba|nfl|mlb|nhl|ncaa|ufc|mma|tennis|soccer)\b/i.test(`${title} ${category}`);
+  const leagueCue = /\b(nba|nfl|mlb|nhl|wnba|ncaa|ncaaf|ncaab|ufc|mma|tennis|soccer|golf|boxing|cricket|formula\s?1|f1)\b/i.test(`${title} ${category}`);
   return matchCue && leagueCue;
 }

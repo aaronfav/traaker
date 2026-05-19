@@ -62,13 +62,13 @@ const discovery: SportsMarketDiscovery = {
   source: "polymarket",
 };
 
-function makeGammaEventPage(page: number, eventCount = 1, volumeForIndex: (index: number) => number = () => 5000) {
+function makeGammaEventPage(page: number, eventCount = 1, volumeForIndex: (index: number) => number = () => 5000, sportForIndex: (index: number) => boolean = () => true) {
   if (page > 0) return [];
   return Array.from({ length: eventCount }, (_, index) => ({
     id: `event-${index + 1}`,
-    slug: `nba-event-${index + 1}`,
-    title: `NBA event ${index + 1}`,
-    category: "Sports",
+    slug: sportForIndex(index) ? `nba-event-${index + 1}` : `politics-event-${index + 1}`,
+    title: sportForIndex(index) ? `NBA event ${index + 1}` : `Election event ${index + 1}`,
+    category: sportForIndex(index) ? "Sports" : "Politics",
     closed: false,
     active: true,
     volume: volumeForIndex(index),
@@ -80,8 +80,8 @@ function makeGammaEventPage(page: number, eventCount = 1, volumeForIndex: (index
       {
         id: `market-${index + 1}`,
         conditionId: `condition-${index + 1}`,
-        question: `NBA market ${index + 1}`,
-        slug: `nba-market-${index + 1}`,
+        question: sportForIndex(index) ? `NBA market ${index + 1}` : `Election market ${index + 1}`,
+        slug: sportForIndex(index) ? `nba-market-${index + 1}` : `election-market-${index + 1}`,
         active: true,
         acceptingOrders: true,
         enableOrderBook: true,
@@ -92,11 +92,51 @@ function makeGammaEventPage(page: number, eventCount = 1, volumeForIndex: (index
         volume: 5000,
         volume24h: 100,
         liquidity: 200,
-        tags: [{ label: "NBA" }],
-        category: "Sports",
+        tags: sportForIndex(index) ? [{ label: "NBA" }] : [{ label: "Politics" }],
+        category: sportForIndex(index) ? "Sports" : "Politics",
       },
     ],
   }));
+}
+
+function makeGammaEvent(index: number, options: { sport?: boolean; volume?: number; title?: string; category?: string; series?: unknown } = {}) {
+  const sport = options.sport ?? true;
+  const volume = options.volume ?? 5000;
+  const title = options.title ?? (sport ? `NBA event ${index}` : `Election event ${index}`);
+  const category = options.category ?? (sport ? "Sports" : "Politics");
+  return {
+    id: `event-${index}`,
+    slug: sport ? `nba-event-${index}` : `politics-event-${index}`,
+    title,
+    category,
+    series: options.series,
+    closed: false,
+    active: true,
+    volume,
+    volumeNum: volume,
+    volume24hr: volume,
+    startDate: "2026-06-01T00:00:00Z",
+    markets: [
+      {
+        id: `market-${index}`,
+        conditionId: `condition-${index}`,
+        question: sport ? `NBA market ${index}` : `Election market ${index}`,
+        slug: sport ? `nba-market-${index}` : `election-market-${index}`,
+        active: true,
+        acceptingOrders: true,
+        enableOrderBook: true,
+        clobTokenIds: [`yes-${index}`, `no-${index}`],
+        outcomes: ["YES", "NO"],
+        outcomePrices: [0.55, 0.45],
+        bestAsk: 0.55,
+        volume,
+        volume24h: volume,
+        liquidity: 200,
+        tags: sport ? [{ label: "NBA" }] : [{ label: "Politics" }],
+        category,
+      },
+    ],
+  };
 }
 
 async function callMarketsApi(query = "") {
@@ -128,7 +168,7 @@ describe("/api/polymarket/markets", () => {
     resetMarketSnapshotCache();
   });
 
-  it("fetches Gamma sports events and respects limit and offset", async () => {
+  it("fetches broad Gamma events and respects limit and offset", async () => {
     const requestedUrls: string[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       requestedUrls.push(String(input));
@@ -144,13 +184,49 @@ describe("/api/polymarket/markets", () => {
     expect(payload.total).toBe(3);
     expect(payload.markets[0].id).toBe("condition-2");
     const params = new URL(requestedUrls[0]).searchParams;
-    expect(params.get("series_id")).toBe("10345");
+    expect(params.get("series_id")).toBeNull();
     expect(params.get("active")).toBe("true");
     expect(params.get("closed")).toBe("false");
     expect(params.get("order")).toBe("volume");
     expect(params.get("ascending")).toBe("false");
     expect(params.get("limit")).toBe("100");
     expect(params.get("offset")).toBe("0");
+    expect(payload.rawFetched).toBe(3);
+    expect(payload.sportsMatched).toBe(3);
+    expect(payload.volumeMatched).toBe(3);
+    expect(payload.pagesFetched).toBe(1);
+    expect(payload.stopReason).toBe("end");
+  });
+
+  it("continues pagination when early raw pages have few sports matches", async () => {
+    const pages = [
+      Array.from({ length: 100 }, (_, index) => makeGammaEvent(index, { sport: index === 5, volume: 5000 })),
+      Array.from({ length: 100 }, (_, index) => makeGammaEvent(index + 100, { sport: index === 20, volume: index === 20 ? 1500 : 5000 })),
+      [
+        makeGammaEvent(200, { sport: true, volume: 7000, title: "WNBA finals winner", category: "Basketball", series: [{ title: "WNBA" }] }),
+        makeGammaEvent(201, { sport: true, volume: 3000, title: "F1 Monaco Grand Prix winner", category: "Racing" }),
+        makeGammaEvent(202, { sport: false, volume: 9000 }),
+      ],
+    ];
+    const requestedUrls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      requestedUrls.push(String(input));
+      return new Response(JSON.stringify(pages.shift() ?? []), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const payload = await callMarketsApi("?limit=10");
+
+    expect(payload.rawFetched).toBe(203);
+    expect(payload.sportsMatched).toBe(4);
+    expect(payload.volumeMatched).toBe(3);
+    expect(payload.pagesFetched).toBe(3);
+    expect(payload.stopReason).toBe("end");
+    expect(payload.total).toBe(3);
+    expect(payload.markets.map((item: TerminalMarket) => item.id)).toEqual(["condition-200", "condition-5", "condition-201"]);
+    expect(new URL(requestedUrls[0]).searchParams.get("offset")).toBe("0");
+    expect(new URL(requestedUrls[1]).searchParams.get("offset")).toBe("100");
+    expect(new URL(requestedUrls[2]).searchParams.get("offset")).toBe("200");
   });
 
   it("returns a cold first page without starting cached count warmup", async () => {
@@ -171,7 +247,7 @@ describe("/api/polymarket/markets", () => {
     expect(payload.countsLoading).toBe(false);
     expect(payload.returned).toBe(1);
     expect(fetchMock).toHaveBeenCalled();
-    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("offset=100"))).toBe(false);
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("offset=100"))).toBe(true);
   });
 
   it("returns loading counts when the snapshot is not ready", async () => {

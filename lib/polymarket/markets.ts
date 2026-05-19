@@ -8,14 +8,19 @@ import type { MarketChartPoint, MarketStatus, NormalizedOrderbook, RecentTrade, 
 const GAMMA_HOST = "https://gamma-api.polymarket.com";
 const GAMMA_PAGE_LIMIT = 200;
 const GAMMA_SPORTS_EVENTS_PAGE_LIMIT = 100;
-const GAMMA_SPORTS_SERIES_ID = "10345";
+const GAMMA_SPORTS_EVENTS_MAX_PAGES = 50;
 
 const sportsTerms = [
   "nba",
   "nfl",
   "mlb",
   "nhl",
+  "wnba",
+  "ncaa",
+  "ncaaf",
+  "ncaab",
   "ufc",
+  "mma",
   "soccer",
   "football",
   "basketball",
@@ -23,8 +28,16 @@ const sportsTerms = [
   "hockey",
   "tennis",
   "golf",
+  "boxing",
+  "cricket",
+  "formula 1",
+  "formula-1",
+  "f1",
+  "racing",
   "champions league",
   "premier league",
+  "world cup",
+  "mls",
   "f1",
   "formula",
   "sports",
@@ -396,13 +409,16 @@ export function getMarketPage(discovery: SportsMarketDiscovery, params: MarketQu
 }
 
 type FastMarketPageResult = MarketsApiPayload & {
+  rawFetched: number;
+  sportsMatched: number;
+  volumeMatched: number;
   pagesFetched: number;
+  stopReason: "end" | "max_pages";
   requestDurationMs: number;
 };
 
 async function fetchGammaSportsEventPage(offset: number, limit = GAMMA_SPORTS_EVENTS_PAGE_LIMIT) {
   const params = new URLSearchParams({
-    series_id: GAMMA_SPORTS_SERIES_ID,
     active: "true",
     closed: "false",
     order: "volume",
@@ -420,7 +436,72 @@ async function fetchGammaSportsEventPage(offset: number, limit = GAMMA_SPORTS_EV
 }
 
 function getGammaEventVolume(event: GammaEvent) {
-  return asNumber(pick(event, ["volume", "volumeNum"], 0));
+  return asNumber(pick(event, ["volume", "volumeNum", "volume24hr"], 0));
+}
+
+function getFieldText(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map(getFieldText).join(" ");
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return [
+      record.label,
+      record.name,
+      record.title,
+      record.slug,
+      record.ticker,
+      record.category,
+      record.subCategory,
+      record.subcategory,
+    ].map(getFieldText).join(" ");
+  }
+  return "";
+}
+
+function buildSportsSignalText(event: GammaEvent, market?: GammaMarket) {
+  const eventFields = [
+    event.category,
+    event.subCategory,
+    event.subcategory,
+    event.tags,
+    event.series,
+    event.title,
+    event.slug,
+    event.ticker,
+  ];
+  const marketFields = market
+    ? [
+        market.category,
+        market.subCategory,
+        market.subcategory,
+        market.tags,
+        market.series,
+        market.question,
+        market.title,
+        market.slug,
+        market.market_slug,
+        market.groupItemTitle,
+        market.sportsMarketType,
+      ]
+    : [];
+  return [...eventFields, ...marketFields].map(getFieldText).join(" ").toLowerCase();
+}
+
+function hasSportsKeyword(text: string) {
+  return sportsTerms.some((term) => {
+    const pattern = term
+      .split(/[\s-]+/)
+      .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("[\\s-]+");
+    return new RegExp(`(^|[^a-z0-9])${pattern}([^a-z0-9]|$)`, "i").test(text);
+  });
+}
+
+function isSportsEvent(event: GammaEvent) {
+  const eventText = buildSportsSignalText(event);
+  if (hasSportsKeyword(eventText)) return true;
+  return (event.markets ?? []).some((market) => hasSportsKeyword(buildSportsSignalText(event, market)));
 }
 
 function augmentEventMarket(event: GammaEvent, market: GammaMarket, eventVolume: number): GammaMarket {
@@ -441,6 +522,7 @@ function augmentEventMarket(event: GammaEvent, market: GammaMarket, eventVolume:
         startTime: event.startTime,
         eventDate: event.eventDate,
         gameStartTime: event.gameStartTime,
+        series: event.series,
       },
     ],
     eventStartTime: pick(event, ["startTime", "gameStartTime", "eventStartTime", "eventDate", "startDate"]),
@@ -487,7 +569,7 @@ function normalizeGammaSportsEvent(event: GammaEvent): TerminalMarket | null {
   const liquidity = asNumber(pick(event, ["liquidity", "liquidityNum"], selected.liquidity), selected.liquidity);
   const acceleration = volumeAcceleration(volume24h, volume1wk);
   const title = eventTitle || selected.title;
-  const haystack = `${title} ${eventSlug} ${JSON.stringify(event.tags ?? [])} ${event.category ?? ""}`.toLowerCase();
+  const haystack = buildSportsSignalText(event);
   const sport = inferSport(haystack);
 
   return {
@@ -519,29 +601,35 @@ function normalizeGammaSportsEvent(event: GammaEvent): TerminalMarket | null {
 export async function getLiveSportsMarketsApiPayload(params: MarketQueryParams = {}): Promise<FastMarketPageResult> {
   const requestStartedAt = Date.now();
   const minVolume = Math.max(DEFAULT_MARKET_MIN_VOLUME, normalizeMinVolume(params.minVolume));
-  const collectedEvents: GammaEvent[] = [];
+  const sportsEvents: GammaEvent[] = [];
+  const volumeMatchedEvents: GammaEvent[] = [];
   const collectedMarkets: TerminalMarket[] = [];
+  let rawFetched = 0;
   let pagesFetched = 0;
   let currentOffset = 0;
+  let stopReason: FastMarketPageResult["stopReason"] = "end";
 
   while (true) {
     const page = await fetchGammaSportsEventPage(currentOffset);
-    if (!page.length) {
-      break;
-    }
     pagesFetched += 1;
+    rawFetched += page.length;
 
-    const eligiblePageEvents = page.filter((event) => getGammaEventVolume(event) >= minVolume);
-    collectedEvents.push(...eligiblePageEvents);
+    const pageSportsEvents = page.filter(isSportsEvent);
+    sportsEvents.push(...pageSportsEvents);
+    volumeMatchedEvents.push(...pageSportsEvents.filter((event) => getGammaEventVolume(event) >= minVolume));
 
-    const lastEvent = page[page.length - 1];
-    if (page.length < GAMMA_SPORTS_EVENTS_PAGE_LIMIT || (lastEvent && getGammaEventVolume(lastEvent) < minVolume)) {
+    if (page.length < GAMMA_SPORTS_EVENTS_PAGE_LIMIT) {
+      stopReason = "end";
       break;
     }
     currentOffset += page.length;
+    if (pagesFetched >= GAMMA_SPORTS_EVENTS_MAX_PAGES) {
+      stopReason = "max_pages";
+      break;
+    }
   }
 
-  for (const event of collectedEvents) {
+  for (const event of volumeMatchedEvents) {
     const normalized = normalizeGammaSportsEvent(event);
     if (normalized && normalized.status !== "stale") {
       collectedMarkets.push(normalized);
@@ -551,10 +639,10 @@ export async function getLiveSportsMarketsApiPayload(params: MarketQueryParams =
   const discovery = createMarketDiscoveryFromMarkets(collectedMarkets);
   const counts = buildMarketCountsForDiscovery(discovery, minVolume);
   counts.eventPagesFetched = pagesFetched;
-  counts.eventsFetched = collectedEvents.length;
-  counts.rawMarkets = collectedEvents.reduce((total, event) => total + (event.markets?.length ?? 0), 0);
-  counts.sportsMarkets = collectedEvents.length;
-  counts.openSportsMarkets = collectedEvents.length;
+  counts.eventsFetched = rawFetched;
+  counts.rawMarkets = volumeMatchedEvents.reduce((total, event) => total + (event.markets?.length ?? 0), 0);
+  counts.sportsMarkets = sportsEvents.length;
+  counts.openSportsMarkets = sportsEvents.length;
   counts.tradableMarkets = collectedMarkets.length;
   counts.tradableSportsMarkets = collectedMarkets.length;
   counts.displayedMarkets = collectedMarkets.length;
@@ -565,10 +653,13 @@ export async function getLiveSportsMarketsApiPayload(params: MarketQueryParams =
   if (process.env.NODE_ENV !== "production") {
     console.log("[Traak] live sports market page", {
       pagesFetched,
-      eventsFetched: collectedEvents.length,
+      rawFetched,
+      sportsMatched: sportsEvents.length,
+      volumeMatched: volumeMatchedEvents.length,
       rawMarkets: counts.rawMarkets,
       minVolume,
       returned: page.returned,
+      stopReason,
       requestDurationMs,
     });
   }
@@ -578,7 +669,11 @@ export async function getLiveSportsMarketsApiPayload(params: MarketQueryParams =
     countsLoading: false,
     source: "polymarket",
     ...page,
+    rawFetched,
+    sportsMatched: sportsEvents.length,
+    volumeMatched: volumeMatchedEvents.length,
     pagesFetched,
+    stopReason,
     requestDurationMs,
   };
 }
