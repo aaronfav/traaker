@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MarketsExplorer } from "@/components/MarketsExplorer";
+import { hasUsefulFavoredPrice, MarketsExplorer } from "@/components/MarketsExplorer";
 import type { MarketPage, SportsMarketDiscovery } from "@/lib/polymarket/markets";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
@@ -107,6 +107,31 @@ describe("MarketsExplorer", () => {
       },
       { timeout: 1000 },
     );
+  });
+
+  it("filters out extreme favored prices before range display", () => {
+    expect(hasUsefulFavoredPrice({ ...market, yesPrice: 0.99, noPrice: 0.01 })).toBe(false);
+    expect(hasUsefulFavoredPrice({ ...market, yesPrice: 0.05, noPrice: 0.04 })).toBe(false);
+    expect(hasUsefulFavoredPrice({ ...market, yesPrice: 0.5, noPrice: 0.5 })).toBe(true);
+    expect(hasUsefulFavoredPrice({ ...market, yesPrice: 0.7, noPrice: 0.3 })).toBe(true);
+  });
+
+  it("renders only useful-price markets from the fetched ranked page", async () => {
+    const page: MarketPage = {
+      ...initialPage,
+      markets: [
+        { ...market, id: "too-high", yesPrice: 0.99, noPrice: 0.01 },
+        { ...market, id: "too-low", yesPrice: 0.05, noPrice: 0.04 },
+        { ...market, id: "fair-50", yesPrice: 0.5, noPrice: 0.5 },
+        { ...market, id: "fair-70", yesPrice: 0.7, noPrice: 0.3 },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ...page, counts, countsLoading: false, source: "polymarket" }), { status: 200 })));
+
+    render(<MarketsExplorer initialPage={page} source="polymarket" />);
+
+    expect(screen.getByRole("application", { name: /2 sports market bubble map/i })).toBeInTheDocument();
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
   });
 
   it("keeps existing bubbles visible while refreshing", async () => {

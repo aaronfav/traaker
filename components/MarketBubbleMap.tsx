@@ -100,6 +100,14 @@ const clamp01 = (value: number) => Math.max(0, Math.min(1, safeNumber(value, 0))
 
 export const formatCents = (price: number) => `${Math.round(clamp01(price) * 100)}\u00a2`;
 
+function alphaColor(color: string, alpha: number) {
+  if (!color.startsWith("#") || !/^#[0-9a-f]{6}$/i.test(color)) return color;
+  const red = Number.parseInt(color.slice(1, 3), 16);
+  const green = Number.parseInt(color.slice(3, 5), 16);
+  const blue = Number.parseInt(color.slice(5, 7), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
 const genericOutcomePattern = /^(yes|no|winner|champion|champions?|market|liquid|gaming|team|field|other|others?|draw\/tie)$/i;
 const genericWords = /\b(to win|winner|champions?|championship|market|moneyline|outright|yes|no|will|wins?|advance|qualify|series|game|match|nba|nfl|mlb|nhl|wnba|ncaa|finals?|league|cup|season|playoffs?)\b/gi;
 
@@ -679,10 +687,16 @@ function drawFallbackGlassBubble(ctx: CanvasRenderingContext2D, node: MarketBubb
 function drawSoccerBall(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
   ctx.save();
   clipCircle(ctx, x, y, radius);
-  ctx.fillStyle = "#f8fafc";
+  ctx.fillStyle = "#f9fafb";
   ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
-  ctx.strokeStyle = "rgba(15,23,42,0.68)";
-  ctx.lineWidth = Math.max(1.2, radius * 0.025);
+  const shade = ctx.createRadialGradient(x - radius * 0.25, y - radius * 0.32, radius * 0.1, x, y, radius);
+  shade.addColorStop(0, "rgba(255,255,255,0.8)");
+  shade.addColorStop(0.72, "rgba(229,231,235,0.2)");
+  shade.addColorStop(1, "rgba(15,23,42,0.14)");
+  ctx.fillStyle = shade;
+  ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  ctx.strokeStyle = "rgba(17,24,39,0.82)";
+  ctx.lineWidth = Math.max(1.1, radius * 0.018);
   const pentagonRadius = radius * 0.22;
   ctx.beginPath();
   for (let index = 0; index < 5; index += 1) {
@@ -693,7 +707,7 @@ function drawSoccerBall(ctx: CanvasRenderingContext2D, x: number, y: number, rad
     else ctx.lineTo(px, py);
   }
   ctx.closePath();
-  ctx.fillStyle = "#111827";
+  ctx.fillStyle = "#050505";
   ctx.fill();
   ctx.stroke();
   for (let index = 0; index < 5; index += 1) {
@@ -703,11 +717,20 @@ function drawSoccerBall(ctx: CanvasRenderingContext2D, x: number, y: number, rad
     ctx.lineTo(x + Math.cos(angle) * radius * 0.86, y + Math.sin(angle) * radius * 0.86);
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(x + Math.cos(angle) * radius * 0.62, y + Math.sin(angle) * radius * 0.62, safeRadius(radius * 0.13), 0, Math.PI * 2);
-    ctx.fillStyle = "#111827";
+    const panelX = x + Math.cos(angle) * radius * 0.62;
+    const panelY = y + Math.sin(angle) * radius * 0.62;
+    for (let point = 0; point < 6; point += 1) {
+      const hexAngle = Math.PI / 6 + (point * Math.PI * 2) / 6;
+      const px = panelX + Math.cos(hexAngle) * radius * 0.12;
+      const py = panelY + Math.sin(hexAngle) * radius * 0.12;
+      if (point === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "#050505";
     ctx.fill();
+    ctx.stroke();
   }
-  drawBallGloss(ctx, x, y, radius);
   ctx.restore();
 }
 
@@ -923,7 +946,7 @@ function drawBubble(
   ctx.globalAlpha = easeIntro;
 
   const glow = ctx.createRadialGradient(x, y, safeRadius(radius * 0.86), x, y, glowRadius);
-  glow.addColorStop(0, isHovered ? node.glowColor : "rgba(255,255,255,0.02)");
+  glow.addColorStop(0, isHovered ? alphaColor(node.primaryColor, 0.42) : alphaColor(node.primaryColor, 0.25));
   glow.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = glow;
   ctx.beginPath();
@@ -932,14 +955,14 @@ function drawBubble(
 
   drawSportBubble(ctx, node, x, y, radius);
 
-  ctx.lineWidth = Math.max(3, radius * 0.08);
-  ctx.strokeStyle = node.primaryColor;
+  ctx.lineWidth = isHovered || options.priorityPass ? 4 : 2;
+  ctx.strokeStyle = alphaColor(node.primaryColor, isHovered || options.priorityPass ? 0.88 : 0.52);
   ctx.beginPath();
   ctx.arc(x, y, safeRadius(radius - ctx.lineWidth / 2), 0, Math.PI * 2);
   ctx.stroke();
 
-  ctx.lineWidth = Math.max(1, radius * 0.025);
-  ctx.strokeStyle = node.secondaryColor;
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = alphaColor(node.secondaryColor, 0.26);
   ctx.beginPath();
   ctx.arc(x, y, safeRadius(radius - Math.max(4, radius * 0.1)), 0, Math.PI * 2);
   ctx.stroke();
@@ -974,8 +997,8 @@ function drawBubble(
   }
 
   if (options.priorityPass) {
-    ctx.lineWidth = Math.max(2, radius * 0.035);
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = alphaColor(node.primaryColor, 0.72);
     ctx.beginPath();
     ctx.arc(x, y, safeRadius(radius + 1.5), 0, Math.PI * 2);
     ctx.stroke();

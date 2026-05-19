@@ -16,6 +16,12 @@ const rangeOptions = [
   { label: "1-150", value: 150 },
   { label: "1-250", value: 250 },
 ] as const;
+const maxMarketFetchLimit = rangeOptions[rangeOptions.length - 1].value;
+
+export function hasUsefulFavoredPrice(market: TerminalMarket) {
+  const favoredPrice = Math.max(Number.isFinite(market.yesPrice) ? market.yesPrice : 0, Number.isFinite(market.noPrice) ? market.noPrice : 0);
+  return favoredPrice >= 0.11 && favoredPrice <= 0.94;
+}
 
 type MarketsResponse = MarketPage & {
   counts: SportsMarketDiscovery["counts"];
@@ -92,7 +98,7 @@ export function MarketsExplorer({
       setIsLoading(true);
       setError(null);
     });
-    fetch(buildMarketsUrl({ offset: 0, limit: rangeLimit, search: debouncedQuery, sort, sport, status, minVolume }), { signal: controller.signal })
+    fetch(buildMarketsUrl({ offset: 0, limit: Math.max(rangeLimit, maxMarketFetchLimit), search: debouncedQuery, sort, sport, status, minVolume }), { signal: controller.signal })
       .then(readMarketsResponse)
       .then((nextPage) => {
         if (requestId !== requestIdRef.current) return;
@@ -114,7 +120,7 @@ export function MarketsExplorer({
 
   const isInitialLoading = isLoading && markets.length === 0;
   const isRefreshing = isLoading && markets.length > 0;
-  const visibleMarkets = markets.slice(0, rangeLimit);
+  const visibleMarkets = markets.filter(hasUsefulFavoredPrice).slice(0, rangeLimit);
 
   return (
     <section className="w-screen bg-[#050505]">
