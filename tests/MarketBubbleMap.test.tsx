@@ -1,6 +1,16 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanOutcomeName, formatCents, getFavoredOutcome, layoutBubbleNodes, MarketBubbleMap, marketToBubbleNode } from "@/components/MarketBubbleMap";
+import {
+  cleanOutcomeName,
+  createBubbleBodies,
+  formatCents,
+  getFavoredOutcome,
+  layoutBubbleNodes,
+  MarketBubbleMap,
+  marketToBubbleNode,
+  tickBubblePhysics,
+  type BubbleBody,
+} from "@/components/MarketBubbleMap";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
 function createStrictCanvasContext() {
@@ -59,6 +69,11 @@ const market: TerminalMarket = {
   tokenIds: { yes: "111", no: "222" },
   source: "polymarket",
 };
+
+const hasOverlap = (bodies: Array<{ x: number; y: number; radius?: number; val: number }>, padding = 6) =>
+  bodies.some((left, leftIndex) =>
+    bodies.slice(leftIndex + 1).some((right) => Math.hypot(right.x - left.x, right.y - left.y) < (left.radius ?? left.val) + (right.radius ?? right.val) + padding - 0.01),
+  );
 
 describe("MarketBubbleMap", () => {
   beforeEach(() => {
@@ -170,17 +185,71 @@ describe("MarketBubbleMap", () => {
       volume: 1_000_000 - index * 10_000,
       liquidity: 500_000 - index * 5_000,
     }));
-    const packed = layoutBubbleNodes(markets.map((item, index) => marketToBubbleNode(item, index)), 1400, 760, false);
+    const packed = layoutBubbleNodes(markets.map((item, index) => marketToBubbleNode(item, index)), 1700, 900, false);
     const xs = packed.map((node) => node.x);
     const ys = packed.map((node) => node.y);
 
     expect(packed).toHaveLength(50);
-    expect(packed[0].val).toBeGreaterThanOrEqual(90);
+    expect(packed[0].val).toBeGreaterThanOrEqual(80);
     expect(packed[4].val).toBeLessThanOrEqual(125);
-    expect(packed[5].val).toBeGreaterThanOrEqual(70);
-    expect(packed[15].val).toBeGreaterThanOrEqual(50);
-    expect(packed[36].val).toBeGreaterThanOrEqual(38);
-    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(1000);
-    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(480);
+    expect(packed[5].val).toBeGreaterThanOrEqual(58);
+    expect(packed[15].val).toBeGreaterThanOrEqual(42);
+    expect(packed[36].val).toBeGreaterThanOrEqual(32);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(1250);
+    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(600);
+    expect(hasOverlap(packed)).toBe(false);
+  });
+
+  it("uses a smaller mobile collision boundary", () => {
+    const markets = Array.from({ length: 35 }, (_, index) => ({
+      ...market,
+      id: `mobile-${index}`,
+      conditionId: `mobile-condition-${index}`,
+      volume: 800_000 - index * 8_000,
+    }));
+    const mobileBodies = createBubbleBodies(markets.map((item, index) => marketToBubbleNode(item, index)), 390, 720, true);
+
+    expect(hasOverlap(mobileBodies, 4)).toBe(false);
+  });
+
+  it("creates physics bodies inside bounds with fixed radii", () => {
+    const markets = Array.from({ length: 50 }, (_, index) => ({
+      ...market,
+      id: `body-${index}`,
+      conditionId: `body-condition-${index}`,
+      volume: 1_000_000 - index * 10_000,
+    }));
+    const bodies = createBubbleBodies(markets.map((item, index) => marketToBubbleNode(item, index)), 1700, 900, false);
+
+    expect(hasOverlap(bodies, 6)).toBe(false);
+    for (const body of bodies) {
+      expect(body.x - body.radius).toBeGreaterThanOrEqual(0);
+      expect(body.x + body.radius).toBeLessThanOrEqual(1700);
+      expect(body.y - body.radius).toBeGreaterThanOrEqual(0);
+      expect(body.y + body.radius).toBeLessThanOrEqual(900);
+      expect(body.mass).toBe(body.radius * body.radius);
+    }
+  });
+
+  it("collision resolution separates overlapping bubbles and preserves radii", () => {
+    const left = { ...marketToBubbleNode(market), id: "left", x: 200, y: 180, val: 50, radius: 50, mass: 2500, vx: 0.1, vy: 0 } satisfies BubbleBody;
+    const right = { ...marketToBubbleNode({ ...market, id: "right" }), x: 220, y: 180, val: 50, radius: 50, mass: 2500, vx: -0.1, vy: 0 } satisfies BubbleBody;
+    const originalRadii = [left.radius, right.radius];
+
+    tickBubblePhysics([left, right], 500, 400);
+
+    expect(Math.hypot(right.x - left.x, right.y - left.y)).toBeGreaterThanOrEqual(left.radius + right.radius + 6 - 0.01);
+    expect([left.radius, right.radius]).toEqual(originalRadii);
+  });
+
+  it("physics keeps moving bubbles inside bounds without resizing", () => {
+    const body = { ...marketToBubbleNode(market), x: 8, y: 8, val: 40, radius: 40, mass: 1600, vx: -0.2, vy: -0.2 } satisfies BubbleBody;
+
+    tickBubblePhysics([body], 300, 240);
+
+    expect(body.x - body.radius).toBeGreaterThanOrEqual(0);
+    expect(body.y - body.radius).toBeGreaterThanOrEqual(0);
+    expect(body.radius).toBe(40);
+    expect(body.val).toBe(40);
   });
 });

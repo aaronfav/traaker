@@ -52,6 +52,20 @@ type BackgroundParticle = {
   color: string;
 };
 
+export type BubbleBody = MarketBubbleNode & {
+  radius: number;
+  mass: number;
+  vx: number;
+  vy: number;
+};
+
+const DESKTOP_COLLISION_PADDING = 6;
+const MOBILE_COLLISION_PADDING = 4;
+const MAX_BUBBLE_SPEED = 0.35;
+const VELOCITY_DAMPING = 0.995;
+const WALL_BOUNCE = 0.42;
+const COLLISION_BOUNCE = 0.18;
+
 const money = (value: number) => {
   const numeric = Number.isFinite(value) ? Math.max(0, value) : 0;
   if (numeric >= 1_000_000_000) return `$${(numeric / 1_000_000_000).toFixed(1)}B`;
@@ -185,7 +199,14 @@ const rankBubbleRadius = (baseRadius: number, index: number) => {
   return 38 + normalized * 17;
 };
 
-const clampPosition = (value: number, radius: number, max: number) => Math.max(radius + 4, Math.min(max - radius - 4, value));
+const clampPosition = (value: number, radius: number, max: number) => Math.max(radius, Math.min(max - radius, value));
+
+const velocityForId = (id: string, axis: "x" | "y") => {
+  const unit = (hashString(`${id}:velocity:${axis}`) % 10_000) / 10_000;
+  return (unit - 0.5) * 0.3;
+};
+
+const collisionPaddingForViewport = (isMobile: boolean) => (isMobile ? MOBILE_COLLISION_PADDING : DESKTOP_COLLISION_PADDING);
 
 const initialsForName = (name: string) => {
   const words = name
@@ -296,15 +317,25 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
   };
 }
 
-export function layoutBubbleNodes(nodes: MarketBubbleNode[], width: number, height: number, isMobile = false): MarketBubbleNode[] {
+function hasBubbleOverlap(nodes: Array<{ x: number; y: number; val: number }>, padding = DESKTOP_COLLISION_PADDING) {
+  return nodes.some((left, leftIndex) =>
+    nodes.slice(leftIndex + 1).some((right) => Math.hypot(right.x - left.x, right.y - left.y) < left.val + right.val + padding - 0.01),
+  );
+}
+
+export function layoutBubbleNodes(nodes: MarketBubbleNode[], width: number, height: number, isMobile = false, attempt = 0): MarketBubbleNode[] {
   const boardWidth = Math.max(320, safeNumber(width, 1200));
   const boardHeight = Math.max(420, safeNumber(height, 680));
   const footerReserve = isMobile ? 64 : 50;
   const topReserve = isMobile ? 14 : 10;
   const usableHeight = Math.max(320, boardHeight - footerReserve - topReserve);
-  const totalArea = nodes.reduce((sum, node) => sum + Math.PI * Math.pow(safeRadius(node.val, 8) + 5, 2), 0);
-  const targetArea = boardWidth * usableHeight * (isMobile ? 0.72 : 0.82);
-  const densityScale = totalArea > 0 ? Math.min(1, Math.max(isMobile ? 0.64 : 0.82, Math.sqrt(targetArea / totalArea))) : 1;
+  const collisionPadding = collisionPaddingForViewport(isMobile);
+  const collisionGap = collisionPadding / 2;
+  const totalArea = nodes.reduce((sum, node) => sum + Math.PI * Math.pow(safeRadius(node.val, 8) + collisionGap, 2), 0);
+  const targetArea = boardWidth * usableHeight * (isMobile ? 0.62 : 0.76);
+  const minimumScale = isMobile ? 0.22 : 0.5;
+  const baseDensityScale = totalArea > 0 ? Math.min(1, Math.max(minimumScale, Math.sqrt(targetArea / totalArea))) : 1;
+  const densityScale = Math.max(minimumScale, baseDensityScale * Math.pow(0.94, attempt));
   const anchors = isMobile
     ? [
         [0.5, 0.17],
@@ -329,7 +360,7 @@ export function layoutBubbleNodes(nodes: MarketBubbleNode[], width: number, heig
     if (index < anchors.length) {
       const [xUnit, yUnit] = anchors[index];
       const x = clampPosition(boardWidth * xUnit, val, boardWidth);
-      const y = clampPosition(topReserve + usableHeight * yUnit, val, boardHeight - footerReserve * 0.36);
+      const y = clampPosition(topReserve + usableHeight * yUnit, val, boardHeight - footerReserve);
       return { ...node, val, x, y, targetX: x, targetY: y };
     }
 
@@ -342,18 +373,17 @@ export function layoutBubbleNodes(nodes: MarketBubbleNode[], width: number, heig
     const xUnit = (col + 0.5 + rowOffset + jitterX) / columns;
     const yUnit = (row + 0.5 + jitterY) / rows;
     const x = clampPosition(boardWidth * xUnit, val, boardWidth);
-    const y = clampPosition(topReserve + usableHeight * yUnit, val, boardHeight - footerReserve * 0.36);
+    const y = clampPosition(topReserve + usableHeight * yUnit, val, boardHeight - footerReserve);
     return { ...node, val, x, y, targetX: x, targetY: y };
   });
 
-  for (let iteration = 0; iteration < 72; iteration += 1) {
+  for (let iteration = 0; iteration < 240; iteration += 1) {
     let moved = false;
     for (let leftIndex = 0; leftIndex < placed.length; leftIndex += 1) {
       for (let rightIndex = leftIndex + 1; rightIndex < placed.length; rightIndex += 1) {
         const left = placed[leftIndex];
         const right = placed[rightIndex];
-        const padding = leftIndex < 5 || rightIndex < 5 ? 8 : 5;
-        const minDistance = left.val + right.val + padding;
+        const minDistance = left.val + right.val + collisionPadding;
         let dx = right.x - left.x;
         let dy = right.y - left.y;
         let distance = Math.hypot(dx, dy);
@@ -370,16 +400,150 @@ export function layoutBubbleNodes(nodes: MarketBubbleNode[], width: number, heig
         const leftWeight = right.val / (left.val + right.val);
         const rightWeight = left.val / (left.val + right.val);
         left.x = clampPosition(left.x - nx * push * leftWeight, left.val, boardWidth);
-        left.y = clampPosition(left.y - ny * push * leftWeight, left.val, boardHeight - footerReserve * 0.36);
+        left.y = clampPosition(left.y - ny * push * leftWeight, left.val, boardHeight - footerReserve);
         right.x = clampPosition(right.x + nx * push * rightWeight, right.val, boardWidth);
-        right.y = clampPosition(right.y + ny * push * rightWeight, right.val, boardHeight - footerReserve * 0.36);
+        right.y = clampPosition(right.y + ny * push * rightWeight, right.val, boardHeight - footerReserve);
         moved = true;
       }
     }
     if (!moved) break;
   }
 
-  return placed.map((node) => ({ ...node, targetX: node.x, targetY: node.y }));
+  const packed = placed.map((node) => ({ ...node, targetX: node.x, targetY: node.y }));
+  if (attempt < 12 && hasBubbleOverlap(packed, collisionPadding)) {
+    return layoutBubbleNodes(nodes, width, height, isMobile, attempt + 1);
+  }
+  return packed;
+}
+
+export function createBubbleBodies(nodes: MarketBubbleNode[], width: number, height: number, isMobile = false): BubbleBody[] {
+  return layoutBubbleNodes(nodes, width, height, isMobile).map((node) => {
+    const radius = Math.max(8, safeRadius(node.val, 8));
+    return {
+      ...node,
+      val: radius,
+      radius,
+      mass: radius * radius,
+      vx: velocityForId(node.id, "x"),
+      vy: velocityForId(node.id, "y"),
+    };
+  });
+}
+
+function clampBodyToBounds(body: BubbleBody, width: number, height: number) {
+  const radius = Math.max(8, safeRadius(body.radius, 8));
+  if (body.x - radius < 0) {
+    body.x = radius;
+    body.vx = Math.abs(body.vx) * WALL_BOUNCE;
+  } else if (body.x + radius > width) {
+    body.x = width - radius;
+    body.vx = -Math.abs(body.vx) * WALL_BOUNCE;
+  }
+  if (body.y - radius < 0) {
+    body.y = radius;
+    body.vy = Math.abs(body.vy) * WALL_BOUNCE;
+  } else if (body.y + radius > height) {
+    body.y = height - radius;
+    body.vy = -Math.abs(body.vy) * WALL_BOUNCE;
+  }
+}
+
+function capVelocity(body: BubbleBody) {
+  const speed = Math.hypot(body.vx, body.vy);
+  if (speed <= MAX_BUBBLE_SPEED || speed <= 0) return;
+  body.vx = (body.vx / speed) * MAX_BUBBLE_SPEED;
+  body.vy = (body.vy / speed) * MAX_BUBBLE_SPEED;
+}
+
+function hasBodyOverlap(bodies: BubbleBody[], padding: number) {
+  return bodies.some((left, leftIndex) =>
+    bodies.slice(leftIndex + 1).some((right) => Math.hypot(right.x - left.x, right.y - left.y) < left.radius + right.radius + padding - 0.01),
+  );
+}
+
+function resolveBubbleOverlaps(bodies: BubbleBody[], width: number, height: number, padding: number, passes = 3) {
+  const boardWidth = Math.max(320, safeNumber(width, 1200));
+  const boardHeight = Math.max(420, safeNumber(height, 680));
+  for (let pass = 0; pass < passes; pass += 1) {
+    for (let leftIndex = 0; leftIndex < bodies.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < bodies.length; rightIndex += 1) {
+        const left = bodies[leftIndex];
+        const right = bodies[rightIndex];
+        const minDistance = left.radius + right.radius + padding;
+        let dx = right.x - left.x;
+        let dy = right.y - left.y;
+        let distance = Math.hypot(dx, dy);
+        if (distance >= minDistance) continue;
+        if (distance < 0.001) {
+          const angle = (hashString(`${left.id}:${right.id}:collision`) % 628) / 100;
+          dx = Math.cos(angle);
+          dy = Math.sin(angle);
+          distance = 1;
+        }
+
+        const nx = dx / distance;
+        const ny = dy / distance;
+        const overlap = minDistance - distance;
+        const leftInverseMass = 1 / Math.max(1, left.mass);
+        const rightInverseMass = 1 / Math.max(1, right.mass);
+        const inverseMassSum = leftInverseMass + rightInverseMass;
+        left.x -= nx * overlap * (leftInverseMass / inverseMassSum);
+        left.y -= ny * overlap * (leftInverseMass / inverseMassSum);
+        right.x += nx * overlap * (rightInverseMass / inverseMassSum);
+        right.y += ny * overlap * (rightInverseMass / inverseMassSum);
+
+        const relativeVelocityX = right.vx - left.vx;
+        const relativeVelocityY = right.vy - left.vy;
+        const velocityAlongNormal = relativeVelocityX * nx + relativeVelocityY * ny;
+        if (velocityAlongNormal < 0) {
+          const impulse = (-(1 + COLLISION_BOUNCE) * velocityAlongNormal) / inverseMassSum;
+          left.vx -= impulse * leftInverseMass * nx;
+          left.vy -= impulse * leftInverseMass * ny;
+          right.vx += impulse * rightInverseMass * nx;
+          right.vy += impulse * rightInverseMass * ny;
+          capVelocity(left);
+          capVelocity(right);
+        }
+
+        clampBodyToBounds(left, boardWidth, boardHeight);
+        clampBodyToBounds(right, boardWidth, boardHeight);
+      }
+    }
+  }
+}
+
+function assertNoBubbleOverlapInDevelopment(bodies: BubbleBody[], padding: number) {
+  if (process.env.NODE_ENV === "production" || !hasBodyOverlap(bodies, padding)) return;
+  console.warn("Traak bubble overlap detected after physics resolution.", { padding, count: bodies.length });
+}
+
+export function tickBubblePhysics(bodies: BubbleBody[], width: number, height: number, delta = 1, isMobile = false) {
+  const boardWidth = Math.max(320, safeNumber(width, 1200));
+  const boardHeight = Math.max(420, safeNumber(height, 680));
+  const step = Math.max(0.25, Math.min(2, safeNumber(delta, 1)));
+  const collisionPadding = collisionPaddingForViewport(isMobile);
+
+  for (const body of bodies) {
+    const phase = safeNumber(body.driftPhase);
+    body.vx += Math.sin(Date.now() / 7000 + phase) * 0.002 * step;
+    body.vy += Math.cos(Date.now() / 7600 + phase) * 0.002 * step;
+    body.vx *= VELOCITY_DAMPING;
+    body.vy *= VELOCITY_DAMPING;
+    capVelocity(body);
+    body.x += body.vx * step;
+    body.y += body.vy * step;
+    clampBodyToBounds(body, boardWidth, boardHeight);
+  }
+
+  resolveBubbleOverlaps(bodies, boardWidth, boardHeight, collisionPadding);
+}
+
+function resolveOverlapsBeforeDraw(bodies: BubbleBody[], width: number, height: number, isMobile: boolean) {
+  const padding = collisionPaddingForViewport(isMobile);
+  if (hasBodyOverlap(bodies, padding)) {
+    resolveBubbleOverlaps(bodies, width, height, padding, 8);
+  }
+  assertNoBubbleOverlapInDevelopment(bodies, padding);
 }
 
 function drawBackground(ctx: CanvasRenderingContext2D, particles: BackgroundParticle[]) {
@@ -468,11 +632,9 @@ function drawBubble(
   const introAlpha = Math.min(1, Math.max(0, (now - options.introStartedAt) / 900));
   const easeIntro = 1 - Math.pow(1 - introAlpha, 3);
   const isHovered = node.id === options.hoveredId;
-  const driftPhase = safeNumber(node.driftPhase);
   const radius = Math.max(8, safeRadius(safeNumber(node.val, 8), 8));
-  const driftStrength = options.isMobile ? 1.25 : 2;
-  const x = safeCoordinate(node.x) + Math.sin(now / 5200 + driftPhase) * driftStrength;
-  const y = safeCoordinate(node.y) + Math.cos(now / 6100 + driftPhase * 1.2) * driftStrength;
+  const x = safeCoordinate(node.x);
+  const y = safeCoordinate(node.y);
   const screenRadius = radius / safeRadius(globalScale, 1);
   const canRenderText = screenRadius >= (options.isMobile ? 24 : 18);
   const canRenderPrice = screenRadius >= (options.isMobile ? 28 : 22);
@@ -563,6 +725,7 @@ export function MarketBubbleMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<number | null>(null);
+  const bodiesRef = useRef<BubbleBody[]>([]);
   const [introStartedAt] = useState(() => Date.now());
   const [selectedMarket, setSelectedMarket] = useState<MarketBubbleNode | null>(null);
   const [hoveredMarket, setHoveredMarket] = useState<MarketBubbleNode | null>(null);
@@ -572,7 +735,13 @@ export function MarketBubbleMap({
   const nodes = useMemo(() => markets.map((market, index) => marketToBubbleNode(market, index)), [markets]);
   const particles = useMemo(() => createBackgroundParticles(), []);
   const isMobile = dimensions.width < 640;
-  const layoutNodes = useMemo(() => layoutBubbleNodes(nodes, dimensions.width, dimensions.height, isMobile), [dimensions.height, dimensions.width, isMobile, nodes]);
+  const bodyCount = nodes.length;
+
+  useEffect(() => {
+    bodiesRef.current = createBubbleBodies(nodes, dimensions.width, dimensions.height, isMobile);
+    const timer = window.setTimeout(() => setHoveredMarket(null), 0);
+    return () => window.clearTimeout(timer);
+  }, [dimensions.height, dimensions.width, isMobile, nodes]);
 
   useEffect(() => {
     const node = containerRef.current;
@@ -605,11 +774,13 @@ export function MarketBubbleMap({
     const drawFrame = () => {
       context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
       drawBackground(context, particles);
+      tickBubblePhysics(bodiesRef.current, dimensions.width, dimensions.height, 1, isMobile);
+      resolveOverlapsBeforeDraw(bodiesRef.current, dimensions.width, dimensions.height, isMobile);
       const hoveredId = hoveredMarket?.id;
-      for (const node of layoutNodes) {
+      for (const node of bodiesRef.current) {
         if (node.id !== hoveredId) drawBubble(node, context, 1, { hoveredId, introStartedAt, isMobile });
       }
-      const hoveredNode = hoveredId ? layoutNodes.find((node) => node.id === hoveredId) : null;
+      const hoveredNode = hoveredId ? bodiesRef.current.find((node) => node.id === hoveredId) : null;
       if (hoveredNode) drawBubble(hoveredNode, context, 1, { hoveredId, introStartedAt, isMobile, priorityPass: true });
       frameRef.current = window.requestAnimationFrame(drawFrame);
     };
@@ -619,7 +790,7 @@ export function MarketBubbleMap({
       if (frameRef.current !== null) window.cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
     };
-  }, [dimensions.height, dimensions.width, hoveredMarket?.id, introStartedAt, isMobile, layoutNodes, particles]);
+  }, [dimensions.height, dimensions.width, hoveredMarket?.id, introStartedAt, isMobile, particles]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -633,7 +804,7 @@ export function MarketBubbleMap({
     (x: number, y: number) => {
       let bestNode: MarketBubbleNode | null = null;
       let bestDistance = Number.POSITIVE_INFINITY;
-      for (const node of layoutNodes) {
+      for (const node of bodiesRef.current) {
         const dx = x - node.x;
         const dy = y - node.y;
         const distance = Math.hypot(dx, dy);
@@ -644,7 +815,7 @@ export function MarketBubbleMap({
       }
       return bestNode;
     },
-    [layoutNodes],
+    [],
   );
 
   const handleMouseMove = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
@@ -674,7 +845,7 @@ export function MarketBubbleMap({
 
   return (
     <div
-      aria-label={`${layoutNodes.length} sports market bubble map`}
+      aria-label={`${bodyCount} sports market bubble map`}
       className="relative h-[calc(100vh-5.45rem)] min-h-[480px] w-screen overflow-hidden bg-[#050505] sm:h-[calc(100vh-5.15rem)]"
       onClick={handleClick}
       onMouseLeave={handleMouseLeave}
@@ -714,7 +885,7 @@ export function MarketBubbleMap({
         </div>
       ) : null}
 
-      {layoutNodes.length === 0 && !isLoading ? (
+      {bodyCount === 0 && !isLoading ? (
         <div className="absolute inset-0 grid place-items-center text-sm text-slate-400">No sports markets matched this view.</div>
       ) : null}
 
