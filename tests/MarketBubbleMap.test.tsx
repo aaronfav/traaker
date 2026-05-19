@@ -30,6 +30,12 @@ function createStrictCanvasContext() {
     strokeText: vi.fn(),
     fillText: vi.fn(),
     setTransform: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    closePath: vi.fn(),
+    ellipse: vi.fn(),
+    translate: vi.fn(),
+    rotate: vi.fn(),
     createRadialGradient: vi.fn((_: number, __: number, r0: number, ___: number, ____: number, r1: number) => {
       if (!Number.isFinite(r0) || r0 <= 0 || !Number.isFinite(r1) || r1 <= 0) {
         throw new Error(`Invalid gradient radius ${r0}, ${r1}`);

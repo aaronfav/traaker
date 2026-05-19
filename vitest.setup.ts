@@ -17,6 +17,12 @@ function createCanvasContextStub() {
     drawImage: () => undefined,
     strokeText: () => undefined,
     fillText: () => undefined,
+    moveTo: () => undefined,
+    lineTo: () => undefined,
+    closePath: () => undefined,
+    ellipse: () => undefined,
+    translate: () => undefined,
+    rotate: () => undefined,
     createRadialGradient: () => gradient,
     arc: () => undefined,
   } as unknown as CanvasRenderingContext2D;

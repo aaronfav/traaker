@@ -622,6 +622,284 @@ function drawLogoMark(node: MarketBubbleNode, ctx: CanvasRenderingContext2D, x: 
   ctx.restore();
 }
 
+type SportBubbleKind = "soccer" | "basketball" | "football" | "tennis" | "baseball" | "hockey" | "ufc" | "f1" | "fallback";
+
+function sportBubbleKind(node: MarketBubbleNode): SportBubbleKind {
+  const value = `${node.sport} ${node.title}`.toLowerCase();
+  if (/\b(soccer|premier league|champions league|laliga|serie a|bundesliga|mls|epl|uefa|fifa)\b/.test(value)) return "soccer";
+  if (/\b(nba|wnba|basketball|ncaa)\b/.test(value)) return "basketball";
+  if (/\b(nfl|football|chiefs|eagles|cowboys|49ers|packers)\b/.test(value)) return "football";
+  if (/\b(tennis|atp|wta|wimbledon|us open|french open|australian open)\b/.test(value)) return "tennis";
+  if (/\b(mlb|baseball|dodgers|yankees|red sox)\b/.test(value)) return "baseball";
+  if (/\b(nhl|hockey|stanley cup)\b/.test(value)) return "hockey";
+  if (/\b(ufc|mma|fight|boxing)\b/.test(value)) return "ufc";
+  if (/\b(f1|formula 1|racing|grand prix|nascar)\b/.test(value)) return "f1";
+  return "fallback";
+}
+
+function clipCircle(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
+  ctx.beginPath();
+  ctx.arc(x, y, safeRadius(radius), 0, Math.PI * 2);
+  ctx.clip();
+}
+
+function drawBallGloss(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
+  const gloss = ctx.createRadialGradient(x - radius * 0.35, y - radius * 0.42, radius * 0.06, x, y, radius);
+  gloss.addColorStop(0, "rgba(255,255,255,0.34)");
+  gloss.addColorStop(0.35, "rgba(255,255,255,0.08)");
+  gloss.addColorStop(1, "rgba(0,0,0,0.34)");
+  ctx.fillStyle = gloss;
+  ctx.beginPath();
+  ctx.arc(x, y, safeRadius(radius), 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawCenterTextOverlay(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
+  const overlay = ctx.createRadialGradient(x, y, radius * 0.1, x, y, radius * 0.72);
+  overlay.addColorStop(0, "rgba(0,0,0,0.58)");
+  overlay.addColorStop(0.62, "rgba(0,0,0,0.38)");
+  overlay.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = overlay;
+  ctx.beginPath();
+  ctx.arc(x, y, safeRadius(radius * 0.72), 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawFallbackGlassBubble(ctx: CanvasRenderingContext2D, node: MarketBubbleNode, x: number, y: number, radius: number) {
+  const fill = ctx.createRadialGradient(x - radius * 0.25, y - radius * 0.34, safeRadius(radius * 0.12), x, y, radius);
+  fill.addColorStop(0, `${node.primaryColor}66`);
+  fill.addColorStop(0.48, "#18181b");
+  fill.addColorStop(1, "#030303");
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.arc(x, y, safeRadius(radius), 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawSoccerBall(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
+  ctx.save();
+  clipCircle(ctx, x, y, radius);
+  ctx.fillStyle = "#f8fafc";
+  ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  ctx.strokeStyle = "rgba(15,23,42,0.68)";
+  ctx.lineWidth = Math.max(1.2, radius * 0.025);
+  const pentagonRadius = radius * 0.22;
+  ctx.beginPath();
+  for (let index = 0; index < 5; index += 1) {
+    const angle = -Math.PI / 2 + (index * Math.PI * 2) / 5;
+    const px = x + Math.cos(angle) * pentagonRadius;
+    const py = y + Math.sin(angle) * pentagonRadius;
+    if (index === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fillStyle = "#111827";
+  ctx.fill();
+  ctx.stroke();
+  for (let index = 0; index < 5; index += 1) {
+    const angle = -Math.PI / 2 + (index * Math.PI * 2) / 5;
+    ctx.beginPath();
+    ctx.moveTo(x + Math.cos(angle) * pentagonRadius, y + Math.sin(angle) * pentagonRadius);
+    ctx.lineTo(x + Math.cos(angle) * radius * 0.86, y + Math.sin(angle) * radius * 0.86);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x + Math.cos(angle) * radius * 0.62, y + Math.sin(angle) * radius * 0.62, safeRadius(radius * 0.13), 0, Math.PI * 2);
+    ctx.fillStyle = "#111827";
+    ctx.fill();
+  }
+  drawBallGloss(ctx, x, y, radius);
+  ctx.restore();
+}
+
+function drawBasketball(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
+  ctx.save();
+  clipCircle(ctx, x, y, radius);
+  const fill = ctx.createRadialGradient(x - radius * 0.3, y - radius * 0.35, radius * 0.08, x, y, radius);
+  fill.addColorStop(0, "#fb923c");
+  fill.addColorStop(0.55, "#d97706");
+  fill.addColorStop(1, "#7c2d12");
+  ctx.fillStyle = fill;
+  ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  ctx.strokeStyle = "rgba(17,24,39,0.9)";
+  ctx.lineWidth = Math.max(2, radius * 0.055);
+  ctx.beginPath();
+  ctx.moveTo(x, y - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.moveTo(x - radius, y);
+  ctx.lineTo(x + radius, y);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(x - radius * 0.72, y, radius * 0.44, radius * 1.06, 0, -Math.PI / 2, Math.PI / 2);
+  ctx.ellipse(x + radius * 0.72, y, radius * 0.44, radius * 1.06, 0, Math.PI / 2, Math.PI * 1.5);
+  ctx.stroke();
+  drawBallGloss(ctx, x, y, radius);
+  ctx.restore();
+}
+
+function drawFootball(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
+  ctx.save();
+  clipCircle(ctx, x, y, radius);
+  drawFallbackGlassBubble(ctx, { primaryColor: "#7c2d12", secondaryColor: "#fef3c7" } as MarketBubbleNode, x, y, radius);
+  ctx.translate(x, y);
+  ctx.rotate(-0.18);
+  ctx.fillStyle = "#7c2d12";
+  ctx.strokeStyle = "#fef3c7";
+  ctx.lineWidth = Math.max(2, radius * 0.04);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, radius * 0.82, radius * 0.46, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-radius * 0.28, 0);
+  ctx.lineTo(radius * 0.28, 0);
+  ctx.stroke();
+  for (let index = -2; index <= 2; index += 1) {
+    ctx.beginPath();
+    ctx.moveTo(index * radius * 0.09, -radius * 0.08);
+    ctx.lineTo(index * radius * 0.09, radius * 0.08);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawTennisBall(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
+  ctx.save();
+  clipCircle(ctx, x, y, radius);
+  const fill = ctx.createRadialGradient(x - radius * 0.28, y - radius * 0.38, radius * 0.08, x, y, radius);
+  fill.addColorStop(0, "#ecfccb");
+  fill.addColorStop(0.48, "#a3e635");
+  fill.addColorStop(1, "#4d7c0f");
+  ctx.fillStyle = fill;
+  ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  ctx.strokeStyle = "rgba(255,255,255,0.88)";
+  ctx.lineWidth = Math.max(2, radius * 0.045);
+  ctx.beginPath();
+  ctx.ellipse(x - radius * 0.68, y, radius * 0.38, radius * 1.05, -0.15, -Math.PI / 2, Math.PI / 2);
+  ctx.ellipse(x + radius * 0.68, y, radius * 0.38, radius * 1.05, -0.15, Math.PI / 2, Math.PI * 1.5);
+  ctx.stroke();
+  drawBallGloss(ctx, x, y, radius);
+  ctx.restore();
+}
+
+function drawBaseball(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
+  ctx.save();
+  clipCircle(ctx, x, y, radius);
+  ctx.fillStyle = "#f8fafc";
+  ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  ctx.strokeStyle = "#b91c1c";
+  ctx.lineWidth = Math.max(1.5, radius * 0.028);
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.ellipse(x + side * radius * 0.55, y, radius * 0.34, radius * 1.1, 0, Math.PI * 0.5, Math.PI * 1.5);
+    ctx.stroke();
+    for (let index = -4; index <= 4; index += 1) {
+      const sy = y + index * radius * 0.13;
+      ctx.beginPath();
+      ctx.moveTo(x + side * radius * 0.43, sy - radius * 0.04);
+      ctx.lineTo(x + side * radius * 0.55, sy + radius * 0.04);
+      ctx.stroke();
+    }
+  }
+  drawBallGloss(ctx, x, y, radius);
+  ctx.restore();
+}
+
+function drawHockeyPuck(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
+  ctx.save();
+  clipCircle(ctx, x, y, radius);
+  ctx.fillStyle = "#050505";
+  ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  ctx.fillStyle = "#18181b";
+  ctx.beginPath();
+  ctx.ellipse(x, y + radius * 0.12, radius * 0.78, radius * 0.42, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.24)";
+  ctx.lineWidth = Math.max(1, radius * 0.025);
+  ctx.beginPath();
+  ctx.ellipse(x, y - radius * 0.1, radius * 0.74, radius * 0.32, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  drawBallGloss(ctx, x, y, radius);
+  ctx.restore();
+}
+
+function drawUfcBadge(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
+  ctx.save();
+  clipCircle(ctx, x, y, radius);
+  ctx.fillStyle = "#050505";
+  ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  ctx.translate(x, y);
+  ctx.strokeStyle = "#dc2626";
+  ctx.fillStyle = "#111111";
+  ctx.lineWidth = Math.max(3, radius * 0.05);
+  ctx.beginPath();
+  for (let index = 0; index < 8; index += 1) {
+    const angle = Math.PI / 8 + (index * Math.PI * 2) / 8;
+    const px = Math.cos(angle) * radius * 0.72;
+    const py = Math.sin(angle) * radius * 0.72;
+    if (index === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawF1Tire(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
+  ctx.save();
+  clipCircle(ctx, x, y, radius);
+  ctx.fillStyle = "#050505";
+  ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  ctx.strokeStyle = "#27272a";
+  ctx.lineWidth = Math.max(5, radius * 0.09);
+  ctx.beginPath();
+  ctx.arc(x, y, safeRadius(radius * 0.68), 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.strokeStyle = "#eab308";
+  ctx.lineWidth = Math.max(1.5, radius * 0.02);
+  ctx.beginPath();
+  ctx.arc(x, y, safeRadius(radius * 0.78), 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = "#18181b";
+  ctx.beginPath();
+  ctx.arc(x, y, safeRadius(radius * 0.28), 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawSportBubble(ctx: CanvasRenderingContext2D, node: MarketBubbleNode, x: number, y: number, radius: number) {
+  switch (sportBubbleKind(node)) {
+    case "soccer":
+      drawSoccerBall(ctx, x, y, radius);
+      break;
+    case "basketball":
+      drawBasketball(ctx, x, y, radius);
+      break;
+    case "football":
+      drawFootball(ctx, x, y, radius);
+      break;
+    case "tennis":
+      drawTennisBall(ctx, x, y, radius);
+      break;
+    case "baseball":
+      drawBaseball(ctx, x, y, radius);
+      break;
+    case "hockey":
+      drawHockeyPuck(ctx, x, y, radius);
+      break;
+    case "ufc":
+      drawUfcBadge(ctx, x, y, radius);
+      break;
+    case "f1":
+      drawF1Tire(ctx, x, y, radius);
+      break;
+    default:
+      drawFallbackGlassBubble(ctx, node, x, y, radius);
+      break;
+  }
+  drawCenterTextOverlay(ctx, x, y, radius);
+}
+
 function drawBubble(
   node: MarketBubbleNode,
   ctx: CanvasRenderingContext2D,
@@ -652,14 +930,7 @@ function drawBubble(
   ctx.arc(x, y, glowRadius, 0, Math.PI * 2);
   ctx.fill();
 
-  const fill = ctx.createRadialGradient(x - radius * 0.25, y - radius * 0.34, safeRadius(radius * 0.12), x, y, radius);
-  fill.addColorStop(0, `${node.primaryColor}66`);
-  fill.addColorStop(0.48, "#18181b");
-  fill.addColorStop(1, "#030303");
-  ctx.fillStyle = fill;
-  ctx.beginPath();
-  ctx.arc(x, y, radius, 0, Math.PI * 2);
-  ctx.fill();
+  drawSportBubble(ctx, node, x, y, radius);
 
   ctx.lineWidth = Math.max(3, radius * 0.08);
   ctx.strokeStyle = node.primaryColor;
