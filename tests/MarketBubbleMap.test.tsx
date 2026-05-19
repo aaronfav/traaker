@@ -1,25 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
-import { cleanOutcomeName, formatCents, getFavoredOutcome, MarketBubbleMap, marketToBubbleNode } from "@/components/MarketBubbleMap";
-import type { MarketBubbleNode } from "@/components/MarketBubbleMap";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanOutcomeName, formatCents, getFavoredOutcome, layoutBubbleNodes, MarketBubbleMap, marketToBubbleNode } from "@/components/MarketBubbleMap";
 import type { TerminalMarket } from "@/lib/polymarket/types";
-
-type MockForceGraphProps = {
-  graphData: { nodes: MarketBubbleNode[] };
-  d3AlphaDecay?: number;
-  d3VelocityDecay?: number;
-  maxZoom?: number;
-  minZoom?: number;
-  nodeCanvasObject?: (node: MarketBubbleNode, ctx: CanvasRenderingContext2D, globalScale: number) => void;
-  nodePointerAreaPaint?: (node: MarketBubbleNode, color: string, ctx: CanvasRenderingContext2D) => void;
-  onNodeClick: (node: MarketBubbleNode) => void;
-  onNodeHover?: (node: MarketBubbleNode | null, previousNode: MarketBubbleNode | null) => void;
-};
-
-type MockForceGraphHandle = {
-  d3Force: ReturnType<typeof vi.fn>;
-  d3ReheatSimulation: ReturnType<typeof vi.fn>;
-};
 
 function createStrictCanvasContext() {
   const gradient = { addColorStop: vi.fn() };
@@ -37,6 +19,7 @@ function createStrictCanvasContext() {
     drawImage: vi.fn(),
     strokeText: vi.fn(),
     fillText: vi.fn(),
+    setTransform: vi.fn(),
     createRadialGradient: vi.fn((_: number, __: number, r0: number, ___: number, ____: number, r1: number) => {
       if (!Number.isFinite(r0) || r0 <= 0 || !Number.isFinite(r1) || r1 <= 0) {
         throw new Error(`Invalid gradient radius ${r0}, ${r1}`);
@@ -50,42 +33,6 @@ function createStrictCanvasContext() {
     }),
   } as unknown as CanvasRenderingContext2D;
 }
-
-vi.mock("next/dynamic", async () => {
-  const React = await import("react");
-  return {
-    default: () =>
-      React.forwardRef<MockForceGraphHandle, MockForceGraphProps>(function MockForceGraph(props, ref) {
-        React.useImperativeHandle(ref, () => ({
-          d3Force: vi.fn(() => ({ strength: vi.fn() })),
-          d3ReheatSimulation: vi.fn(),
-        }));
-        const firstNode = props.graphData.nodes[0];
-        if (firstNode?.id === "invalid-node") {
-          const invalidNode = {
-            ...firstNode,
-            driftPhase: Number.NaN,
-            priceChange: Number.NaN,
-            val: -0.5,
-            x: Number.NaN,
-            y: Number.NaN,
-          };
-          props.nodeCanvasObject?.(invalidNode, createStrictCanvasContext(), 0);
-          props.nodePointerAreaPaint?.(invalidNode, "#fff", createStrictCanvasContext());
-        }
-        return (
-          <div data-testid="force-graph">
-            <span data-testid="graph-config">
-              {props.d3VelocityDecay}|{props.d3AlphaDecay}|{props.minZoom}|{props.maxZoom}
-            </span>
-            <span>{props.graphData.nodes.length} canvas nodes</span>
-            {firstNode ? <button onClick={() => props.onNodeClick(firstNode)}>Open first bubble</button> : null}
-            {firstNode ? <button onMouseEnter={() => props.onNodeHover?.(firstNode, null)}>Hover first bubble</button> : null}
-          </div>
-        );
-      }),
-  };
-});
 
 const market: TerminalMarket = {
   id: "market-1",
@@ -114,6 +61,25 @@ const market: TerminalMarket = {
 };
 
 describe("MarketBubbleMap", () => {
+  beforeEach(() => {
+    let frameCount = 0;
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(createStrictCanvasContext());
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn((callback: FrameRequestCallback) => {
+        frameCount += 1;
+        if (frameCount === 1) callback(0);
+        return frameCount;
+      }),
+    );
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it("converts markets into team-colored bubble nodes", () => {
     const node = marketToBubbleNode(market);
     expect(node.primaryColor).toBe("#552583");
@@ -122,7 +88,7 @@ describe("MarketBubbleMap", () => {
     expect(node.favoredPrice).toBe(0.62);
     expect(node.priceCents).toBe(62);
     expect(node.val).toBeGreaterThanOrEqual(90);
-    expect(node.val).toBeLessThanOrEqual(115);
+    expect(node.val).toBeLessThanOrEqual(125);
     expect(node.marketUrl).toBe("/markets/market-1");
   });
 
@@ -137,17 +103,18 @@ describe("MarketBubbleMap", () => {
     expect(cleanOutcomeName("Winner", "Real Madrid vs Barcelona")).toBe("Real Madrid");
   });
 
-  it("uses calmer graph physics controls", () => {
+  it("renders a deterministic canvas board without force graph controls", () => {
     render(<MarketBubbleMap markets={[market]} />);
 
-    expect(screen.getByTestId("graph-config")).toHaveTextContent("0.52|0.04|0.08|2.8");
+    expect(screen.getByTestId("bubble-canvas")).toBeInTheDocument();
+    expect(screen.queryByTestId("force-graph")).not.toBeInTheDocument();
   });
 
   it("shows a readable hover tooltip", () => {
+    const [node] = layoutBubbleNodes([marketToBubbleNode(market)], 1200, 680, false);
     render(<MarketBubbleMap markets={[market]} />);
 
-    fireEvent.mouseMove(screen.getByRole("application"), { clientX: 120, clientY: 90 });
-    fireEvent.mouseEnter(screen.getByRole("button", { name: "Hover first bubble" }));
+    fireEvent.mouseMove(screen.getByRole("application"), { clientX: node.x, clientY: node.y });
 
     expect(screen.getByText("Liquidity")).toBeInTheDocument();
     expect(screen.getByText("$75.0k")).toBeInTheDocument();
@@ -156,9 +123,10 @@ describe("MarketBubbleMap", () => {
   });
 
   it("opens details when a bubble node is clicked", () => {
+    const [node] = layoutBubbleNodes([marketToBubbleNode(market)], 1200, 680, false);
     render(<MarketBubbleMap markets={[market]} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Open first bubble" }));
+    fireEvent.click(screen.getByRole("application"), { clientX: node.x, clientY: node.y });
 
     expect(screen.getByRole("heading", { name: "Los Angeles Lakers vs Boston Celtics" })).toBeInTheDocument();
     expect(screen.getByText("NBA")).toBeInTheDocument();
@@ -191,5 +159,28 @@ describe("MarketBubbleMap", () => {
     expect(node.liquidity).toBe(0);
     expect(node.priceChange).toBe(0);
     expect(() => render(<MarketBubbleMap markets={[invalidMarket]} />)).not.toThrow();
+  });
+
+  it("packs default bubbles across the viewport with stable rank sizes", () => {
+    const markets = Array.from({ length: 50 }, (_, index) => ({
+      ...market,
+      id: `market-${index}`,
+      conditionId: `condition-${index}`,
+      title: `Team ${index} vs Opponent`,
+      volume: 1_000_000 - index * 10_000,
+      liquidity: 500_000 - index * 5_000,
+    }));
+    const packed = layoutBubbleNodes(markets.map((item, index) => marketToBubbleNode(item, index)), 1400, 760, false);
+    const xs = packed.map((node) => node.x);
+    const ys = packed.map((node) => node.y);
+
+    expect(packed).toHaveLength(50);
+    expect(packed[0].val).toBeGreaterThanOrEqual(90);
+    expect(packed[4].val).toBeLessThanOrEqual(125);
+    expect(packed[5].val).toBeGreaterThanOrEqual(70);
+    expect(packed[15].val).toBeGreaterThanOrEqual(50);
+    expect(packed[36].val).toBeGreaterThanOrEqual(38);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(1000);
+    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(480);
   });
 });

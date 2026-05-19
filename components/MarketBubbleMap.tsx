@@ -1,20 +1,11 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type RefAttributes } from "react";
-import { forceCollide, forceX, forceY } from "d3-force";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { findTeamStyleMatch, marketBubbleRadius, momentumGlowColor } from "@/lib/sports/teamStyles";
 import type { TerminalMarket } from "@/lib/polymarket/types";
-import type { ForceGraphMethods, ForceGraphProps, NodeObject } from "react-force-graph-2d";
-
-type ForceGraphComponent = (
-  props: ForceGraphProps<MarketBubbleNode, object> & RefAttributes<ForceGraphMethods<MarketBubbleNode, object>>,
-) => ReactElement;
-
-const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), { ssr: false }) as unknown as ForceGraphComponent;
 
 export type MarketBubbleNode = {
   id: string;
@@ -39,8 +30,8 @@ export type MarketBubbleNode = {
   val: number;
   targetX: number;
   targetY: number;
-  x?: number;
-  y?: number;
+  x: number;
+  y: number;
 };
 
 export type MarketOutcomeOption = {
@@ -187,10 +178,14 @@ const seededPosition = (id: string) => {
 };
 
 const rankBubbleRadius = (baseRadius: number, index: number) => {
-  if (index < 5) return Math.max(90, Math.min(115, baseRadius + 8));
-  if (index < 20) return Math.max(60, Math.min(85, baseRadius - 10));
-  return Math.max(42, Math.min(58, baseRadius - 24));
+  const normalized = Math.max(0, Math.min(1, (safeNumber(baseRadius, 42) - 42) / 73));
+  if (index < 5) return 90 + normalized * 35;
+  if (index < 15) return 70 + normalized * 20;
+  if (index < 35) return 50 + normalized * 20;
+  return 38 + normalized * 17;
 };
+
+const clampPosition = (value: number, radius: number, max: number) => Math.max(radius + 4, Math.min(max - radius - 4, value));
 
 const initialsForName = (name: string) => {
   const words = name
@@ -301,6 +296,92 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
   };
 }
 
+export function layoutBubbleNodes(nodes: MarketBubbleNode[], width: number, height: number, isMobile = false): MarketBubbleNode[] {
+  const boardWidth = Math.max(320, safeNumber(width, 1200));
+  const boardHeight = Math.max(420, safeNumber(height, 680));
+  const footerReserve = isMobile ? 64 : 50;
+  const topReserve = isMobile ? 14 : 10;
+  const usableHeight = Math.max(320, boardHeight - footerReserve - topReserve);
+  const totalArea = nodes.reduce((sum, node) => sum + Math.PI * Math.pow(safeRadius(node.val, 8) + 5, 2), 0);
+  const targetArea = boardWidth * usableHeight * (isMobile ? 0.72 : 0.82);
+  const densityScale = totalArea > 0 ? Math.min(1, Math.max(isMobile ? 0.64 : 0.82, Math.sqrt(targetArea / totalArea))) : 1;
+  const anchors = isMobile
+    ? [
+        [0.5, 0.17],
+        [0.28, 0.37],
+        [0.72, 0.38],
+        [0.36, 0.61],
+        [0.68, 0.64],
+      ]
+    : [
+        [0.16, 0.28],
+        [0.5, 0.22],
+        [0.84, 0.3],
+        [0.32, 0.62],
+        [0.68, 0.61],
+      ];
+  const remaining = Math.max(1, nodes.length - anchors.length);
+  const columns = Math.max(3, Math.ceil(Math.sqrt(remaining * (boardWidth / usableHeight))));
+  const rows = Math.max(2, Math.ceil(remaining / columns));
+
+  const placed = nodes.map((node, index) => {
+    const val = Math.max(8, safeRadius(node.val, 8) * densityScale);
+    if (index < anchors.length) {
+      const [xUnit, yUnit] = anchors[index];
+      const x = clampPosition(boardWidth * xUnit, val, boardWidth);
+      const y = clampPosition(topReserve + usableHeight * yUnit, val, boardHeight - footerReserve * 0.36);
+      return { ...node, val, x, y, targetX: x, targetY: y };
+    }
+
+    const gridIndex = index - anchors.length;
+    const row = Math.floor(gridIndex / columns);
+    const col = gridIndex % columns;
+    const rowOffset = row % 2 === 0 ? 0.08 : 0.42;
+    const jitterX = ((hashString(`${node.id}:layout-x`) % 1000) / 1000 - 0.5) * 0.26;
+    const jitterY = ((hashString(`${node.id}:layout-y`) % 1000) / 1000 - 0.5) * 0.2;
+    const xUnit = (col + 0.5 + rowOffset + jitterX) / columns;
+    const yUnit = (row + 0.5 + jitterY) / rows;
+    const x = clampPosition(boardWidth * xUnit, val, boardWidth);
+    const y = clampPosition(topReserve + usableHeight * yUnit, val, boardHeight - footerReserve * 0.36);
+    return { ...node, val, x, y, targetX: x, targetY: y };
+  });
+
+  for (let iteration = 0; iteration < 72; iteration += 1) {
+    let moved = false;
+    for (let leftIndex = 0; leftIndex < placed.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < placed.length; rightIndex += 1) {
+        const left = placed[leftIndex];
+        const right = placed[rightIndex];
+        const padding = leftIndex < 5 || rightIndex < 5 ? 8 : 5;
+        const minDistance = left.val + right.val + padding;
+        let dx = right.x - left.x;
+        let dy = right.y - left.y;
+        let distance = Math.hypot(dx, dy);
+        if (distance >= minDistance) continue;
+        if (distance < 0.001) {
+          const angle = ((hashString(`${left.id}:${right.id}`) % 628) / 100);
+          dx = Math.cos(angle);
+          dy = Math.sin(angle);
+          distance = 1;
+        }
+        const push = (minDistance - distance) / 2;
+        const nx = dx / distance;
+        const ny = dy / distance;
+        const leftWeight = right.val / (left.val + right.val);
+        const rightWeight = left.val / (left.val + right.val);
+        left.x = clampPosition(left.x - nx * push * leftWeight, left.val, boardWidth);
+        left.y = clampPosition(left.y - ny * push * leftWeight, left.val, boardHeight - footerReserve * 0.36);
+        right.x = clampPosition(right.x + nx * push * rightWeight, right.val, boardWidth);
+        right.y = clampPosition(right.y + ny * push * rightWeight, right.val, boardHeight - footerReserve * 0.36);
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+
+  return placed.map((node) => ({ ...node, targetX: node.x, targetY: node.y }));
+}
+
 function drawBackground(ctx: CanvasRenderingContext2D, particles: BackgroundParticle[]) {
   const width = ctx.canvas.width;
   const height = ctx.canvas.height;
@@ -343,7 +424,7 @@ function drawTextLine(ctx: CanvasRenderingContext2D, text: string, x: number, y:
   ctx.fillText(text, x, y, maxWidth);
 }
 
-function drawLogoMark(node: NodeObject<MarketBubbleNode>, ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, opacity: number) {
+function drawLogoMark(node: MarketBubbleNode, ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, opacity: number) {
   const logo = getLogoImage(node.logoUrl);
   const safeBubbleRadius = safeRadius(radius, 8);
   const logoSize = safeRadius(safeBubbleRadius * 0.38, 4);
@@ -378,7 +459,7 @@ function drawLogoMark(node: NodeObject<MarketBubbleNode>, ctx: CanvasRenderingCo
 }
 
 function drawBubble(
-  node: NodeObject<MarketBubbleNode>,
+  node: MarketBubbleNode,
   ctx: CanvasRenderingContext2D,
   globalScale: number,
   options: { hoveredId?: string | null; introStartedAt: number; isMobile: boolean; priorityPass?: boolean },
@@ -387,11 +468,9 @@ function drawBubble(
   const introAlpha = Math.min(1, Math.max(0, (now - options.introStartedAt) / 900));
   const easeIntro = 1 - Math.pow(1 - introAlpha, 3);
   const isHovered = node.id === options.hoveredId;
-  const hoverBoost = isHovered ? 1.06 : 1;
   const driftPhase = safeNumber(node.driftPhase);
-  const pulse = node.isTrending ? 1 + Math.sin(now / 900 + driftPhase) * 0.025 : 1;
-  const radius = Math.max(8, safeRadius(safeNumber(node.val, 8) * hoverBoost * pulse, 8));
-  const driftStrength = options.isMobile ? 0.25 : 0.55;
+  const radius = Math.max(8, safeRadius(safeNumber(node.val, 8), 8));
+  const driftStrength = options.isMobile ? 1.25 : 2;
   const x = safeCoordinate(node.x) + Math.sin(now / 5200 + driftPhase) * driftStrength;
   const y = safeCoordinate(node.y) + Math.cos(now / 6100 + driftPhase * 1.2) * driftStrength;
   const screenRadius = radius / safeRadius(globalScale, 1);
@@ -482,9 +561,8 @@ export function MarketBubbleMap({
   isRefreshing?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const graphRef = useRef<ForceGraphMethods<MarketBubbleNode, object> | null>(null);
-  const lastFitNodeCount = useRef(0);
-  const lastLayoutSignature = useRef("");
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const frameRef = useRef<number | null>(null);
   const [introStartedAt] = useState(() => Date.now());
   const [selectedMarket, setSelectedMarket] = useState<MarketBubbleNode | null>(null);
   const [hoveredMarket, setHoveredMarket] = useState<MarketBubbleNode | null>(null);
@@ -492,10 +570,9 @@ export function MarketBubbleMap({
   const [dimensions, setDimensions] = useState({ width: 1200, height: 680 });
 
   const nodes = useMemo(() => markets.map((market, index) => marketToBubbleNode(market, index)), [markets]);
-  const graphData = useMemo(() => ({ nodes, links: [] }), [nodes]);
-  const layoutSignature = useMemo(() => nodes.map((node) => node.id).join("|"), [nodes]);
   const particles = useMemo(() => createBackgroundParticles(), []);
   const isMobile = dimensions.width < 640;
+  const layoutNodes = useMemo(() => layoutBubbleNodes(nodes, dimensions.width, dimensions.height, isMobile), [dimensions.height, dimensions.width, isMobile, nodes]);
 
   useEffect(() => {
     const node = containerRef.current;
@@ -515,22 +592,34 @@ export function MarketBubbleMap({
   }, []);
 
   useEffect(() => {
-    const graph = graphRef.current;
-    if (!graph || typeof graph.d3Force !== "function" || nodes.length === 0) return;
-    graph.d3Force("collide", forceCollide<NodeObject<MarketBubbleNode>>((node) => node.val + (isMobile ? 6 : 8)).strength(1));
-    graph.d3Force("charge")?.strength?.(isMobile ? -6 : -10);
-    graph.d3Force("clusterX", forceX<NodeObject<MarketBubbleNode>>((node) => node.targetX).strength(0.018));
-    graph.d3Force("clusterY", forceY<NodeObject<MarketBubbleNode>>((node) => node.targetY).strength(0.018));
-    graph.d3Force("center");
-    if (lastLayoutSignature.current !== layoutSignature) {
-      lastLayoutSignature.current = layoutSignature;
-      graph.d3ReheatSimulation();
-    }
-    if (lastFitNodeCount.current === 0 || Math.abs(nodes.length - lastFitNodeCount.current) >= 10) {
-      lastFitNodeCount.current = nodes.length;
-      window.setTimeout(() => graph.zoomToFit?.(900, isMobile ? 8 : 12), 360);
-    }
-  }, [isMobile, layoutSignature, nodes.length]);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
+    canvas.width = Math.floor(dimensions.width * pixelRatio);
+    canvas.height = Math.floor(dimensions.height * pixelRatio);
+    canvas.style.width = `${dimensions.width}px`;
+    canvas.style.height = `${dimensions.height}px`;
+
+    const drawFrame = () => {
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      drawBackground(context, particles);
+      const hoveredId = hoveredMarket?.id;
+      for (const node of layoutNodes) {
+        if (node.id !== hoveredId) drawBubble(node, context, 1, { hoveredId, introStartedAt, isMobile });
+      }
+      const hoveredNode = hoveredId ? layoutNodes.find((node) => node.id === hoveredId) : null;
+      if (hoveredNode) drawBubble(hoveredNode, context, 1, { hoveredId, introStartedAt, isMobile, priorityPass: true });
+      frameRef.current = window.requestAnimationFrame(drawFrame);
+    };
+
+    drawFrame();
+    return () => {
+      if (frameRef.current !== null) window.cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    };
+  }, [dimensions.height, dimensions.width, hoveredMarket?.id, introStartedAt, isMobile, layoutNodes, particles]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -540,92 +629,60 @@ export function MarketBubbleMap({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const handleNodeClick = useCallback((node: NodeObject<MarketBubbleNode>) => {
-    setSelectedMarket(node);
-  }, []);
+  const findNodeAtPoint = useCallback(
+    (x: number, y: number) => {
+      let bestNode: MarketBubbleNode | null = null;
+      let bestDistance = Number.POSITIVE_INFINITY;
+      for (const node of layoutNodes) {
+        const dx = x - node.x;
+        const dy = y - node.y;
+        const distance = Math.hypot(dx, dy);
+        if (distance <= node.val + 5 && distance < bestDistance) {
+          bestNode = node;
+          bestDistance = distance;
+        }
+      }
+      return bestNode;
+    },
+    [layoutNodes],
+  );
 
   const handleMouseMove = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    setPointer({ x: event.clientX - rect.left, y: event.clientY - rect.top });
+    const nextPointer = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    setPointer(nextPointer);
+    const nextHovered = findNodeAtPoint(nextPointer.x, nextPointer.y);
+    const canvas = canvasRef.current;
+    if (canvas) canvas.style.cursor = nextHovered ? "pointer" : "default";
+    setHoveredMarket((current) => (current?.id === nextHovered?.id ? current : nextHovered));
+  }, [findNodeAtPoint]);
+
+  const handleMouseLeave = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (canvas) canvas.style.cursor = "default";
+    setHoveredMarket(null);
   }, []);
 
-  const handleCenterMap = useCallback(() => {
-    const graph = graphRef.current;
-    graph?.zoomToFit?.(650, isMobile ? 8 : 12);
-  }, [isMobile]);
-
-  const drawNode = useCallback(
-    (node: NodeObject<MarketBubbleNode>, ctx: CanvasRenderingContext2D, globalScale: number) => {
-      drawBubble(node, ctx, globalScale, { hoveredId: hoveredMarket?.id, introStartedAt, isMobile });
+  const handleClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const node = findNodeAtPoint(event.clientX - rect.left, event.clientY - rect.top);
+      if (node) setSelectedMarket(node);
     },
-    [hoveredMarket?.id, introStartedAt, isMobile],
-  );
-
-  const drawHoveredNode = useCallback(
-    (ctx: CanvasRenderingContext2D, globalScale: number) => {
-      if (hoveredMarket) drawBubble(hoveredMarket, ctx, globalScale, { hoveredId: hoveredMarket.id, introStartedAt, isMobile, priorityPass: true });
-    },
-    [hoveredMarket, introStartedAt, isMobile],
-  );
-
-  const drawMapBackground = useCallback(
-    (ctx: CanvasRenderingContext2D) => {
-      drawBackground(ctx, particles);
-    },
-    [particles],
+    [findNodeAtPoint],
   );
 
   return (
     <div
-      aria-label={`${nodes.length} sports market bubble map`}
+      aria-label={`${layoutNodes.length} sports market bubble map`}
       className="relative h-[calc(100vh-5.45rem)] min-h-[480px] w-screen overflow-hidden bg-[#050505] sm:h-[calc(100vh-5.15rem)]"
-      onDoubleClick={handleCenterMap}
+      onClick={handleClick}
+      onMouseLeave={handleMouseLeave}
       onMouseMove={handleMouseMove}
       role="application"
     >
       <div ref={containerRef} className="h-full w-full">
-        <ForceGraph2D
-          ref={graphRef}
-          graphData={graphData}
-          width={dimensions.width}
-          height={dimensions.height}
-          autoPauseRedraw={false}
-          backgroundColor="#050505"
-          cooldownTicks={220}
-          d3AlphaDecay={0.04}
-          d3VelocityDecay={0.52}
-          enableNodeDrag
-          enablePanInteraction
-          enablePointerInteraction
-          enableZoomInteraction
-          linkVisibility={false}
-          maxZoom={2.8}
-          minZoom={0.08}
-          nodeCanvasObject={drawNode}
-          nodeId="id"
-          nodeLabel={(node) => `${node.favoredOutcome} ${formatCents(node.favoredPrice)} | ${node.title}`}
-          nodePointerAreaPaint={(node, color, ctx) => {
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(safeCoordinate(node.x), safeCoordinate(node.y), safeRadius(safeNumber(node.val, 8) + 6), 0, Math.PI * 2);
-            ctx.fill();
-          }}
-          nodeRelSize={1}
-          nodeVal="val"
-          onBackgroundClick={() => setHoveredMarket(null)}
-          onNodeClick={handleNodeClick}
-          onNodeHover={(node) => {
-            const canvas = containerRef.current?.querySelector("canvas");
-            if (canvas) canvas.style.cursor = node ? "pointer" : "default";
-            setHoveredMarket((current) => {
-              if (!node) return current ? null : current;
-              return current?.id === node.id ? current : node;
-            });
-          }}
-          onRenderFramePost={drawHoveredNode}
-          onRenderFramePre={drawMapBackground}
-          showPointerCursor
-        />
+        <canvas aria-hidden="true" className="block h-full w-full" data-testid="bubble-canvas" ref={canvasRef} />
       </div>
 
       {hoveredMarket ? (
@@ -657,7 +714,7 @@ export function MarketBubbleMap({
         </div>
       ) : null}
 
-      {nodes.length === 0 && !isLoading ? (
+      {layoutNodes.length === 0 && !isLoading ? (
         <div className="absolute inset-0 grid place-items-center text-sm text-slate-400">No sports markets matched this view.</div>
       ) : null}
 
