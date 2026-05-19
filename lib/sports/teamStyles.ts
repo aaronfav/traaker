@@ -2,6 +2,7 @@ export type TeamStyle = {
   aliases: string[];
   primary: string;
   secondary: string;
+  logoUrl?: string;
 };
 
 export const TEAM_STYLES = {
@@ -102,9 +103,11 @@ const SPORT_FALLBACKS = {
 
 export function findTeamStyle(title: string, sport: string) {
   const normalizedTitle = title.toLowerCase();
-  for (const style of Object.values(TEAM_STYLES)) {
+  for (const style of Object.values(TEAM_STYLES) as TeamStyle[]) {
     if (style.aliases.some((alias) => normalizedTitle.includes(alias))) {
-      return { primary: style.primary, secondary: style.secondary };
+      return style.logoUrl
+        ? { primary: style.primary, secondary: style.secondary, logoUrl: style.logoUrl }
+        : { primary: style.primary, secondary: style.secondary };
     }
   }
 
@@ -115,7 +118,7 @@ export function findTeamStyle(title: string, sport: string) {
 
 export function marketBubbleRadius(volume: number) {
   const numericVolume = Number.isFinite(volume) ? Math.max(0, volume) : 0;
-  return Math.max(24, Math.min(95, 18 + Math.sqrt(numericVolume) / 35));
+  return Math.max(18, Math.min(110, 18 + Math.log10(numericVolume + 1) * 18));
 }
 
 export function momentumGlowColor(priceChange: number, volume: number) {
