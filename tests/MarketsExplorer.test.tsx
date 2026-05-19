@@ -89,7 +89,7 @@ describe("MarketsExplorer", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "NBA" }));
     fireEvent.change(screen.getByLabelText("Market range"), { target: { value: "250" } });
-    fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "knicks" } });
+    fireEvent.change(screen.getByPlaceholderText("Search markets..."), { target: { value: "knicks" } });
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     await waitFor(
@@ -156,14 +156,14 @@ describe("MarketsExplorer", () => {
 
     render(<MarketsExplorer initialPage={{ ...initialPage, hasMore: true }} source="polymarket" />);
 
-    fireEvent.change(screen.getByLabelText("Market range"), { target: { value: "500" } });
+    fireEvent.change(screen.getByLabelText("Market range"), { target: { value: "250" } });
 
     await waitFor(() => {
       const lastCall = [...requestedUrls].reverse().find((url) => url.includes("/api/polymarket/markets?"));
       expect(lastCall).toBeDefined();
       const params = new URL(lastCall as string, "http://localhost").searchParams;
       expect(params.get("minVolume")).toBe("2000");
-      expect(params.get("limit")).toBe("500");
+      expect(params.get("limit")).toBe("250");
       expect(params.get("offset")).toBe("0");
     });
   });

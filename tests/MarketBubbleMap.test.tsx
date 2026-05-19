@@ -77,8 +77,8 @@ describe("MarketBubbleMap", () => {
     expect(node.favoredOutcome).toBe("Lakers");
     expect(node.favoredPrice).toBe(0.62);
     expect(node.priceCents).toBe(62);
-    expect(node.val).toBeGreaterThan(140);
-    expect(node.val).toBeLessThanOrEqual(175);
+    expect(node.val).toBeGreaterThanOrEqual(90);
+    expect(node.val).toBeLessThanOrEqual(115);
     expect(node.marketUrl).toBe("/markets/market-1");
   });
 
@@ -96,7 +96,7 @@ describe("MarketBubbleMap", () => {
   it("uses calmer graph physics controls", () => {
     render(<MarketBubbleMap markets={[market]} />);
 
-    expect(screen.getByTestId("graph-config")).toHaveTextContent("0.32|0.01|0.08|2.8");
+    expect(screen.getByTestId("graph-config")).toHaveTextContent("0.52|0.04|0.08|2.8");
   });
 
   it("shows a readable hover tooltip", () => {

@@ -26,6 +26,11 @@ export const TEAM_STYLES = {
     primary: "#007A33",
     secondary: "#FFFFFF",
   },
+  thunder: {
+    aliases: ["thunder", "oklahoma city thunder", "okc"],
+    primary: "#EF3B24",
+    secondary: "#007AC1",
+  },
   knicks: {
     aliases: ["knicks", "new york knicks"],
     primary: "#006BB6",
@@ -39,6 +44,11 @@ export const TEAM_STYLES = {
   dodgers: {
     aliases: ["dodgers", "los angeles dodgers"],
     primary: "#005A9C",
+    secondary: "#FFFFFF",
+  },
+  red_sox: {
+    aliases: ["red sox", "boston red sox"],
+    primary: "#BD3039",
     secondary: "#FFFFFF",
   },
   yankees: {
@@ -55,6 +65,31 @@ export const TEAM_STYLES = {
     aliases: ["chiefs", "kansas city chiefs"],
     primary: "#E31837",
     secondary: "#FFB81C",
+  },
+  eagles: {
+    aliases: ["eagles", "philadelphia eagles"],
+    primary: "#004C54",
+    secondary: "#A5ACAF",
+  },
+  forty_niners: {
+    aliases: ["49ers", "san francisco 49ers", "niners"],
+    primary: "#AA0000",
+    secondary: "#B3995D",
+  },
+  packers: {
+    aliases: ["packers", "green bay packers"],
+    primary: "#203731",
+    secondary: "#FFB612",
+  },
+  bayern: {
+    aliases: ["bayern", "bayern munich"],
+    primary: "#DC052D",
+    secondary: "#FFFFFF",
+  },
+  barcelona: {
+    aliases: ["barcelona", "barca"],
+    primary: "#004D98",
+    secondary: "#A50044",
   },
   maple_leafs: {
     aliases: ["maple leafs", "toronto maple leafs", "leafs"],
@@ -121,7 +156,7 @@ export function findTeamStyle(title: string, sport: string) {
 
 export function marketBubbleRadius(volume: number) {
   const numericVolume = Number.isFinite(volume) ? Math.max(0, volume) : 0;
-  return Math.max(34, Math.min(155, 28 + Math.log10(numericVolume + 1) * 19));
+  return Math.max(42, Math.min(115, 38 + Math.log10(numericVolume + 1) * 13));
 }
 
 export function momentumGlowColor(priceChange: number, volume: number) {

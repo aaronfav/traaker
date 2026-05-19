@@ -96,11 +96,13 @@ describe("DashboardPage", () => {
 
   it("renders the bubble map", async () => {
     render(await DashboardPage());
-    expect(screen.getByPlaceholderText("Search")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search markets...")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /trading terminal/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/polymarket sports/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/minimum volume/i, { selector: "p" })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("application", { name: /50 sports market bubble map/i })).toBeInTheDocument());
+    expect(screen.getByLabelText("Market range")).toHaveValue("50");
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(expect.stringContaining("limit=50"), expect.any(Object));
   });
 
   it("does not render every discovered market on first paint", async () => {

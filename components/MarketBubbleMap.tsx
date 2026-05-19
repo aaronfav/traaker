@@ -53,6 +53,14 @@ type RawOutcomeMarket = TerminalMarket & {
   outcomePrices?: unknown;
 };
 
+type BackgroundParticle = {
+  x: number;
+  y: number;
+  size: number;
+  alpha: number;
+  color: string;
+};
+
 const money = (value: number) => {
   const numeric = Number.isFinite(value) ? Math.max(0, value) : 0;
   if (numeric >= 1_000_000_000) return `$${(numeric / 1_000_000_000).toFixed(1)}B`;
@@ -160,6 +168,41 @@ const seededPosition = (id: string) => {
   };
 };
 
+const rankBubbleRadius = (baseRadius: number, index: number) => {
+  if (index < 5) return Math.max(90, Math.min(115, baseRadius + 8));
+  if (index < 20) return Math.max(60, Math.min(85, baseRadius - 10));
+  return Math.max(42, Math.min(58, baseRadius - 24));
+};
+
+const initialsForName = (name: string) => {
+  const words = name
+    .replace(/[^a-z0-9\s]/gi, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length === 0) return "";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return words
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
+};
+
+const createBackgroundParticles = (): BackgroundParticle[] => {
+  const colors = ["#38BDF8", "#22C55E", "#F59E0B", "#F43F5E", "#A78BFA"];
+  return Array.from({ length: 130 }, (_, index) => {
+    const hash = hashString(`particle-${index}`);
+    const hashY = hashString(`particle-y-${index}`);
+    return {
+      x: (hash % 10_000) / 10_000,
+      y: (hashY % 10_000) / 10_000,
+      size: 0.7 + ((hash >> 8) % 18) / 10,
+      alpha: 0.12 + ((hash >> 16) % 34) / 100,
+      color: colors[index % colors.length],
+    };
+  });
+};
+
 const trendScoreForMarket = (market: TerminalMarket, volume: number) =>
   Math.abs(market.priceMove24h) * 125 + Math.max(0, market.volumeAcceleration) * 2 + market.recentTradesCount / 8 + Math.log10(volume + 1);
 
@@ -203,8 +246,7 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
   const favored = getFavoredOutcome(market);
   const outcomes = getMarketOutcomes(market);
   const style = marketColors(market, favored.name);
-  const rankBoost = index < 5 ? 22 : index < 15 ? 12 : index < 30 ? 6 : 0;
-  const val = Math.min(175, marketBubbleRadius(sizeBasis) + rankBoost);
+  const val = rankBubbleRadius(marketBubbleRadius(sizeBasis), index);
   const trendScore = trendScoreForMarket(market, volume);
   const position = seededPosition(market.id);
 
@@ -217,7 +259,7 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
     priceChange: market.priceMove24h,
     marketUrl: `/markets/${market.id}`,
     tradeUrl: `/trade/${market.id}`,
-    logoUrl: style.logoUrl,
+    logoUrl: style.logoUrl ?? market.image,
     primaryColor: style.primary,
     secondaryColor: style.secondary,
     glowColor: momentumGlowColor(market.priceMove24h, volume),
@@ -235,7 +277,7 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
   };
 }
 
-function drawBackground(ctx: CanvasRenderingContext2D) {
+function drawBackground(ctx: CanvasRenderingContext2D, particles: BackgroundParticle[]) {
   const width = ctx.canvas.width;
   const height = ctx.canvas.height;
 
@@ -243,10 +285,29 @@ function drawBackground(ctx: CanvasRenderingContext2D) {
   ctx.resetTransform();
   ctx.fillStyle = "#050505";
   ctx.fillRect(0, 0, width, height);
-  const shade = ctx.createRadialGradient(width / 2, height / 2, Math.min(width, height) * 0.15, width / 2, height / 2, Math.max(width, height) * 0.78);
-  shade.addColorStop(0, "rgba(24, 24, 27, 0.22)");
-  shade.addColorStop(1, "rgba(0, 0, 0, 0.88)");
+  const shade = ctx.createRadialGradient(width / 2, height / 2, Math.min(width, height) * 0.08, width / 2, height / 2, Math.max(width, height) * 0.72);
+  shade.addColorStop(0, "rgba(24, 24, 27, 0.28)");
+  shade.addColorStop(0.58, "rgba(3, 7, 18, 0.55)");
+  shade.addColorStop(1, "rgba(0, 0, 0, 0.94)");
   ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, width, height);
+
+  for (const particle of particles) {
+    ctx.globalAlpha = particle.alpha;
+    ctx.fillStyle = particle.color;
+    ctx.shadowColor = particle.color;
+    ctx.shadowBlur = particle.size * 4;
+    ctx.beginPath();
+    ctx.arc(particle.x * width, particle.y * height, particle.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+  ctx.globalAlpha = 1;
+
+  const vignette = ctx.createRadialGradient(width / 2, height / 2, Math.min(width, height) * 0.38, width / 2, height / 2, Math.max(width, height) * 0.76);
+  vignette.addColorStop(0, "rgba(0,0,0,0)");
+  vignette.addColorStop(1, "rgba(0,0,0,0.55)");
+  ctx.fillStyle = vignette;
   ctx.fillRect(0, 0, width, height);
   ctx.restore();
 }
@@ -270,17 +331,21 @@ function drawLogoMark(node: NodeObject<MarketBubbleNode>, ctx: CanvasRenderingCo
     ctx.clip();
     ctx.drawImage(logo, x - logoSize / 2, y - logoSize / 2, logoSize, logoSize);
   } else {
+    const initials = initialsForName(node.favoredOutcome);
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
     ctx.strokeStyle = "rgba(255,255,255,0.55)";
-    ctx.lineWidth = Math.max(1.4, radius * 0.025);
+    ctx.lineWidth = Math.max(1.2, radius * 0.02);
     ctx.beginPath();
-    ctx.arc(x, y, logoSize * 0.36, 0, Math.PI * 2);
+    ctx.arc(x, y, logoSize * 0.42, 0, Math.PI * 2);
+    ctx.fill();
     ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x - logoSize * 0.28, y);
-    ctx.lineTo(x + logoSize * 0.28, y);
-    ctx.moveTo(x, y - logoSize * 0.28);
-    ctx.lineTo(x, y + logoSize * 0.28);
-    ctx.stroke();
+    if (initials) {
+      ctx.fillStyle = "rgba(255,255,255,0.78)";
+      ctx.font = `900 ${Math.max(9, radius * 0.14)}px Inter, ui-sans-serif, system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(initials, x, y + 0.5, logoSize * 0.7);
+    }
   }
   ctx.restore();
 }
@@ -297,13 +362,13 @@ function drawBubble(
   const isHovered = node.id === options.hoveredId;
   const hoverBoost = isHovered ? 1.06 : 1;
   const pulse = node.isTrending ? 1 + Math.sin(now / 900 + node.driftPhase) * 0.025 : 1;
-  const radius = node.val * hoverBoost * pulse * (0.82 + easeIntro * 0.18);
-  const driftStrength = options.isMobile ? 0.35 : 0.75;
-  const x = (node.x ?? 0) + Math.sin(now / 3400 + node.driftPhase) * driftStrength;
-  const y = (node.y ?? 0) + Math.cos(now / 3900 + node.driftPhase * 1.2) * driftStrength;
+  const radius = node.val * hoverBoost * pulse;
+  const driftStrength = options.isMobile ? 0.25 : 0.55;
+  const x = (node.x ?? 0) + Math.sin(now / 5200 + node.driftPhase) * driftStrength;
+  const y = (node.y ?? 0) + Math.cos(now / 6100 + node.driftPhase * 1.2) * driftStrength;
   const screenRadius = radius / globalScale;
-  const canRenderText = screenRadius >= (options.isMobile ? 20 : 16);
-  const canRenderPrice = screenRadius >= (options.isMobile ? 24 : 20);
+  const canRenderText = screenRadius >= (options.isMobile ? 24 : 18);
+  const canRenderPrice = screenRadius >= (options.isMobile ? 28 : 22);
   const canRenderMovement = screenRadius >= (options.isMobile ? 42 : 34);
   const glowRadius = radius * (isHovered ? 1.2 : node.isTrending ? 1.12 : 1.06);
 
@@ -352,14 +417,14 @@ function drawBubble(
     drawLogoMark(node, ctx, x, y - radius * 0.42, radius, screenRadius > 34 ? 0.92 : 0.55);
 
     ctx.fillStyle = "#f8fafc";
-    ctx.font = `800 ${Math.max(10, radius * (node.favoredOutcome.length > 9 ? 0.2 : 0.24))}px Inter, ui-sans-serif, system-ui, sans-serif`;
-    drawTextLine(ctx, node.favoredOutcome, x, y - radius * 0.06, radius * 1.45);
+    ctx.font = `900 ${Math.max(13, radius * (node.favoredOutcome.length > 9 ? 0.21 : 0.25))}px Inter, ui-sans-serif, system-ui, sans-serif`;
+    drawTextLine(ctx, node.favoredOutcome, x, y - radius * 0.03, radius * 1.48);
   }
 
   if (canRenderPrice) {
     ctx.fillStyle = "#ffffff";
-    ctx.font = `900 ${Math.max(11, radius * 0.24)}px Inter, ui-sans-serif, system-ui, sans-serif`;
-    drawTextLine(ctx, formatCents(node.favoredPrice), x, y + radius * 0.28, radius * 1.15);
+    ctx.font = `950 ${Math.max(18, radius * 0.32)}px Inter, ui-sans-serif, system-ui, sans-serif`;
+    drawTextLine(ctx, formatCents(node.favoredPrice), x, y + radius * 0.29, radius * 1.2);
   }
 
   if (canRenderMovement) {
@@ -391,6 +456,7 @@ export function MarketBubbleMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<ForceGraphMethods<MarketBubbleNode, object> | null>(null);
   const lastFitNodeCount = useRef(0);
+  const lastLayoutSignature = useRef("");
   const [introStartedAt] = useState(() => Date.now());
   const [selectedMarket, setSelectedMarket] = useState<MarketBubbleNode | null>(null);
   const [hoveredMarket, setHoveredMarket] = useState<MarketBubbleNode | null>(null);
@@ -399,6 +465,8 @@ export function MarketBubbleMap({
 
   const nodes = useMemo(() => markets.map((market, index) => marketToBubbleNode(market, index)), [markets]);
   const graphData = useMemo(() => ({ nodes, links: [] }), [nodes]);
+  const layoutSignature = useMemo(() => nodes.map((node) => node.id).join("|"), [nodes]);
+  const particles = useMemo(() => createBackgroundParticles(), []);
   const isMobile = dimensions.width < 640;
 
   useEffect(() => {
@@ -421,17 +489,20 @@ export function MarketBubbleMap({
   useEffect(() => {
     const graph = graphRef.current;
     if (!graph || typeof graph.d3Force !== "function" || nodes.length === 0) return;
-    graph.d3Force("collide", forceCollide<NodeObject<MarketBubbleNode>>((node) => node.val + Math.max(8, node.val * 0.08)).strength(0.92));
-    graph.d3Force("charge")?.strength?.(-18);
-    graph.d3Force("clusterX", forceX<NodeObject<MarketBubbleNode>>((node) => node.targetX).strength(0.028));
-    graph.d3Force("clusterY", forceY<NodeObject<MarketBubbleNode>>((node) => node.targetY).strength(0.028));
+    graph.d3Force("collide", forceCollide<NodeObject<MarketBubbleNode>>((node) => node.val + (isMobile ? 6 : 8)).strength(1));
+    graph.d3Force("charge")?.strength?.(isMobile ? -6 : -10);
+    graph.d3Force("clusterX", forceX<NodeObject<MarketBubbleNode>>((node) => node.targetX).strength(0.018));
+    graph.d3Force("clusterY", forceY<NodeObject<MarketBubbleNode>>((node) => node.targetY).strength(0.018));
     graph.d3Force("center");
-    graph.d3ReheatSimulation();
+    if (lastLayoutSignature.current !== layoutSignature) {
+      lastLayoutSignature.current = layoutSignature;
+      graph.d3ReheatSimulation();
+    }
     if (lastFitNodeCount.current === 0 || Math.abs(nodes.length - lastFitNodeCount.current) >= 10) {
       lastFitNodeCount.current = nodes.length;
-      window.setTimeout(() => graph.zoomToFit?.(900, isMobile ? 2 : 4), 300);
+      window.setTimeout(() => graph.zoomToFit?.(900, isMobile ? 8 : 12), 360);
     }
-  }, [isMobile, nodes]);
+  }, [isMobile, layoutSignature, nodes.length]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -452,9 +523,8 @@ export function MarketBubbleMap({
 
   const handleCenterMap = useCallback(() => {
     const graph = graphRef.current;
-    graph?.centerAt?.(0, 0, 650);
-    graph?.zoom?.(1, 650);
-  }, []);
+    graph?.zoomToFit?.(650, isMobile ? 8 : 12);
+  }, [isMobile]);
 
   const drawNode = useCallback(
     (node: NodeObject<MarketBubbleNode>, ctx: CanvasRenderingContext2D, globalScale: number) => {
@@ -472,15 +542,15 @@ export function MarketBubbleMap({
 
   const drawMapBackground = useCallback(
     (ctx: CanvasRenderingContext2D) => {
-      drawBackground(ctx);
+      drawBackground(ctx, particles);
     },
-    [],
+    [particles],
   );
 
   return (
     <div
       aria-label={`${nodes.length} sports market bubble map`}
-      className="relative h-[calc(100vh-5.9rem)] min-h-[480px] w-screen overflow-hidden bg-[#050505] sm:h-[calc(100vh-5.55rem)]"
+      className="relative h-[calc(100vh-5.45rem)] min-h-[480px] w-screen overflow-hidden bg-[#050505] sm:h-[calc(100vh-5.15rem)]"
       onDoubleClick={handleCenterMap}
       onMouseMove={handleMouseMove}
       role="application"
@@ -493,9 +563,9 @@ export function MarketBubbleMap({
           height={dimensions.height}
           autoPauseRedraw={false}
           backgroundColor="#050505"
-          cooldownTicks={320}
-          d3AlphaDecay={0.01}
-          d3VelocityDecay={0.32}
+          cooldownTicks={220}
+          d3AlphaDecay={0.04}
+          d3VelocityDecay={0.52}
           enableNodeDrag
           enablePanInteraction
           enablePointerInteraction
@@ -563,8 +633,29 @@ export function MarketBubbleMap({
         <div className="absolute inset-0 grid place-items-center text-sm text-slate-400">No sports markets matched this view.</div>
       ) : null}
 
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex min-h-10 flex-wrap items-center justify-between gap-3 border-t border-zinc-800/80 bg-black/55 px-5 py-2 text-xs font-semibold text-zinc-200 backdrop-blur-sm">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          {[
+            ["Strong Up", "#16C784"],
+            ["Up", "#4CAF50"],
+            ["Neutral", "#B8C0CC"],
+            ["Down", "#FF3B45"],
+            ["Strong Down", "#B91C1C"],
+          ].map(([label, color]) => (
+            <span className="flex items-center gap-2" key={label}>
+              <span className="h-3 w-3 rounded-full shadow-[0_0_10px_currentColor]" style={{ backgroundColor: color, color }} />
+              {label}
+            </span>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 text-zinc-300">
+          <span>Data from</span>
+          <span className="font-bold text-white">Polymarket</span>
+        </div>
+      </div>
+
       {selectedMarket ? (
-        <aside className="absolute inset-x-0 bottom-0 max-h-[72%] overflow-y-auto border-t border-slate-700 bg-slate-950/95 p-4 shadow-2xl backdrop-blur md:inset-x-auto md:bottom-0 md:right-0 md:top-0 md:h-full md:w-96 md:max-h-none md:border-l md:border-t-0">
+        <aside className="absolute inset-x-0 bottom-0 z-30 max-h-[72%] overflow-y-auto border-t border-slate-700 bg-slate-950/95 p-4 shadow-2xl backdrop-blur md:inset-x-auto md:bottom-0 md:right-0 md:top-0 md:h-full md:w-96 md:max-h-none md:border-l md:border-t-0">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{selectedMarket.sport}</p>

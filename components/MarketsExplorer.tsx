@@ -13,8 +13,8 @@ const timeframes = ["1H", "1D", "1W", "1M"] as const;
 const rangeOptions = [
   { label: "1-50", value: 50 },
   { label: "1-100", value: 100 },
+  { label: "1-150", value: 150 },
   { label: "1-250", value: 250 },
-  { label: "1-500", value: 500 },
 ] as const;
 
 type MarketsResponse = MarketPage & {
@@ -114,6 +114,7 @@ export function MarketsExplorer({
 
   const isInitialLoading = isLoading && markets.length === 0;
   const isRefreshing = isLoading && markets.length > 0;
+  const visibleMarkets = markets.slice(0, rangeLimit);
 
   return (
     <section className="w-screen bg-[#050505]">
@@ -158,7 +159,7 @@ export function MarketsExplorer({
           <Input
             className="h-6 w-[min(52vw,280px)] border-zinc-800 bg-black pl-8 text-xs"
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search"
+            placeholder="Search markets..."
             value={query}
           />
         </label>
@@ -173,7 +174,7 @@ export function MarketsExplorer({
         <div className="border-b border-rose-500/30 bg-rose-950/50 px-3 py-2 text-sm text-rose-100">{error}</div>
       ) : null}
 
-      <MarketBubbleMap isLoading={isInitialLoading} isRefreshing={isRefreshing} markets={markets} />
+      <MarketBubbleMap isLoading={isInitialLoading} isRefreshing={isRefreshing} markets={visibleMarkets} />
     </section>
   );
 }
