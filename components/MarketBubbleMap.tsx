@@ -889,45 +889,121 @@ function drawBackgroundTheme(
   ctx.save();
   ctx.globalAlpha = alpha;
 
+  const drawStadiumLights = (intensity: number) => {
+    const blooms = [
+      { x: width * 0.16, y: height * 0.12, r: Math.max(width, height) * 0.42 },
+      { x: width * 0.84, y: height * 0.11, r: Math.max(width, height) * 0.38 },
+      { x: width * 0.5, y: height * 0.05, r: Math.max(width, height) * 0.52 },
+    ];
+    for (const bloom of blooms) {
+      const grad = ctx.createRadialGradient(bloom.x, bloom.y, bloom.r * 0.06, bloom.x, bloom.y, bloom.r);
+      grad.addColorStop(0, `rgba(255,255,255,${0.11 * intensity})`);
+      grad.addColorStop(0.3, `rgba(148,163,184,${0.04 * intensity})`);
+      grad.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(bloom.x, bloom.y, bloom.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  };
+
+  const drawCrowdSilhouette = (baseY: number, opacityValue: number) => {
+    ctx.fillStyle = `rgba(15,23,42,${opacityValue})`;
+    ctx.beginPath();
+    ctx.moveTo(0, baseY);
+    const segments = 16;
+    for (let index = 0; index <= segments; index += 1) {
+      const px = (width / segments) * index;
+      const wave = Math.sin(index * 0.9) * height * 0.01 + Math.cos(index * 0.45) * height * 0.006;
+      const py = baseY + wave;
+      ctx.lineTo(px, py);
+    }
+    ctx.lineTo(width, height);
+    ctx.lineTo(0, height);
+    ctx.closePath();
+    ctx.fill();
+  };
+
   if (theme === "soccer") {
     ctx.fillStyle = "#050b07";
     ctx.fillRect(0, 0, width, height);
-    const field = ctx.createRadialGradient(width * 0.5, height * 0.44, Math.min(width, height) * 0.08, width * 0.5, height * 0.5, Math.max(width, height) * 0.78);
-    field.addColorStop(0, "rgba(34,197,94,0.07)");
-    field.addColorStop(1, "rgba(0,0,0,0.22)");
-    ctx.fillStyle = field;
+    drawStadiumLights(1);
+    drawCrowdSilhouette(height * 0.16, 0.18);
+    drawCrowdSilhouette(height * 0.22, 0.12);
+    ctx.fillStyle = "rgba(16,64,42,0.18)";
+    ctx.fillRect(0, height * 0.26, width, height * 0.5);
+    const pitch = ctx.createRadialGradient(width * 0.5, height * 0.46, Math.min(width, height) * 0.1, width * 0.5, height * 0.5, Math.max(width, height) * 0.82);
+    pitch.addColorStop(0, "rgba(34,197,94,0.05)");
+    pitch.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = pitch;
     ctx.fillRect(0, 0, width, height);
-    drawFieldLines(ctx, width, height, "rgba(186,255,200,0.16)", 0.13, "soccer");
+    drawFieldLines(ctx, width, height, "rgba(186,255,200,0.08)", 0.06, "soccer");
   } else if (theme === "basketball") {
     ctx.fillStyle = "#090603";
     ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = "rgba(245,158,11,0.05)";
+    drawStadiumLights(0.85);
+    drawCrowdSilhouette(height * 0.18, 0.16);
+    ctx.fillStyle = "rgba(86,47,19,0.18)";
+    ctx.fillRect(0, height * 0.28, width, height * 0.46);
+    const courtGlow = ctx.createRadialGradient(width * 0.5, height * 0.55, Math.min(width, height) * 0.1, width * 0.5, height * 0.55, Math.max(width, height) * 0.82);
+    courtGlow.addColorStop(0, "rgba(245,158,11,0.055)");
+    courtGlow.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = courtGlow;
     ctx.fillRect(0, 0, width, height);
-    drawFieldLines(ctx, width, height, "rgba(245,158,11,0.12)", 0.12, "basketball");
+    drawFieldLines(ctx, width, height, "rgba(245,158,11,0.07)", 0.05, "basketball");
   } else if (theme === "football") {
     ctx.fillStyle = "#050a06";
     ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = "rgba(34,197,94,0.05)";
+    drawStadiumLights(0.92);
+    drawCrowdSilhouette(height * 0.17, 0.16);
+    ctx.fillStyle = "rgba(19,86,45,0.16)";
+    ctx.fillRect(0, height * 0.3, width, height * 0.42);
+    const turfGlow = ctx.createRadialGradient(width * 0.5, height * 0.56, Math.min(width, height) * 0.1, width * 0.5, height * 0.56, Math.max(width, height) * 0.8);
+    turfGlow.addColorStop(0, "rgba(34,197,94,0.04)");
+    turfGlow.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = turfGlow;
     ctx.fillRect(0, 0, width, height);
-    drawFieldLines(ctx, width, height, "rgba(236,253,245,0.14)", 0.14, "football");
+    drawFieldLines(ctx, width, height, "rgba(236,253,245,0.07)", 0.06, "football");
   } else if (theme === "tennis") {
     ctx.fillStyle = "#050a09";
     ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = "rgba(187,247,208,0.04)";
+    drawStadiumLights(0.78);
+    drawCrowdSilhouette(height * 0.16, 0.14);
+    ctx.fillStyle = "rgba(21,77,50,0.16)";
+    ctx.fillRect(0, height * 0.28, width, height * 0.46);
+    const courtGlow = ctx.createRadialGradient(width * 0.5, height * 0.52, Math.min(width, height) * 0.08, width * 0.5, height * 0.52, Math.max(width, height) * 0.78);
+    courtGlow.addColorStop(0, "rgba(187,247,208,0.035)");
+    courtGlow.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = courtGlow;
     ctx.fillRect(0, 0, width, height);
-    drawFieldLines(ctx, width, height, "rgba(187,247,208,0.16)", 0.14, "tennis");
+    drawFieldLines(ctx, width, height, "rgba(187,247,208,0.08)", 0.06, "tennis");
   } else if (theme === "ufc") {
     ctx.fillStyle = "#040404";
     ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = "rgba(255,255,255,0.03)";
+    drawStadiumLights(0.7);
+    drawCrowdSilhouette(height * 0.15, 0.15);
+    const cageGlow = ctx.createRadialGradient(width * 0.5, height * 0.5, Math.min(width, height) * 0.08, width * 0.5, height * 0.5, Math.max(width, height) * 0.78);
+    cageGlow.addColorStop(0, "rgba(255,255,255,0.025)");
+    cageGlow.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = cageGlow;
     ctx.fillRect(0, 0, width, height);
-    drawFieldLines(ctx, width, height, "rgba(255,255,255,0.12)", 0.14, "ufc");
+    drawFieldLines(ctx, width, height, "rgba(255,255,255,0.07)", 0.06, "ufc");
   } else {
     ctx.fillStyle = "#050505";
     ctx.fillRect(0, 0, width, height);
     ctx.fillStyle = "rgba(31,41,55,0.24)";
     ctx.fillRect(0, 0, width, height);
   }
+
+  const sweepPhase = (Date.now() % 12000) / 12000;
+  const sweepX = width * (0.1 + sweepPhase * 0.8);
+  const sweepY = height * (0.16 + Math.sin(sweepPhase * Math.PI * 2) * 0.03);
+  const sweep = ctx.createRadialGradient(sweepX, sweepY, Math.max(width, height) * 0.02, sweepX, sweepY, Math.max(width, height) * 0.42);
+  sweep.addColorStop(0, "rgba(255,255,255,0.06)");
+  sweep.addColorStop(0.16, "rgba(148,163,184,0.03)");
+  sweep.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = sweep;
+  ctx.fillRect(0, 0, width, height);
 
   const particleLimit = Math.min(particles.length, pixelRatio > 1.5 ? 70 : 88);
   for (const particle of particles.slice(0, particleLimit)) {
@@ -953,18 +1029,22 @@ function drawTextLine(ctx: CanvasRenderingContext2D, text: string, x: number, y:
 function drawLogoMark(node: MarketBubbleNode, ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, opacity: number) {
   const logo = getLogoAsset(node.logoUrl);
   const safeBubbleRadius = safeRadius(radius, 8);
-  const logoSize = safeRadius(safeBubbleRadius * 0.32, 4);
+  const logoSize = safeRadius(Math.min(safeBubbleRadius * 0.34, safeBubbleRadius * 0.3 + safeBubbleRadius * 0.015), 4);
   const logoX = safeCoordinate(x);
   const logoY = safeCoordinate(y);
 
   ctx.save();
-  ctx.globalAlpha *= opacity;
+  ctx.globalAlpha *= Math.max(0.88, Math.min(0.93, opacity));
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   const bitmap = logo?.bitmap;
   const image = logo?.image;
   const drawable = bitmap ?? (image?.complete && image.naturalWidth > 0 ? image : null);
   if (drawable) {
+    ctx.fillStyle = "rgba(2, 6, 23, 0.18)";
+    ctx.beginPath();
+    ctx.arc(logoX, logoY, safeRadius(logoSize * 0.58), 0, Math.PI * 2);
+    ctx.fill();
     ctx.beginPath();
     ctx.arc(logoX, logoY, safeRadius(logoSize / 2), 0, Math.PI * 2);
     ctx.clip();
@@ -1198,8 +1278,8 @@ function drawBallGloss(ctx: CanvasRenderingContext2D, x: number, y: number, radi
   const gloss = ctx.createRadialGradient(x - radius * 0.34, y - radius * 0.38, radius * 0.08, x, y, radius);
   gloss.addColorStop(0, "rgba(255,255,255,0.24)");
   gloss.addColorStop(0.34, "rgba(255,255,255,0.06)");
-  gloss.addColorStop(0.76, "rgba(0,0,0,0.08)");
-  gloss.addColorStop(1, "rgba(0,0,0,0.38)");
+  gloss.addColorStop(0.76, "rgba(255,255,255,0)");
+  gloss.addColorStop(1, "rgba(255,255,255,0)");
   ctx.fillStyle = gloss;
   ctx.beginPath();
   ctx.arc(x, y, safeRadius(radius), 0, Math.PI * 2);
@@ -1207,11 +1287,11 @@ function drawBallGloss(ctx: CanvasRenderingContext2D, x: number, y: number, radi
 }
 
 function drawMatteLighting(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, shadowAlpha = 0.34, highlightAlpha = 0.2) {
-  const edge = ctx.createRadialGradient(x - radius * 0.2, y - radius * 0.26, radius * 0.2, x, y, radius);
+  const edge = ctx.createRadialGradient(x - radius * 0.22, y - radius * 0.24, radius * 0.18, x, y, radius);
   edge.addColorStop(0, `rgba(255,255,255,${highlightAlpha})`);
-  edge.addColorStop(0.56, "rgba(255,255,255,0)");
-  edge.addColorStop(0.82, "rgba(0,0,0,0.08)");
-  edge.addColorStop(1, `rgba(0,0,0,${shadowAlpha})`);
+  edge.addColorStop(0.56, "rgba(255,255,255,0.01)");
+  edge.addColorStop(0.82, "rgba(255,255,255,0)");
+  edge.addColorStop(1, `rgba(255,255,255,${Math.max(0.02, shadowAlpha * 0.16)})`);
   ctx.fillStyle = edge;
   ctx.beginPath();
   ctx.arc(x, y, safeRadius(radius), 0, Math.PI * 2);
@@ -1290,7 +1370,7 @@ function drawClippedImageAsset(
   ctx.imageSmoothingQuality = "high";
   const coverSize = radius * 2.08;
   const offsetX = -coverSize / 2;
-  const offsetY = -coverSize / 2 - radius * 0.035;
+  const offsetY = -coverSize / 2 - radius * 0.055;
   ctx.drawImage(drawable, offsetX, offsetY, coverSize, coverSize);
   ctx.restore();
   return true;
@@ -1572,7 +1652,21 @@ function drawF1Tire(ctx: CanvasRenderingContext2D, x: number, y: number, radius:
 
 function drawSportBubble(ctx: CanvasRenderingContext2D, node: MarketBubbleNode, x: number, y: number, radius: number) {
   const asset = sportAssetForNode(node);
-  if (asset && drawClippedImageAsset(ctx, asset, x, y, radius, 0, 1)) {
+  const kind = sportBubbleKind(node);
+  const assetRotation =
+    kind === "basketball"
+      ? ((hashVariant(node, "basketball-rotation", 9) - 4) / 120) * Math.PI
+      : kind === "football"
+        ? ((hashVariant(node, "football-rotation", 11) - 5) / 140) * Math.PI
+        : kind === "tennis"
+          ? ((hashVariant(node, "tennis-rotation", 7) - 3) / 160) * Math.PI
+          : kind === "ufc"
+            ? ((hashVariant(node, "ufc-rotation", 9) - 4) / 180) * Math.PI
+            : kind === "soccer"
+              ? ((hashVariant(node, "soccer-rotation", 5) - 2) / 320) * Math.PI
+              : 0;
+  const assetOpacity = kind === "ufc" ? 0.98 : kind === "basketball" ? 0.99 : 1;
+  if (asset && drawClippedImageAsset(ctx, asset, x, y, radius, assetRotation, assetOpacity)) {
     return;
   }
   const soccer = soccerBallVariant(node);
@@ -1580,7 +1674,7 @@ function drawSportBubble(ctx: CanvasRenderingContext2D, node: MarketBubbleNode, 
   const baseball = baseballVariant(node);
   const tennis = tennisVariant(node);
   const football = footballVariant(node);
-  switch (sportBubbleKind(node)) {
+  switch (kind) {
     case "soccer":
       drawSoccerBall(ctx, x, y, radius, soccer);
       break;
@@ -1625,16 +1719,17 @@ function drawBubble(
   const x = safeCoordinate(node.x);
   const y = safeCoordinate(node.y);
   const screenRadius = radius / safeRadius(globalScale, 1);
+  const depth = Math.max(0, Math.min(1, (screenRadius - 12) / 36));
   const canRenderText = screenRadius >= (options.isMobile ? 24 : 18);
   const canRenderPrice = screenRadius >= (options.isMobile ? 28 : 22);
   const canRenderMovement = screenRadius >= (options.isMobile ? 42 : 34);
-  const glowRadius = safeRadius(radius * (isHovered ? 1.14 : node.isTrending ? 1.08 : 1.03), radius);
+  const glowRadius = safeRadius(radius * (isHovered ? 1.2 : node.isTrending ? 1.12 : 1.03), radius);
 
   ctx.save();
-  ctx.globalAlpha = easeIntro;
+  ctx.globalAlpha = easeIntro * (0.84 + depth * 0.16);
 
   const glow = ctx.createRadialGradient(x, y, safeRadius(radius * 0.86), x, y, glowRadius);
-  glow.addColorStop(0, isHovered ? alphaColor(node.primaryColor, 0.3) : alphaColor(node.primaryColor, 0.16));
+  glow.addColorStop(0, isHovered ? alphaColor(node.primaryColor, 0.34) : alphaColor(node.primaryColor, 0.14 + depth * 0.08));
   glow.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = glow;
   ctx.beginPath();
@@ -1645,7 +1740,7 @@ function drawBubble(
     const pulseAge = now - node.visualPulseStartedAt;
     if (pulseAge >= 0 && pulseAge <= PULSE_FADE_MS) {
       const pulseProgress = pulseAge / PULSE_FADE_MS;
-      const pulseAlpha = (1 - pulseProgress) * 0.28;
+      const pulseAlpha = (1 - pulseProgress) * 0.3;
       const pulseRadius = radius * (1.02 + pulseProgress * 0.12);
       const pulseColor = node.visualPulseDirection === "up" ? `rgba(52,211,153,${pulseAlpha})` : `rgba(251,113,133,${pulseAlpha})`;
       ctx.strokeStyle = pulseColor;
@@ -1659,18 +1754,18 @@ function drawBubble(
   drawSportBubble(ctx, node, x, y, radius);
 
   ctx.lineWidth = isHovered || options.priorityPass ? 4 : 2;
-  ctx.strokeStyle = alphaColor(node.primaryColor, isHovered || options.priorityPass ? 0.88 : 0.52);
+  ctx.strokeStyle = alphaColor(node.primaryColor, isHovered || options.priorityPass ? 0.88 : 0.48 + depth * 0.18);
   ctx.beginPath();
   ctx.arc(x, y, safeRadius(radius - ctx.lineWidth / 2), 0, Math.PI * 2);
   ctx.stroke();
 
   ctx.lineWidth = 1;
-  ctx.strokeStyle = alphaColor(node.secondaryColor, 0.26);
+  ctx.strokeStyle = alphaColor(node.secondaryColor, 0.18 + depth * 0.12);
   ctx.beginPath();
   ctx.arc(x, y, safeRadius(radius - Math.max(4, radius * 0.1)), 0, Math.PI * 2);
   ctx.stroke();
 
-  ctx.strokeStyle = "rgba(255,255,255,0.35)";
+  ctx.strokeStyle = `rgba(255,255,255,${0.22 + depth * 0.12})`;
   ctx.lineWidth = Math.max(1, radius * 0.018);
   ctx.beginPath();
   ctx.arc(x, y, safeRadius(radius * 0.82), Math.PI * 1.08, Math.PI * 1.85);
@@ -1681,7 +1776,7 @@ function drawBubble(
 
   if (canRenderText) {
     drawLabelPlate(ctx, x, y, radius);
-    drawLogoMark(node, ctx, x, y - radius * 0.42, radius, screenRadius > 34 ? 0.92 : 0.55);
+    drawLogoMark(node, ctx, x, y - radius * 0.5, radius, screenRadius > 34 ? 0.93 : 0.88);
 
     ctx.fillStyle = "#f8fafc";
     ctx.font = `900 ${Math.max(13, radius * (node.favoredOutcome.length > 9 ? 0.21 : 0.25))}px Inter, ui-sans-serif, system-ui, sans-serif`;
