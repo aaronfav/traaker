@@ -632,25 +632,16 @@ export function mergeStablePanelMarket(stable: MarketBubbleNode | null, liveMark
 }
 
 async function readLatestMarketResponse(response: Response) {
-  const payload = (await response.json().catch(() => null)) as { markets?: TerminalMarket[]; error?: string } | null;
-  if (!response.ok || !Array.isArray(payload?.markets)) {
+  const payload = (await response.json().catch(() => null)) as { market?: TerminalMarket; error?: string } | null;
+  if (!response.ok || !payload?.market) {
     throw new Error(payload?.error ?? "Unable to update selected market prices.");
   }
-  return payload.markets;
+  return payload.market;
 }
 
 export async function fetchLatestMarketForNode(node: MarketBubbleNode) {
-  const searchParams = new URLSearchParams({
-    limit: "250",
-    offset: "0",
-    minVolume: "0",
-    sort: "liquidity",
-    status: "all",
-    search: node.title,
-  });
-  const markets = await fetch(`/api/polymarket/markets?${searchParams.toString()}`, { cache: "no-store" }).then(readLatestMarketResponse);
-  const latest = markets.find((market) => market.id === node.id || market.conditionId === node.conditionId || market.slug === node.id);
-  return latest ? mergeStablePanelMarket(node, latest) : null;
+  const latest = await fetch(`/api/polymarket/markets/${encodeURIComponent(node.id)}`, { cache: "no-store" }).then(readLatestMarketResponse);
+  return mergeStablePanelMarket(node, latest);
 }
 
 function clampBodyToBounds(body: BubbleBody, width: number, height: number) {

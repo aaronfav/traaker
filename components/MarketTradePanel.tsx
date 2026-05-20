@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TradeTicket } from "@/components/trading/TradeTicket";
@@ -15,6 +15,8 @@ const money = (value: number) => {
 
 const formatCents = (price: number) => `${Math.round(Math.max(0, Math.min(1, Number.isFinite(price) ? price : 0)) * 100)}\u00a2`;
 const formatMovement = (value: number) => `${value >= 0 ? "+" : ""}${(Number.isFinite(value) ? value * 100 : 0).toFixed(1)}%`;
+const QUOTE_REFRESH_MS = 10_000;
+const QUOTE_TICK_MS = 250;
 
 export function MarketTradePanel({
   market,
@@ -27,35 +29,65 @@ export function MarketTradePanel({
 }) {
   const [side, setSide] = useState<"Buy" | "Sell">("Buy");
   const [displayMarket, setDisplayMarket] = useState(market);
-  const [isUpdating, setIsUpdating] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
-  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [quoteNow, setQuoteNow] = useState(() => Date.now());
+  const [quoteExpiresAt, setQuoteExpiresAt] = useState(() => Date.now() + QUOTE_REFRESH_MS);
+  const [quoteStale, setQuoteStale] = useState(false);
+  const [isRefreshingQuote, setIsRefreshingQuote] = useState(false);
+  const refreshInFlightRef = useRef(false);
   const polymarketUrl = displayMarket.polymarketUrl ?? displayMarket.marketUrl;
 
   useEffect(() => {
     setDisplayMarket(market);
     setLastUpdatedAt(null);
-    setUpdateError(null);
+    setQuoteNow(Date.now());
+    setQuoteExpiresAt(Date.now() + QUOTE_REFRESH_MS);
+    setQuoteStale(false);
+    setIsRefreshingQuote(false);
+    refreshInFlightRef.current = false;
   }, [market.id]);
 
-  const handleUpdatePrices = async () => {
+  const refreshQuote = useCallback(async () => {
     if (!onUpdatePrices) return;
-    setIsUpdating(true);
-    setUpdateError(null);
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+    setIsRefreshingQuote(true);
     try {
       const updated = await onUpdatePrices(displayMarket);
       if (updated) {
         setDisplayMarket(updated);
         setLastUpdatedAt(Date.now());
+        setQuoteStale(false);
       } else {
-        setUpdateError("Latest market prices were not found.");
+        setQuoteStale(true);
       }
-    } catch (error) {
-      setUpdateError(error instanceof Error ? error.message : "Unable to update selected market prices.");
+    } catch {
+      setQuoteStale(true);
     } finally {
-      setIsUpdating(false);
+      const nextExpiry = Date.now() + QUOTE_REFRESH_MS;
+      setQuoteExpiresAt(nextExpiry);
+      setQuoteNow(Date.now());
+      refreshInFlightRef.current = false;
+      setIsRefreshingQuote(false);
     }
-  };
+  }, [displayMarket, onUpdatePrices]);
+
+  useEffect(() => {
+    if (!onUpdatePrices) return;
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      setQuoteNow(now);
+      if (!refreshInFlightRef.current && now >= quoteExpiresAt) {
+        void refreshQuote();
+      }
+    }, QUOTE_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, [onUpdatePrices, quoteExpiresAt, refreshQuote]);
+
+  const remainingMs = Math.max(0, quoteExpiresAt - quoteNow);
+  const remainingSeconds = Math.ceil(remainingMs / 1000);
+  const quoteProgress = Math.min(1, Math.max(0, (QUOTE_REFRESH_MS - remainingMs) / QUOTE_REFRESH_MS));
+  const quoteStrokeDashoffset = 40 - 40 * quoteProgress;
 
   return (
     <aside
@@ -78,16 +110,45 @@ export function MarketTradePanel({
       </div>
 
       <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-zinc-800 bg-zinc-950/70 px-3 py-2">
-        <span className="text-xs font-medium text-zinc-400">
-          {lastUpdatedAt ? `Prices updated ${new Date(lastUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Panel prices are frozen"}
-        </span>
-        <Button className="h-8 gap-2 px-3 text-xs" disabled={!onUpdatePrices || isUpdating} onClick={handleUpdatePrices} size="sm" type="button" variant="secondary">
-          <RefreshCw className={`h-3.5 w-3.5 ${isUpdating ? "animate-spin" : ""}`} />
-          Update prices
+        <div className="flex min-w-0 items-center gap-3">
+          <div className={`relative grid h-9 w-9 place-items-center rounded-full border ${quoteStale ? "border-rose-400/40 bg-rose-400/10" : "border-cyan-400/40 bg-cyan-400/10"}`}>
+            <svg aria-hidden="true" className="h-7 w-7 -rotate-90" viewBox="0 0 20 20">
+              <circle cx="10" cy="10" r="6.4" fill="none" className="stroke-zinc-800" strokeWidth="1.8" />
+              <circle
+                cx="10"
+                cy="10"
+                r="6.4"
+                fill="none"
+                className={quoteStale ? "stroke-rose-300" : "stroke-cyan-300"}
+                strokeDasharray="40"
+                strokeDashoffset={quoteStrokeDashoffset}
+                strokeLinecap="round"
+                strokeWidth="1.8"
+              />
+            </svg>
+            <span className="absolute text-[10px] font-bold text-zinc-50">{quoteStale ? "!" : remainingSeconds}</span>
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Quote</p>
+            <p className={`truncate text-sm font-medium ${quoteStale ? "text-rose-200" : "text-zinc-200"}`}>
+              {quoteStale ? "Quote stale" : isRefreshingQuote ? "Refreshing quote" : `Quote refreshes in ${remainingSeconds}s`}
+            </p>
+            <p className="text-xs text-zinc-500">{lastUpdatedAt ? `Last quote ${new Date(lastUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Frozen quote"}</p>
+          </div>
+        </div>
+        <Button
+          aria-label="Refresh quote now"
+          className="h-8 w-8 shrink-0"
+          disabled={!onUpdatePrices || isRefreshingQuote}
+          onClick={() => void refreshQuote()}
+          size="icon"
+          type="button"
+          variant="ghost"
+          title="Refresh quote now"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingQuote ? "animate-spin" : ""}`} />
         </Button>
       </div>
-
-      {updateError ? <div className="mt-3 rounded-md border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-sm text-rose-100">{updateError}</div> : null}
 
       {displayMarket.activeRangeWarning ? (
         <div className="mt-4 rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm font-medium text-amber-100">

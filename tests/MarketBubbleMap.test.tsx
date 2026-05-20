@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { marketStore } from "@/app/store/marketStore";
 import {
@@ -411,20 +411,58 @@ describe("MarketBubbleMap", () => {
     expect(celtics).toHaveClass("border-cyan-400");
   });
 
-  it("updates frozen trade panel prices only when Update prices is clicked", async () => {
-    const panelMarket = marketToBubbleNode(market);
-    const onUpdatePrices = vi.fn(async () => marketToBubbleNode({ ...market, yesPrice: 0.71, noPrice: 0.29, bestBid: 0.7, bestAsk: 0.72 }));
-    render(<MarketTradePanel market={panelMarket} onClose={vi.fn()} onUpdatePrices={onUpdatePrices} />);
+  it("refreshes the quote on a 10-second cycle and via the refresh-now icon", async () => {
+    vi.useFakeTimers();
+    try {
+      const panelMarket = marketToBubbleNode(market);
+      const onUpdatePrices = vi.fn(async () => marketToBubbleNode({ ...market, yesPrice: 0.71, noPrice: 0.29, bestBid: 0.7, bestAsk: 0.72 }));
+      render(<MarketTradePanel market={panelMarket} onClose={vi.fn()} onUpdatePrices={onUpdatePrices} />);
 
-    expect(screen.getAllByText("62\u00a2").length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("button", { name: /celtics/i }));
-    expect(screen.getByRole("button", { name: /celtics/i })).toHaveClass("border-cyan-400");
+      expect(screen.getAllByText("62\u00a2").length).toBeGreaterThan(0);
+      expect(screen.getByText(/quote refreshes in 10s/i)).toBeInTheDocument();
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /celtics/i }));
+      });
+      expect(screen.getByRole("button", { name: /celtics/i })).toHaveClass("border-cyan-400");
 
-    fireEvent.click(screen.getByRole("button", { name: /update prices/i }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /refresh quote now/i }));
+      });
 
-    await waitFor(() => expect(onUpdatePrices).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.getAllByText("71\u00a2").length).toBeGreaterThan(0));
-    expect(screen.getByRole("button", { name: /celtics/i })).toHaveClass("border-cyan-400");
+      expect(onUpdatePrices).toHaveBeenCalledTimes(1);
+      expect(screen.getAllByText("71\u00a2").length).toBeGreaterThan(0);
+      expect(screen.getByRole("button", { name: /celtics/i })).toHaveClass("border-cyan-400");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+
+      expect(onUpdatePrices).toHaveBeenCalledTimes(2);
+      expect(screen.getAllByText("71\u00a2").length).toBeGreaterThan(0);
+      expect(screen.getByRole("button", { name: /celtics/i })).toHaveClass("border-cyan-400");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows a stale quote when the refresh fails", async () => {
+    vi.useFakeTimers();
+    try {
+      const panelMarket = marketToBubbleNode(market);
+      const onUpdatePrices = vi.fn(async () => {
+        throw new Error("network down");
+      });
+      render(<MarketTradePanel market={panelMarket} onClose={vi.fn()} onUpdatePrices={onUpdatePrices} />);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+
+      expect(onUpdatePrices).toHaveBeenCalledTimes(1);
+      expect(screen.getByText(/quote stale/i)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("physics keeps moving bubbles inside bounds without resizing", () => {
