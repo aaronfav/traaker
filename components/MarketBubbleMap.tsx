@@ -1,9 +1,7 @@
 "use client";
 
-import Link from "next/link";
-import { X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { MarketTradePanel } from "@/components/MarketTradePanel";
 import { findTeamStyleMatch, marketBubbleRadius, momentumGlowColor } from "@/lib/sports/teamStyles";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
@@ -15,8 +13,10 @@ export type MarketBubbleNode = {
   liquidity: number;
   priceChange: number;
   marketUrl?: string;
+  polymarketUrl?: string;
   tradeUrl?: string;
   logoUrl?: string;
+  logoPath?: string;
   primaryColor: string;
   secondaryColor: string;
   glowColor: string;
@@ -24,6 +24,8 @@ export type MarketBubbleNode = {
   favoredPrice: number;
   priceCents: number;
   outcomes: MarketOutcomeOption[];
+  bestBid?: number;
+  bestAsk?: number;
   trendScore: number;
   isTrending: boolean;
   driftPhase: number;
@@ -277,6 +279,7 @@ function marketColors(market: TerminalMarket, favoredOutcome: string) {
     return {
       primary: teamStyle.primary,
       secondary: teamStyle.secondary,
+      logoPath: teamStyle.logoPath,
       logoUrl: teamStyle.logoUrl,
     };
   }
@@ -306,8 +309,10 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
     liquidity,
     priceChange,
     marketUrl: `/markets/${market.id}`,
+    polymarketUrl: market.slug ? `https://polymarket.com/event/${market.slug}` : undefined,
     tradeUrl: `/trade/${market.id}`,
-    logoUrl: style.logoUrl ?? market.image,
+    logoUrl: style.logoUrl ?? style.logoPath ?? market.image,
+    logoPath: style.logoPath,
     primaryColor: style.primary,
     secondaryColor: style.secondary,
     glowColor: momentumGlowColor(priceChange, volume),
@@ -434,6 +439,27 @@ export function createBubbleBodies(nodes: MarketBubbleNode[], width: number, hei
       mass: radius * radius,
       vx: velocityForId(node.id, "x"),
       vy: velocityForId(node.id, "y"),
+    };
+  });
+}
+
+export function mergeBubbleBodies(previousBodies: BubbleBody[], nextBodies: BubbleBody[], width: number, height: number) {
+  const previousById = new Map(previousBodies.map((body) => [body.id, body]));
+  return nextBodies.map((nextBody) => {
+    const previous = previousById.get(nextBody.id);
+    if (!previous) return nextBody;
+    const radius = Math.max(8, safeRadius(previous.radius, nextBody.radius));
+    return {
+      ...nextBody,
+      x: clampPosition(previous.x, radius, width),
+      y: clampPosition(previous.y, radius, height),
+      targetX: previous.targetX,
+      targetY: previous.targetY,
+      radius,
+      val: radius,
+      mass: radius * radius,
+      vx: safeNumber(previous.vx, nextBody.vx),
+      vy: safeNumber(previous.vy, nextBody.vy),
     };
   });
 }
@@ -599,7 +625,7 @@ function drawTextLine(ctx: CanvasRenderingContext2D, text: string, x: number, y:
 function drawLogoMark(node: MarketBubbleNode, ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, opacity: number) {
   const logo = getLogoImage(node.logoUrl);
   const safeBubbleRadius = safeRadius(radius, 8);
-  const logoSize = safeRadius(safeBubbleRadius * 0.38, 4);
+  const logoSize = safeRadius(safeBubbleRadius * 0.32, 4);
   const logoX = safeCoordinate(x);
   const logoY = safeCoordinate(y);
 
@@ -1020,8 +1046,9 @@ export function MarketBubbleMap({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<number | null>(null);
   const bodiesRef = useRef<BubbleBody[]>([]);
+  const layoutRef = useRef({ ids: "", width: 0, height: 0, isMobile: false });
   const [introStartedAt] = useState(() => Date.now());
-  const [selectedMarket, setSelectedMarket] = useState<MarketBubbleNode | null>(null);
+  const [selectedMarketId, setSelectedMarketId] = useState<string | null>(null);
   const [hoveredMarket, setHoveredMarket] = useState<MarketBubbleNode | null>(null);
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   const [dimensions, setDimensions] = useState({ width: 1200, height: 680 });
@@ -1030,9 +1057,18 @@ export function MarketBubbleMap({
   const particles = useMemo(() => createBackgroundParticles(), []);
   const isMobile = dimensions.width < 640;
   const bodyCount = nodes.length;
+  const selectedMarket = useMemo(() => nodes.find((node) => node.id === selectedMarketId) ?? null, [nodes, selectedMarketId]);
 
   useEffect(() => {
-    bodiesRef.current = createBubbleBodies(nodes, dimensions.width, dimensions.height, isMobile);
+    const ids = nodes.map((node) => node.id).join("|");
+    const nextBodies = createBubbleBodies(nodes, dimensions.width, dimensions.height, isMobile);
+    const canMerge =
+      ids === layoutRef.current.ids &&
+      dimensions.width === layoutRef.current.width &&
+      dimensions.height === layoutRef.current.height &&
+      isMobile === layoutRef.current.isMobile;
+    bodiesRef.current = canMerge ? mergeBubbleBodies(bodiesRef.current, nextBodies, dimensions.width, dimensions.height) : nextBodies;
+    layoutRef.current = { ids, width: dimensions.width, height: dimensions.height, isMobile };
     const timer = window.setTimeout(() => setHoveredMarket(null), 0);
     return () => window.clearTimeout(timer);
   }, [dimensions.height, dimensions.width, isMobile, nodes]);
@@ -1088,7 +1124,7 @@ export function MarketBubbleMap({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSelectedMarket(null);
+      if (event.key === "Escape") setSelectedMarketId(null);
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -1132,7 +1168,7 @@ export function MarketBubbleMap({
     (event: React.MouseEvent<HTMLDivElement>) => {
       const rect = event.currentTarget.getBoundingClientRect();
       const node = findNodeAtPoint(event.clientX - rect.left, event.clientY - rect.top);
-      if (node) setSelectedMarket(node);
+      if (node) setSelectedMarketId(node.id);
     },
     [findNodeAtPoint],
   );
@@ -1205,62 +1241,17 @@ export function MarketBubbleMap({
       </div>
 
       {selectedMarket ? (
-        <aside className="absolute inset-x-0 bottom-0 z-30 max-h-[72%] overflow-y-auto border-t border-slate-700 bg-slate-950/95 p-4 shadow-2xl backdrop-blur md:inset-x-auto md:bottom-0 md:right-0 md:top-0 md:h-full md:w-96 md:max-h-none md:border-l md:border-t-0">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{selectedMarket.sport}</p>
-              <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-50">{selectedMarket.title}</h2>
-            </div>
-            <Button aria-label="Close market details" onClick={() => setSelectedMarket(null)} size="icon" type="button" variant="ghost">
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-
-          <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
-            <div className="rounded-md border border-slate-800 bg-slate-900/70 p-3">
-              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Volume</p>
-              <p className="mt-1 font-semibold text-slate-100">{money(selectedMarket.volume)}</p>
-            </div>
-            <div className="rounded-md border border-slate-800 bg-slate-900/70 p-3">
-              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Liquidity</p>
-              <p className="mt-1 font-semibold text-slate-100">{money(selectedMarket.liquidity)}</p>
-            </div>
-            <div className="rounded-md border border-slate-800 bg-slate-900/70 p-3 col-span-2">
-              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Favored</p>
-              <p className="mt-1 font-semibold text-slate-100">
-                {selectedMarket.favoredOutcome} {formatCents(selectedMarket.favoredPrice)}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-md border border-slate-800 bg-slate-900/70 p-3">
-            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Outcomes</p>
-            <div className="mt-3 space-y-2">
-              {selectedMarket.outcomes.map((outcome) => (
-                <div key={`${selectedMarket.id}-${outcome.name}`} className="flex items-center justify-between gap-3 text-sm">
-                  <span className="truncate text-slate-200">{outcome.name}</span>
-                  <span className="font-semibold text-slate-50">{formatCents(outcome.price)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <p className="mt-4 text-sm text-slate-400">Momentum glow: {pct(selectedMarket.priceChange)}</p>
-
-          {selectedMarket.tradeUrl ? (
-            <Link
-              className="mt-5 inline-flex h-9 items-center justify-center rounded-md bg-cyan-400 px-4 text-sm font-medium text-slate-950 transition hover:bg-cyan-300"
-              href={selectedMarket.tradeUrl}
-            >
-              Trade market
-            </Link>
-          ) : null}
-          {selectedMarket.marketUrl ? (
-            <Link className="ml-3 mt-5 inline-flex h-9 items-center justify-center rounded-md border border-slate-700 px-4 text-sm font-medium text-slate-100 transition hover:bg-slate-900" href={selectedMarket.marketUrl}>
-              Open details
-            </Link>
-          ) : null}
-        </aside>
+        <>
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 z-20 bg-black/10"
+            onClick={(event) => {
+              event.stopPropagation();
+              setSelectedMarketId(null);
+            }}
+          />
+          <MarketTradePanel market={selectedMarket} onClose={() => setSelectedMarketId(null)} />
+        </>
       ) : null}
     </div>
   );

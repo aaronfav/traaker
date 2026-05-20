@@ -3,9 +3,15 @@ import { findTeamStyle, marketBubbleRadius, momentumGlowColor } from "@/lib/spor
 
 describe("teamStyles", () => {
   it("matches team aliases to uniform colors", () => {
-    expect(findTeamStyle("Arsenal vs Chelsea", "Soccer")).toEqual({ primary: "#EF0107", secondary: "#FFFFFF" });
-    expect(findTeamStyle("Los Angeles Lakers moneyline", "NBA")).toEqual({ primary: "#552583", secondary: "#FDB927" });
-    expect(findTeamStyle("Real Madrid to win", "Soccer")).toEqual({ primary: "#FFFFFF", secondary: "#FEBE10" });
+    expect(findTeamStyle("Arsenal vs Chelsea", "Soccer")).toMatchObject({ primary: "#EF0107", secondary: "#FFFFFF", logoPath: "/team-logos/arsenal.svg" });
+    expect(findTeamStyle("Los Angeles Lakers moneyline", "NBA")).toMatchObject({ primary: "#552583", secondary: "#FDB927", logoPath: "/team-logos/lakers.svg" });
+    expect(findTeamStyle("Real Madrid to win", "Soccer")).toMatchObject({ primary: "#FFFFFF", secondary: "#FEBE10", logoPath: "/team-logos/real-madrid.svg" });
+  });
+
+  it("matches requested local team logo assets", () => {
+    expect(findTeamStyle("Liverpool title odds", "Soccer")).toMatchObject({ logoPath: "/team-logos/liverpool.svg" });
+    expect(findTeamStyle("Man City vs PSG", "Soccer")).toMatchObject({ logoPath: "/team-logos/man-city.svg" });
+    expect(findTeamStyle("Oklahoma City Thunder to win", "NBA")).toMatchObject({ logoPath: "/team-logos/thunder.svg" });
   });
 
   it("falls back to sport colors", () => {

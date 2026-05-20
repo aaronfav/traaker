@@ -2,6 +2,7 @@ export type TeamStyle = {
   aliases: string[];
   primary: string;
   secondary: string;
+  logoPath?: string;
   logoUrl?: string;
 };
 
@@ -10,41 +11,49 @@ export const TEAM_STYLES = {
     aliases: ["arsenal", "gunners"],
     primary: "#EF0107",
     secondary: "#FFFFFF",
+    logoPath: "/team-logos/arsenal.svg",
   },
   real_madrid: {
     aliases: ["real madrid", "madrid"],
     primary: "#FFFFFF",
     secondary: "#FEBE10",
+    logoPath: "/team-logos/real-madrid.svg",
   },
   lakers: {
     aliases: ["lakers", "los angeles lakers", "la lakers"],
     primary: "#552583",
     secondary: "#FDB927",
+    logoPath: "/team-logos/lakers.svg",
   },
   celtics: {
     aliases: ["celtics", "boston celtics"],
     primary: "#007A33",
     secondary: "#FFFFFF",
+    logoPath: "/team-logos/celtics.svg",
   },
   thunder: {
     aliases: ["thunder", "oklahoma city thunder", "okc"],
     primary: "#EF3B24",
     secondary: "#007AC1",
+    logoPath: "/team-logos/thunder.svg",
   },
   knicks: {
     aliases: ["knicks", "new york knicks"],
     primary: "#006BB6",
     secondary: "#F58426",
+    logoPath: "/team-logos/knicks.svg",
   },
   warriors: {
     aliases: ["warriors", "golden state warriors"],
     primary: "#1D428A",
     secondary: "#FFC72C",
+    logoPath: "/team-logos/warriors.svg",
   },
   dodgers: {
     aliases: ["dodgers", "los angeles dodgers"],
     primary: "#005A9C",
     secondary: "#FFFFFF",
+    logoPath: "/team-logos/dodgers.svg",
   },
   red_sox: {
     aliases: ["red sox", "boston red sox"],
@@ -55,26 +64,31 @@ export const TEAM_STYLES = {
     aliases: ["yankees", "new york yankees"],
     primary: "#0C2340",
     secondary: "#FFFFFF",
+    logoPath: "/team-logos/yankees.svg",
   },
   cowboys: {
     aliases: ["cowboys", "dallas cowboys"],
     primary: "#041E42",
     secondary: "#869397",
+    logoPath: "/team-logos/cowboys.svg",
   },
   chiefs: {
     aliases: ["chiefs", "kansas city chiefs"],
     primary: "#E31837",
     secondary: "#FFB81C",
+    logoPath: "/team-logos/chiefs.svg",
   },
   eagles: {
     aliases: ["eagles", "philadelphia eagles"],
     primary: "#004C54",
     secondary: "#A5ACAF",
+    logoPath: "/team-logos/eagles.svg",
   },
   forty_niners: {
     aliases: ["49ers", "san francisco 49ers", "niners"],
     primary: "#AA0000",
     secondary: "#B3995D",
+    logoPath: "/team-logos/49ers.svg",
   },
   packers: {
     aliases: ["packers", "green bay packers"],
@@ -85,11 +99,13 @@ export const TEAM_STYLES = {
     aliases: ["bayern", "bayern munich"],
     primary: "#DC052D",
     secondary: "#FFFFFF",
+    logoPath: "/team-logos/bayern.svg",
   },
   barcelona: {
     aliases: ["barcelona", "barca"],
     primary: "#004D98",
     secondary: "#A50044",
+    logoPath: "/team-logos/barcelona.svg",
   },
   maple_leafs: {
     aliases: ["maple leafs", "toronto maple leafs", "leafs"],
@@ -110,6 +126,25 @@ export const TEAM_STYLES = {
     aliases: ["chelsea", "chelsea fc"],
     primary: "#034694",
     secondary: "#FFFFFF",
+    logoPath: "/team-logos/chelsea.svg",
+  },
+  liverpool: {
+    aliases: ["liverpool", "liverpool fc", "reds"],
+    primary: "#C8102E",
+    secondary: "#00B2A9",
+    logoPath: "/team-logos/liverpool.svg",
+  },
+  man_city: {
+    aliases: ["man city", "manchester city", "manchester city fc"],
+    primary: "#6CABDD",
+    secondary: "#FFFFFF",
+    logoPath: "/team-logos/man-city.svg",
+  },
+  psg: {
+    aliases: ["psg", "paris saint-germain", "paris saint germain"],
+    primary: "#004170",
+    secondary: "#DA291C",
+    logoPath: "/team-logos/psg.svg",
   },
 } satisfies Record<string, TeamStyle>;
 
@@ -140,7 +175,12 @@ export function findTeamStyleMatch(title: string) {
   const normalizedTitle = title.toLowerCase();
   for (const style of Object.values(TEAM_STYLES) as TeamStyle[]) {
     if (style.aliases.some((alias) => normalizedTitle.includes(alias))) {
-      return style.logoUrl ? { primary: style.primary, secondary: style.secondary, logoUrl: style.logoUrl } : { primary: style.primary, secondary: style.secondary };
+      return {
+        primary: style.primary,
+        secondary: style.secondary,
+        logoPath: style.logoPath,
+        logoUrl: style.logoUrl,
+      };
     }
   }
   return null;

@@ -8,6 +8,7 @@ import {
   layoutBubbleNodes,
   MarketBubbleMap,
   marketToBubbleNode,
+  mergeBubbleBodies,
   tickBubblePhysics,
   type BubbleBody,
 } from "@/components/MarketBubbleMap";
@@ -105,6 +106,7 @@ describe("MarketBubbleMap", () => {
     const node = marketToBubbleNode(market);
     expect(node.primaryColor).toBe("#552583");
     expect(node.secondaryColor).toBe("#FDB927");
+    expect(node.logoUrl).toBe("/team-logos/lakers.svg");
     expect(node.favoredOutcome).toBe("Lakers");
     expect(node.favoredPrice).toBe(0.62);
     expect(node.priceCents).toBe(62);
@@ -154,8 +156,20 @@ describe("MarketBubbleMap", () => {
     expect(screen.getByText("$250k")).toBeInTheDocument();
     expect(screen.getAllByText("62\u00a2").length).toBeGreaterThan(0);
     expect(screen.getByText("Celtics")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Trade market" })).toHaveAttribute("href", "/trade/market-1");
-    expect(screen.getByRole("link", { name: "Open details" })).toHaveAttribute("href", "/markets/market-1");
+    expect(screen.getByRole("link", { name: /open on polymarket/i })).toHaveAttribute("href", "https://polymarket.com/event/lakers-celtics");
+    expect(screen.getByRole("button", { name: "Trade in Traak coming soon" })).toBeDisabled();
+  });
+
+  it("closes the trade panel with Escape", () => {
+    const [node] = layoutBubbleNodes([marketToBubbleNode(market)], 1200, 680, false);
+    render(<MarketBubbleMap markets={[market]} />);
+
+    fireEvent.click(screen.getByRole("application"), { clientX: node.x, clientY: node.y });
+    expect(screen.getByRole("heading", { name: "Los Angeles Lakers vs Boston Celtics" })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(screen.queryByRole("heading", { name: "Los Angeles Lakers vs Boston Celtics" })).not.toBeInTheDocument();
   });
 
   it("renders invalid tiny node values without negative canvas radii", () => {
@@ -246,6 +260,22 @@ describe("MarketBubbleMap", () => {
 
     expect(Math.hypot(right.x - left.x, right.y - left.y)).toBeGreaterThanOrEqual(left.radius + right.radius + 6 - 0.01);
     expect([left.radius, right.radius]).toEqual(originalRadii);
+  });
+
+  it("merges live updates without resetting bubble positions", () => {
+    const previous = createBubbleBodies([marketToBubbleNode(market)], 1200, 680, false);
+    previous[0].x = 321;
+    previous[0].y = 222;
+    const nextNode = marketToBubbleNode({ ...market, yesPrice: 0.71, priceMove24h: 0.09 });
+    const nextBodies = createBubbleBodies([nextNode], 1200, 680, false);
+
+    const [merged] = mergeBubbleBodies(previous, nextBodies, 1200, 680);
+
+    expect(merged.x).toBe(321);
+    expect(merged.y).toBe(222);
+    expect(merged.favoredPrice).toBe(0.71);
+    expect(merged.priceChange).toBe(0.09);
+    expect(merged.radius).toBe(previous[0].radius);
   });
 
   it("physics keeps moving bubbles inside bounds without resizing", () => {

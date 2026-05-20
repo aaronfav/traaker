@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Search, Settings } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { MarketBubbleMap } from "@/components/MarketBubbleMap";
+import { mergeLiveMarketUpdates, useMarketLiveUpdates } from "@/components/useMarketLiveUpdates";
 import type { MarketPage, MarketQuerySort, MarketQueryStatus, SportsMarketDiscovery } from "@/lib/polymarket/markets";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
@@ -82,6 +83,18 @@ export function MarketsExplorer({
   const [latestSource, setLatestSource] = useState(source);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const liveRequestUrl = useMemo(
+    () => buildMarketsUrl({ offset: 0, limit: Math.max(rangeLimit, maxMarketFetchLimit), search: debouncedQuery, sort, sport, status, minVolume }),
+    [debouncedQuery, minVolume, rangeLimit, sort, sport, status],
+  );
+  const handleLiveMarketsUpdate = useCallback((incomingMarkets: TerminalMarket[]) => {
+    setMarkets((currentMarkets) => mergeLiveMarketUpdates(currentMarkets, incomingMarkets));
+  }, []);
+  const liveStatus = useMarketLiveUpdates({
+    enabled: markets.length > 0,
+    onMarketsUpdate: handleLiveMarketsUpdate,
+    requestUrl: liveRequestUrl,
+  });
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query), 300);
@@ -98,7 +111,7 @@ export function MarketsExplorer({
       setIsLoading(true);
       setError(null);
     });
-    fetch(buildMarketsUrl({ offset: 0, limit: Math.max(rangeLimit, maxMarketFetchLimit), search: debouncedQuery, sort, sport, status, minVolume }), { signal: controller.signal })
+    fetch(liveRequestUrl, { signal: controller.signal })
       .then(readMarketsResponse)
       .then((nextPage) => {
         if (requestId !== requestIdRef.current) return;
@@ -116,7 +129,7 @@ export function MarketsExplorer({
       });
 
     return () => controller.abort();
-  }, [debouncedQuery, rangeLimit, sport]);
+  }, [liveRequestUrl]);
 
   const isInitialLoading = isLoading && markets.length === 0;
   const isRefreshing = isLoading && markets.length > 0;
@@ -169,7 +182,19 @@ export function MarketsExplorer({
             value={query}
           />
         </label>
-        {isRefreshing ? <span className="px-2 text-xs text-cyan-200">Refreshing</span> : null}
+        <span
+          className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${
+            liveStatus === "Live"
+              ? "border-emerald-400/40 text-emerald-200"
+              : liveStatus === "Updating"
+                ? "border-cyan-400/40 text-cyan-200"
+                : liveStatus === "Polling"
+                  ? "border-amber-400/40 text-amber-200"
+                  : "border-rose-400/40 text-rose-200"
+          }`}
+        >
+          {liveStatus}
+        </span>
         {latestSource === "mock" ? <span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-xs text-amber-200">Mock</span> : null}
         <Button aria-label="Settings" className="h-6 w-6" size="icon" type="button" variant="ghost">
           <Settings className="h-4 w-4" />
