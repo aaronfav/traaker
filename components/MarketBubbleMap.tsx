@@ -1189,7 +1189,12 @@ function drawFallbackGlassBubble(ctx: CanvasRenderingContext2D, node: MarketBubb
   ctx.fill();
 }
 
-const SOCCER_ASSETS = ["/sport-balls/soccer-red.png", "/sport-balls/soccer-blue.png", "/sport-balls/soccer-yellow.png"];
+const SOCCER_ASSETS = [
+  "/sport-balls/soccer-white-black.png",
+  "/sport-balls/soccer-red.png",
+  "/sport-balls/soccer-blue.png",
+  "/sport-balls/soccer-yellow.png",
+];
 
 function soccerAssetForNode(node: MarketBubbleNode) {
   return SOCCER_ASSETS[hashVariant(node, "soccer-asset", SOCCER_ASSETS.length)];
