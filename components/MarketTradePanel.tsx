@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { ExternalLink, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ExternalLink, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TradeTicket } from "@/components/trading/TradeTicket";
 import type { MarketBubbleNode } from "@/components/MarketBubbleMap";
@@ -18,18 +18,44 @@ const formatMovement = (value: number) => `${value >= 0 ? "+" : ""}${(Number.isF
 
 export function MarketTradePanel({
   market,
+  onUpdatePrices,
   onClose,
 }: {
   market: MarketBubbleNode;
+  onUpdatePrices?: (market: MarketBubbleNode) => Promise<MarketBubbleNode | null>;
   onClose: () => void;
 }) {
   const [side, setSide] = useState<"Buy" | "Sell">("Buy");
-  const initialOutcomePricesRef = useRef(new Map(market.outcomes.map((outcome) => [outcome.name, outcome.price])));
-  const hasLivePriceUpdate = useMemo(
-    () => market.outcomes.some((outcome) => Math.abs(outcome.price - (initialOutcomePricesRef.current.get(outcome.name) ?? outcome.price)) >= 0.005),
-    [market.outcomes],
-  );
-  const polymarketUrl = market.polymarketUrl ?? market.marketUrl;
+  const [displayMarket, setDisplayMarket] = useState(market);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const polymarketUrl = displayMarket.polymarketUrl ?? displayMarket.marketUrl;
+
+  useEffect(() => {
+    setDisplayMarket(market);
+    setLastUpdatedAt(null);
+    setUpdateError(null);
+  }, [market.id]);
+
+  const handleUpdatePrices = async () => {
+    if (!onUpdatePrices) return;
+    setIsUpdating(true);
+    setUpdateError(null);
+    try {
+      const updated = await onUpdatePrices(displayMarket);
+      if (updated) {
+        setDisplayMarket(updated);
+        setLastUpdatedAt(Date.now());
+      } else {
+        setUpdateError("Latest market prices were not found.");
+      }
+    } catch (error) {
+      setUpdateError(error instanceof Error ? error.message : "Unable to update selected market prices.");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   return (
     <aside
@@ -39,11 +65,11 @@ export function MarketTradePanel({
     >
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-cyan-300/80">{market.sport}</p>
-          <h2 className="mt-2 text-xl font-semibold leading-tight tracking-tight text-zinc-50">{market.title}</h2>
+          <p className="text-xs uppercase tracking-[0.2em] text-cyan-300/80">{displayMarket.sport}</p>
+          <h2 className="mt-2 text-xl font-semibold leading-tight tracking-tight text-zinc-50">{displayMarket.title}</h2>
           <p className="mt-3 text-sm text-zinc-400">
-            Favored: <span className="font-semibold text-zinc-50">{market.favoredOutcome}</span>{" "}
-            <span className="text-cyan-200">{formatCents(market.favoredPrice)}</span>
+            Favored: <span className="font-semibold text-zinc-50">{displayMarket.favoredOutcome}</span>{" "}
+            <span className="text-cyan-200">{formatCents(displayMarket.favoredPrice)}</span>
           </p>
         </div>
         <Button aria-label="Close market details" className="shrink-0" onClick={onClose} size="icon" type="button" variant="ghost">
@@ -51,7 +77,19 @@ export function MarketTradePanel({
         </Button>
       </div>
 
-      {market.activeRangeWarning ? (
+      <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-zinc-800 bg-zinc-950/70 px-3 py-2">
+        <span className="text-xs font-medium text-zinc-400">
+          {lastUpdatedAt ? `Prices updated ${new Date(lastUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Panel prices are frozen"}
+        </span>
+        <Button className="h-8 gap-2 px-3 text-xs" disabled={!onUpdatePrices || isUpdating} onClick={handleUpdatePrices} size="sm" type="button" variant="secondary">
+          <RefreshCw className={`h-3.5 w-3.5 ${isUpdating ? "animate-spin" : ""}`} />
+          Update prices
+        </Button>
+      </div>
+
+      {updateError ? <div className="mt-3 rounded-md border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-sm text-rose-100">{updateError}</div> : null}
+
+      {displayMarket.activeRangeWarning ? (
         <div className="mt-4 rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm font-medium text-amber-100">
           Market moved outside active range
         </div>
@@ -78,22 +116,22 @@ export function MarketTradePanel({
       <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
         <div className="rounded-md border border-zinc-800 bg-zinc-950/80 p-3">
           <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Volume</p>
-          <p className="mt-1 text-lg font-semibold text-zinc-100">{money(market.volume)}</p>
+          <p className="mt-1 text-lg font-semibold text-zinc-100">{money(displayMarket.volume)}</p>
         </div>
         <div className="rounded-md border border-zinc-800 bg-zinc-950/80 p-3">
           <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Liquidity</p>
-          <p className="mt-1 text-lg font-semibold text-zinc-100">{money(market.liquidity)}</p>
+          <p className="mt-1 text-lg font-semibold text-zinc-100">{money(displayMarket.liquidity)}</p>
         </div>
         <div className="rounded-md border border-zinc-800 bg-zinc-950/80 p-3">
           <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Movement</p>
-          <p className={market.priceChange >= 0 ? "mt-1 text-lg font-semibold text-emerald-300" : "mt-1 text-lg font-semibold text-rose-300"}>
-            {formatMovement(market.priceChange)}
+          <p className={displayMarket.priceChange >= 0 ? "mt-1 text-lg font-semibold text-emerald-300" : "mt-1 text-lg font-semibold text-rose-300"}>
+            {formatMovement(displayMarket.priceChange)}
           </p>
         </div>
         <div className="rounded-md border border-zinc-800 bg-zinc-950/80 p-3">
           <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Bid / Ask</p>
           <p className="mt-1 text-lg font-semibold text-zinc-100">
-            {market.bestBid ? formatCents(market.bestBid) : "--"} / {market.bestAsk ? formatCents(market.bestAsk) : "--"}
+            {displayMarket.bestBid ? formatCents(displayMarket.bestBid) : "--"} / {displayMarket.bestAsk ? formatCents(displayMarket.bestAsk) : "--"}
           </p>
         </div>
       </div>
@@ -101,17 +139,17 @@ export function MarketTradePanel({
       <div className="mt-5 rounded-md border border-zinc-800 bg-zinc-950/85 p-3">
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Outcomes</p>
-          {hasLivePriceUpdate ? <span className="text-xs font-medium text-cyan-200/80">Live price updated</span> : null}
+          <span className="text-xs font-medium text-zinc-500">Snapshot</span>
         </div>
         <div className="mt-3 space-y-2">
-          {market.outcomes.map((outcome) => {
-            const isFavored = outcome.name === market.favoredOutcome;
+          {displayMarket.outcomes.map((outcome) => {
+            const isFavored = outcome.name === displayMarket.favoredOutcome;
             return (
               <div
                 className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 ${
                   isFavored ? "border-cyan-400/50 bg-cyan-400/10" : "border-zinc-800 bg-black/30"
                 }`}
-                key={`${market.id}-${outcome.name}`}
+                key={`${displayMarket.id}-${outcome.name}`}
               >
                 <span className="min-w-0 truncate font-semibold text-zinc-100">{outcome.name}</span>
                 <span className="text-2xl font-black text-white">{formatCents(outcome.price)}</span>
@@ -121,7 +159,7 @@ export function MarketTradePanel({
         </div>
       </div>
 
-      <TradeTicket market={market} />
+      <TradeTicket market={displayMarket} />
 
       <div className="mt-5 grid gap-2">
         {polymarketUrl ? (

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { marketStore } from "@/app/store/marketStore";
 import { hasUsefulFavoredPrice, MarketsExplorer } from "@/components/MarketsExplorer";
 import { getFavoredOutcome } from "@/components/MarketBubbleMap";
+import { rankHighValueMarkets } from "@/lib/polymarket/marketDisplay";
 import type { MarketPage, SportsMarketDiscovery } from "@/lib/polymarket/markets";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
@@ -92,7 +93,7 @@ describe("MarketsExplorer", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "NBA" }));
     fireEvent.change(screen.getByLabelText("Market range"), { target: { value: "200" } });
-    fireEvent.change(screen.getByPlaceholderText("Search markets..."), { target: { value: "knicks" } });
+    fireEvent.change(screen.getByPlaceholderText("Search snapshot..."), { target: { value: "knicks" } });
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     await waitFor(
@@ -105,8 +106,8 @@ describe("MarketsExplorer", () => {
         expect(params.get("minVolume")).toBe("2000");
         expect(params.get("sport")).toBe("NBA");
         expect(params.get("status")).toBe("all");
-        expect(params.get("sort")).toBe("volume");
-        expect(params.get("search")).toBe("knicks");
+        expect(params.get("sort")).toBe("liquidity");
+        expect(params.has("search")).toBe(false);
       },
       { timeout: 1000 },
     );
@@ -114,9 +115,12 @@ describe("MarketsExplorer", () => {
 
   it("filters out extreme favored prices before range display", () => {
     expect(hasUsefulFavoredPrice({ ...market, yesPrice: 0.99, noPrice: 0.01 })).toBe(false);
+    expect(hasUsefulFavoredPrice({ ...market, yesPrice: 0.95, noPrice: 0.05 })).toBe(false);
+    expect(hasUsefulFavoredPrice({ ...market, yesPrice: 0.1, noPrice: 0.09 })).toBe(false);
     expect(hasUsefulFavoredPrice({ ...market, yesPrice: 0.05, noPrice: 0.04 })).toBe(false);
     expect(hasUsefulFavoredPrice({ ...market, yesPrice: 0.5, noPrice: 0.5 })).toBe(true);
     expect(hasUsefulFavoredPrice({ ...market, yesPrice: 0.7, noPrice: 0.3 })).toBe(true);
+    expect(hasUsefulFavoredPrice({ ...market, yesPrice: 0.94, noPrice: 0.06 })).toBe(true);
   });
 
   it("renders only useful-price markets from the fetched ranked page", async () => {
@@ -270,5 +274,38 @@ describe("MarketsExplorer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Refresh markets" }));
 
     await waitFor(() => expect(screen.getByRole("application", { name: /0 sports market bubble map/i })).toBeInTheDocument());
+  });
+
+  it("sorts high-value discovery markets by liquidity, volume, then useful odds", () => {
+    const lowLiquidity = { ...market, id: "low-liq", liquidity: 1_000, volume: 1_000_000, yesPrice: 0.52, noPrice: 0.48 };
+    const highLiquidityLowVolume = { ...market, id: "high-liq-low-vol", liquidity: 9_000, volume: 10_000, yesPrice: 0.9, noPrice: 0.1 };
+    const highLiquidityHighVolume = { ...market, id: "high-liq-high-vol", liquidity: 9_000, volume: 20_000, yesPrice: 0.8, noPrice: 0.2 };
+    const sameQualityBetterOdds = { ...market, id: "same-quality-better-odds", liquidity: 9_000, volume: 20_000, yesPrice: 0.62, noPrice: 0.38 };
+
+    expect(rankHighValueMarkets([lowLiquidity, highLiquidityLowVolume, highLiquidityHighVolume, sameQualityBetterOdds]).map((item) => item.id)).toEqual([
+      "same-quality-better-odds",
+      "high-liq-high-vol",
+      "high-liq-low-vol",
+      "low-liq",
+    ]);
+  });
+
+  it("searches the stable snapshot and opens a frozen trade panel result", async () => {
+    const page: MarketPage = {
+      ...initialPage,
+      markets: [
+        market,
+        { ...market, id: "market-2", conditionId: "condition-2", title: "Arsenal vs Chelsea", sport: "Soccer", league: "EPL", liquidity: 10_000, volume: 20_000 },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ...page, counts, countsLoading: false, source: "polymarket" }), { status: 200 })));
+
+    render(<MarketsExplorer initialPage={page} source="polymarket" />);
+
+    fireEvent.change(screen.getByPlaceholderText("Search snapshot..."), { target: { value: "arsenal" } });
+    expect(screen.getByText("Snapshot results")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /arsenal vs chelsea/i }));
+
+    expect(screen.getByRole("heading", { name: "Arsenal vs Chelsea" })).toBeInTheDocument();
   });
 });

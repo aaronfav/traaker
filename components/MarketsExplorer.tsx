@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw, Search, Settings } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { MarketBubbleMap } from "@/components/MarketBubbleMap";
-import { useMarketLiveUpdates } from "@/components/useMarketLiveUpdates";
+import { fetchLatestMarketForNode, MarketBubbleMap, marketToBubbleNode, type MarketBubbleNode } from "@/components/MarketBubbleMap";
+import { MarketTradePanel } from "@/components/MarketTradePanel";
 import { marketStore } from "@/app/store/marketStore";
-import { hasUsefulFavoredPrice } from "@/lib/polymarket/marketDisplay";
+import { DEFAULT_MARKET_MIN_VOLUME, hasUsefulFavoredPrice, rankHighValueMarkets } from "@/lib/polymarket/marketDisplay";
 import type { MarketPage, MarketQuerySort, MarketQueryStatus, SportsMarketDiscovery } from "@/lib/polymarket/markets";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
@@ -44,7 +44,6 @@ async function readMarketsResponse(response: Response): Promise<MarketsResponse>
 function buildMarketsUrl(params: {
   offset: number;
   limit: number;
-  search: string;
   sort: MarketQuerySort;
   sport: string;
   status: MarketQueryStatus;
@@ -58,8 +57,18 @@ function buildMarketsUrl(params: {
     status: params.status,
   });
   if (params.sport !== "All") searchParams.set("sport", params.sport);
-  if (params.search.trim()) searchParams.set("search", params.search.trim());
   return `/api/polymarket/markets?${searchParams.toString()}`;
+}
+
+function matchesMarketQuery(market: TerminalMarket, query: string) {
+  const tokens = query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+  if (tokens.length === 0) return false;
+  const haystack = `${market.title} ${market.sport} ${market.league} ${market.outcomes.yes} ${market.outcomes.no}`.toLowerCase();
+  return tokens.every((token) => haystack.includes(token));
 }
 
 export function MarketsExplorer({
@@ -73,40 +82,25 @@ export function MarketsExplorer({
   const requestIdRef = useRef(0);
   const [sport, setSport] = useState<(typeof sports)[number]>("All");
   const status: MarketQueryStatus = "all";
-  const sort: MarketQuerySort = "volume";
-  const minVolume = 2000;
+  const sort: MarketQuerySort = "liquidity";
+  const minVolume = DEFAULT_MARKET_MIN_VOLUME;
   const [timeframe, setTimeframe] = useState<(typeof timeframes)[number]>("1D");
   const [rangeStart, setRangeStart] = useState<(typeof rangeOptions)[number]["start"]>(0);
   const [query, setQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [markets, setMarkets] = useState<TerminalMarket[]>(initialPage.markets);
+  const [selectedSearchMarket, setSelectedSearchMarket] = useState<MarketBubbleNode | null>(null);
   const [latestSource, setLatestSource] = useState(source);
   const [isLoading, setIsLoading] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const liveRequestUrl = useMemo(
-    () => buildMarketsUrl({ offset: 0, limit: maxMarketFetchLimit, search: debouncedQuery, sort, sport, status, minVolume }),
-    [debouncedQuery, minVolume, sort, sport, status],
+    () => buildMarketsUrl({ offset: 0, limit: maxMarketFetchLimit, sort, sport, status, minVolume }),
+    [minVolume, sort, sport, status],
   );
-  const handleLiveMarketsUpdate = useCallback((incomingMarkets: TerminalMarket[]) => {
-    marketStore.applyMarketSnapshots(incomingMarkets);
-  }, []);
-  const liveStatus = useMarketLiveUpdates({
-    enabled: markets.length > 0,
-    intervalMs: 20_000,
-    markets,
-    onMarketsUpdate: handleLiveMarketsUpdate,
-    requestUrl: liveRequestUrl,
-  });
 
   useEffect(() => {
     if (markets.length > 0) marketStore.setMarketSnapshots(markets);
   }, [markets]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedQuery(query), 300);
-    return () => window.clearTimeout(timer);
-  }, [query]);
 
   useEffect(() => {
     if (firstRender.current) firstRender.current = false;
@@ -142,10 +136,12 @@ export function MarketsExplorer({
   const isInitialLoading = isLoading && markets.length === 0;
   const isRefreshing = isLoading && markets.length > 0;
   const selectedRange = rangeOptions.find((option) => option.start === rangeStart) ?? rangeOptions[0];
-  const visibleMarkets = markets.filter(hasUsefulFavoredPrice).slice(selectedRange.start, selectedRange.end);
+  const rankedMarkets = useMemo(() => rankHighValueMarkets(markets, minVolume), [markets, minVolume]);
+  const visibleMarkets = rankedMarkets.slice(selectedRange.start, selectedRange.end);
+  const searchResults = useMemo(() => rankedMarkets.filter((market) => matchesMarketQuery(market, query)).slice(0, 12), [query, rankedMarkets]);
 
   return (
-    <section className="w-screen bg-[#050505]">
+    <section className="relative w-screen bg-[#050505]">
       <div className="flex min-h-9 flex-wrap items-center gap-1 border-b border-zinc-800 bg-[#111113] px-2 py-1 text-sm shadow-lg shadow-black/30">
         <div className="mr-2 flex items-center gap-2 px-1">
           <span className="h-3 w-3 rounded-full bg-cyan-400 shadow-[0_0_18px_rgba(34,211,238,0.8)]" />
@@ -187,22 +183,15 @@ export function MarketsExplorer({
           <Input
             className="h-6 w-[min(52vw,280px)] border-zinc-800 bg-black pl-8 text-xs"
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search markets..."
+            placeholder="Search snapshot..."
             value={query}
           />
         </label>
         <span
-          className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${
-            liveStatus === "Live"
-              ? "border-emerald-400/40 text-emerald-200"
-              : liveStatus === "Reconnecting"
-                ? "border-cyan-400/40 text-cyan-200"
-                : liveStatus === "Polling"
-                  ? "border-amber-400/40 text-amber-200"
-                  : "border-rose-400/40 text-rose-200"
-          }`}
+          className="rounded-full border border-cyan-400/40 px-2 py-0.5 text-xs font-semibold text-cyan-200"
+          title="Prices are frozen for trading stability. Press Refresh to update."
         >
-          {liveStatus}
+          Snapshot
         </span>
         <Button
           aria-label="Refresh markets"
@@ -226,7 +215,47 @@ export function MarketsExplorer({
         <div className="border-b border-rose-500/30 bg-rose-950/50 px-3 py-2 text-sm text-rose-100">{error}</div>
       ) : null}
 
+      {query.trim() ? (
+        <div className="absolute right-3 top-11 z-30 w-[min(92vw,420px)] rounded-md border border-zinc-800 bg-[#090a0d]/98 p-3 text-sm text-zinc-100 shadow-2xl shadow-black/50 backdrop-blur">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Snapshot results</p>
+            <span className="text-xs text-zinc-500">{searchResults.length}</span>
+          </div>
+          <div className="max-h-[52vh] space-y-1 overflow-y-auto">
+            {searchResults.length > 0 ? (
+              searchResults.map((market, index) => {
+                const favoredPrice = Math.round(Math.max(market.yesPrice, market.noPrice) * 100);
+                return (
+                  <button
+                    className="flex w-full items-center justify-between gap-3 rounded border border-zinc-800 bg-black/40 px-3 py-2 text-left transition hover:border-cyan-400/50 hover:bg-cyan-400/10"
+                    key={market.id}
+                    onClick={() => setSelectedSearchMarket(marketToBubbleNode(market, index))}
+                    type="button"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-semibold text-zinc-100">{market.title}</span>
+                      <span className="block text-xs text-zinc-500">
+                        {market.league || market.sport} · ${Math.round(market.liquidity).toLocaleString()} liq
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-lg font-black text-white">{favoredPrice}¢</span>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="rounded border border-zinc-800 bg-black/40 px-3 py-6 text-center text-zinc-500">No snapshot markets match.</div>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       <MarketBubbleMap isLoading={isInitialLoading} isRefreshing={isRefreshing} markets={visibleMarkets} />
+
+      {selectedSearchMarket ? (
+        <div className="fixed inset-0 z-40 bg-black/10" onClick={() => setSelectedSearchMarket(null)}>
+          <MarketTradePanel key={selectedSearchMarket.id} market={selectedSearchMarket} onClose={() => setSelectedSearchMarket(null)} onUpdatePrices={fetchLatestMarketForNode} />
+        </div>
+      ) : null}
     </section>
   );
 }

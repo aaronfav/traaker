@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { marketStore } from "@/app/store/marketStore";
 import {
@@ -341,6 +341,33 @@ describe("MarketBubbleMap", () => {
     expect(screen.getByRole("application", { name: /1 sports market bubble map/i })).toBeInTheDocument();
   });
 
+  it("websocket or polling store updates do not change bubble displayed price", () => {
+    const [node] = layoutBubbleNodes([marketToBubbleNode(market)], 1200, 680, false);
+    render(<MarketBubbleMap markets={[market]} />);
+
+    fireEvent.mouseMove(screen.getByRole("application"), { clientX: node.x, clientY: node.y });
+    expect(screen.getByText("Lakers 62\u00a2")).toBeInTheDocument();
+
+    marketStore.applyMarketSnapshots([{ ...market, yesPrice: 0.71, noPrice: 0.29 }]);
+
+    fireEvent.mouseMove(screen.getByRole("application"), { clientX: node.x, clientY: node.y });
+    expect(screen.getByText("Lakers 62\u00a2")).toBeInTheDocument();
+    expect(screen.queryByText("Lakers 71\u00a2")).not.toBeInTheDocument();
+  });
+
+  it("websocket or polling store updates do not change open trade panel prices", () => {
+    const [node] = layoutBubbleNodes([marketToBubbleNode(market)], 1200, 680, false);
+    render(<MarketBubbleMap markets={[market]} />);
+
+    fireEvent.click(screen.getByRole("application"), { clientX: node.x, clientY: node.y });
+    expect(screen.getAllByText("62\u00a2").length).toBeGreaterThan(0);
+
+    marketStore.applyMarketSnapshots([{ ...market, yesPrice: 0.71, noPrice: 0.29 }]);
+
+    expect(screen.getAllByText("62\u00a2").length).toBeGreaterThan(0);
+    expect(screen.queryByText("71\u00a2")).not.toBeInTheDocument();
+  });
+
   it("trade panel keeps stable favored highlight and warns when market leaves active range", () => {
     const panelMarket = {
       ...marketToBubbleNode(market),
@@ -382,6 +409,22 @@ describe("MarketBubbleMap", () => {
     const celtics = screen.getByRole("button", { name: /celtics/i });
     expect(lakers.compareDocumentPosition(celtics) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(celtics).toHaveClass("border-cyan-400");
+  });
+
+  it("updates frozen trade panel prices only when Update prices is clicked", async () => {
+    const panelMarket = marketToBubbleNode(market);
+    const onUpdatePrices = vi.fn(async () => marketToBubbleNode({ ...market, yesPrice: 0.71, noPrice: 0.29, bestBid: 0.7, bestAsk: 0.72 }));
+    render(<MarketTradePanel market={panelMarket} onClose={vi.fn()} onUpdatePrices={onUpdatePrices} />);
+
+    expect(screen.getAllByText("62\u00a2").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: /celtics/i }));
+    expect(screen.getByRole("button", { name: /celtics/i })).toHaveClass("border-cyan-400");
+
+    fireEvent.click(screen.getByRole("button", { name: /update prices/i }));
+
+    await waitFor(() => expect(onUpdatePrices).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getAllByText("71\u00a2").length).toBeGreaterThan(0));
+    expect(screen.getByRole("button", { name: /celtics/i })).toHaveClass("border-cyan-400");
   });
 
   it("physics keeps moving bubbles inside bounds without resizing", () => {

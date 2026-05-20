@@ -9,6 +9,7 @@ import type { TerminalMarket } from "@/lib/polymarket/types";
 
 export type MarketBubbleNode = {
   id: string;
+  conditionId: string;
   title: string;
   sport: string;
   volume: number;
@@ -91,7 +92,6 @@ const WALL_BOUNCE = 0.42;
 const COLLISION_BOUNCE = 0.18;
 const PRICE_TWEEN_MS = 420;
 const PULSE_FADE_MS = 1_000;
-const PANEL_LIVE_PRICE_INTERVAL_MS = 3_000;
 
 const money = (value: number) => {
   const numeric = Number.isFinite(value) ? Math.max(0, value) : 0;
@@ -170,6 +170,15 @@ export const cleanOutcomeName = (name: string, marketTitle: string) => {
 
   return cleaned || "Market";
 };
+
+function matchupOutcomeName(marketTitle: string, index: number) {
+  const side = marketTitle
+    .replace(/\?.*$/, "")
+    .split(/\s+(?:vs\.?|v\.?|at)\s+/i)
+    .map((item) => item.replace(genericWords, " ").replace(/\s+/g, " ").trim())
+    .filter(Boolean)[index];
+  return side || null;
+}
 
 const compactOutcomeName = (name: string) => {
   const cleaned = name.replace(/\s+/g, " ").trim();
@@ -309,10 +318,16 @@ export function getMarketOutcomes(market: RawOutcomeMarket): MarketOutcomeOption
   const rawPrices = parseNumberArray(market.outcomePrices);
   const names = arrayOutcomes.length > 0 ? arrayOutcomes : [market.outcomes.yes, market.outcomes.no];
   const prices = rawPrices.length >= names.length ? rawPrices : [market.yesPrice, market.noPrice];
+  const seen = new Set<string>();
   return names.map((name, index) => {
     const price = clamp01(prices[index]);
+    let label = cleanOutcomeName(name, market.title);
+    if (seen.has(label.toLowerCase())) {
+      label = matchupOutcomeName(market.title, index) ?? `${label} ${index + 1}`;
+    }
+    seen.add(label.toLowerCase());
     return {
-      name: cleanOutcomeName(name, market.title),
+      name: label,
       price,
       priceCents: Math.round(price * 100),
     };
@@ -354,6 +369,7 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
 
   return {
     id: market.id,
+    conditionId: market.conditionId,
     title: market.title,
     sport: market.league || market.sport,
     volume,
@@ -596,7 +612,7 @@ export function applySmoothedMarketValueToBody(
   return false;
 }
 
-function mergeStablePanelMarket(stable: MarketBubbleNode | null, liveMarket: TerminalMarket | null) {
+export function mergeStablePanelMarket(stable: MarketBubbleNode | null, liveMarket: TerminalMarket | null) {
   if (!stable) return null;
   if (!liveMarket) return stable;
   const liveOutcomes = liveOutcomeOptionsForSnapshot(stable.outcomes, liveMarket);
@@ -613,6 +629,28 @@ function mergeStablePanelMarket(stable: MarketBubbleNode | null, liveMarket: Ter
     bestAsk: liveMarket.bestAsk ?? stable.bestAsk,
     activeRangeWarning: !hasUsefulFavoredPrice(liveMarket),
   } satisfies MarketBubbleNode;
+}
+
+async function readLatestMarketResponse(response: Response) {
+  const payload = (await response.json().catch(() => null)) as { markets?: TerminalMarket[]; error?: string } | null;
+  if (!response.ok || !Array.isArray(payload?.markets)) {
+    throw new Error(payload?.error ?? "Unable to update selected market prices.");
+  }
+  return payload.markets;
+}
+
+export async function fetchLatestMarketForNode(node: MarketBubbleNode) {
+  const searchParams = new URLSearchParams({
+    limit: "250",
+    offset: "0",
+    minVolume: "0",
+    sort: "liquidity",
+    status: "all",
+    search: node.title,
+  });
+  const markets = await fetch(`/api/polymarket/markets?${searchParams.toString()}`, { cache: "no-store" }).then(readLatestMarketResponse);
+  const latest = markets.find((market) => market.id === node.id || market.conditionId === node.conditionId || market.slug === node.id);
+  return latest ? mergeStablePanelMarket(node, latest) : null;
 }
 
 function clampBodyToBounds(body: BubbleBody, width: number, height: number) {
@@ -1292,7 +1330,6 @@ export function MarketBubbleMap({
   const [introStartedAt] = useState(() => Date.now());
   const [selectedMarketId, setSelectedMarketId] = useState<string | null>(null);
   const [selectedPanelSnapshot, setSelectedPanelSnapshot] = useState<MarketBubbleNode | null>(null);
-  const [selectedPanelLiveMarket, setSelectedPanelLiveMarket] = useState<TerminalMarket | null>(null);
   const [hoveredMarket, setHoveredMarket] = useState<MarketBubbleNode | null>(null);
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   const [dimensions, setDimensions] = useState({ width: 1200, height: 680 });
@@ -1301,10 +1338,7 @@ export function MarketBubbleMap({
   const particles = useMemo(() => createBackgroundParticles(), []);
   const isMobile = dimensions.width < 640;
   const bodyCount = nodes.length;
-  const selectedMarket = useMemo(
-    () => mergeStablePanelMarket(selectedPanelSnapshot ?? nodes.find((node) => node.id === selectedMarketId) ?? null, selectedPanelLiveMarket),
-    [nodes, selectedMarketId, selectedPanelLiveMarket, selectedPanelSnapshot],
-  );
+  const selectedMarket = useMemo(() => selectedPanelSnapshot ?? nodes.find((node) => node.id === selectedMarketId) ?? null, [nodes, selectedMarketId, selectedPanelSnapshot]);
 
   useEffect(() => {
     const ids = nodes.map((node) => node.id).join("|");
@@ -1328,18 +1362,6 @@ export function MarketBubbleMap({
     const timer = window.setTimeout(() => setHoveredMarket(null), 0);
     return () => window.clearTimeout(timer);
   }, [dimensions.height, dimensions.width, isMobile, nodes]);
-
-  useEffect(() => {
-    if (!selectedMarketId) {
-      setSelectedPanelLiveMarket(null);
-      return;
-    }
-    const pullLatestPanelMarket = () => {
-      setSelectedPanelLiveMarket(marketStore.getState().marketsById[selectedMarketId] ?? null);
-    };
-    const timer = window.setInterval(pullLatestPanelMarket, PANEL_LIVE_PRICE_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [selectedMarketId]);
 
   useEffect(() => {
     const node = containerRef.current;
@@ -1401,7 +1423,6 @@ export function MarketBubbleMap({
       if (event.key === "Escape") {
         setSelectedMarketId(null);
         setSelectedPanelSnapshot(null);
-        setSelectedPanelLiveMarket(null);
         marketStore.setSelectedMarketId(null);
       }
     };
@@ -1450,7 +1471,6 @@ export function MarketBubbleMap({
       if (node) {
         setSelectedMarketId(node.id);
         setSelectedPanelSnapshot({ ...node, outcomes: node.outcomes.map((outcome) => ({ ...outcome })) });
-        setSelectedPanelLiveMarket(null);
         marketStore.setSelectedMarketId(node.id);
       }
     },
@@ -1533,17 +1553,16 @@ export function MarketBubbleMap({
               event.stopPropagation();
               setSelectedMarketId(null);
               setSelectedPanelSnapshot(null);
-              setSelectedPanelLiveMarket(null);
               marketStore.setSelectedMarketId(null);
             }}
           />
           <MarketTradePanel
             key={selectedMarket.id}
             market={selectedMarket}
+            onUpdatePrices={fetchLatestMarketForNode}
             onClose={() => {
               setSelectedMarketId(null);
               setSelectedPanelSnapshot(null);
-              setSelectedPanelLiveMarket(null);
               marketStore.setSelectedMarketId(null);
             }}
           />
