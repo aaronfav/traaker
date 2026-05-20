@@ -1203,9 +1203,10 @@ function soccerAssetForNode(node: MarketBubbleNode) {
 function sportAssetForNode(node: MarketBubbleNode) {
   const kind = sportBubbleKind(node);
   if (kind === "soccer") return soccerAssetForNode(node);
-  if (kind === "basketball") return "/sport-balls/basketball.png";
-  if (kind === "football") return "/sport-balls/football.png";
-  if (kind === "tennis") return "/sport-balls/tennis-ball.png";
+  if (kind === "basketball") return ["/sport-balls/basketball.png", "/sport-balls/basketball-alt.png"][hashVariant(node, "basketball-asset", 2)];
+  if (kind === "football") return ["/sport-balls/football.png", "/sport-balls/football-alt.png"][hashVariant(node, "football-asset", 2)];
+  if (kind === "tennis") return ["/sport-balls/tennis-green.png", "/sport-balls/tennis-pink.png"][hashVariant(node, "tennis-asset", 2)];
+  if (kind === "ufc") return ["/sport-balls/ufc-glove-red.png", "/sport-balls/ufc-glove-black.png"][hashVariant(node, "ufc-asset", 2)];
   if (kind === "baseball") return "/sport-balls/baseball.png";
   return null;
 }
