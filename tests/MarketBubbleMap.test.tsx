@@ -2,7 +2,10 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cleanOutcomeName,
+  advanceBubbleVisualTween,
+  applySmoothedMarketValueToBody,
   createBubbleBodies,
+  createBubbleVisualSmoothingState,
   formatCents,
   getFavoredOutcome,
   layoutBubbleNodes,
@@ -277,6 +280,48 @@ describe("MarketBubbleMap", () => {
     expect(merged.favoredPrice).toBe(0.71);
     expect(merged.priceChange).toBe(0.09);
     expect(merged.radius).toBe(previous[0].radius);
+  });
+
+  it("smooths visible price changes instead of jumping immediately", () => {
+    const [body] = createBubbleBodies([marketToBubbleNode(market)], 1200, 680, false);
+    const state = createBubbleVisualSmoothingState(body, 1_000);
+
+    const applied = applySmoothedMarketValueToBody(body, { ...market, yesPrice: 0.71, noPrice: 0.29 }, 0, state, undefined, 1_000);
+
+    expect(applied).toBe(true);
+    expect(body.favoredPrice).toBe(0.62);
+    expect(state.priceTarget).toBe(0.71);
+    expect(body.visualPulseDirection).toBe("up");
+
+    advanceBubbleVisualTween(body, state, 1_210);
+
+    expect(body.favoredPrice).toBeGreaterThan(0.62);
+    expect(body.favoredPrice).toBeLessThan(0.71);
+  });
+
+  it("ignores tiny duplicate visual price updates", () => {
+    const [body] = createBubbleBodies([marketToBubbleNode(market)], 1200, 680, false);
+    const state = createBubbleVisualSmoothingState(body, 1_000);
+
+    const applied = applySmoothedMarketValueToBody(body, { ...market, yesPrice: 0.624, noPrice: 0.376 }, 0, state, undefined, 1_000);
+
+    expect(applied).toBe(false);
+    expect(body.favoredPrice).toBe(0.62);
+  });
+
+  it("delays visible favored outcome switches to avoid flicker", () => {
+    const [body] = createBubbleBodies([marketToBubbleNode(market)], 1200, 680, false);
+    const state = createBubbleVisualSmoothingState(body, 10_000);
+    const celticsLead = { ...market, yesPrice: 0.49, noPrice: 0.51 };
+
+    applySmoothedMarketValueToBody(body, celticsLead, 0, state, undefined, 10_000);
+    expect(body.favoredOutcome).toBe("Lakers");
+
+    applySmoothedMarketValueToBody(body, celticsLead, 0, state, undefined, 11_000);
+    expect(body.favoredOutcome).toBe("Lakers");
+
+    applySmoothedMarketValueToBody(body, celticsLead, 0, state, undefined, 11_600);
+    expect(body.favoredOutcome).toBe("Celtics");
   });
 
   it("physics keeps moving bubbles inside bounds without resizing", () => {
