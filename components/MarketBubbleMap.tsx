@@ -926,10 +926,10 @@ function soccerBallVariant(node: MarketBubbleNode): SoccerBallVariant {
   const palette = hashVariant(node, "soccer-palette", 4);
   const light = hashVariant(node, "soccer-light", 6);
   const palettes = [
-    { baseColor: "#f3f1ea", panelColor: "#2a3038", seamColor: "rgba(47,52,59,0.26)", seamSoftColor: "rgba(255,255,255,0.18)", highlightColor: "rgba(255,255,255,0.22)", grainColor: "rgba(31,41,55,0.18)" },
-    { baseColor: "#f7f4ed", panelColor: "#232a33", seamColor: "rgba(33,41,52,0.24)", seamSoftColor: "rgba(255,255,255,0.15)", highlightColor: "rgba(255,255,255,0.24)", grainColor: "rgba(31,41,55,0.16)" },
-    { baseColor: "#e8edf2", panelColor: "#313942", seamColor: "rgba(49,57,66,0.24)", seamSoftColor: "rgba(255,255,255,0.18)", highlightColor: "rgba(255,255,255,0.2)", grainColor: "rgba(31,41,55,0.16)" },
-    { baseColor: "#1d2027", panelColor: "#343b45", seamColor: "rgba(232,236,242,0.26)", seamSoftColor: "rgba(255,255,255,0.1)", highlightColor: "rgba(255,255,255,0.12)", grainColor: "rgba(255,255,255,0.08)" },
+    { baseColor: "#f8f6ef", panelColor: "#27313a", seamColor: "rgba(52,61,72,0.26)", seamSoftColor: "rgba(255,255,255,0.18)", highlightColor: "rgba(255,255,255,0.28)", grainColor: "rgba(31,41,55,0.12)" },
+    { baseColor: "#fbf8f1", panelColor: "#202a34", seamColor: "rgba(38,47,58,0.24)", seamSoftColor: "rgba(255,255,255,0.15)", highlightColor: "rgba(255,255,255,0.26)", grainColor: "rgba(31,41,55,0.1)" },
+    { baseColor: "#f2f5f7", panelColor: "#313942", seamColor: "rgba(49,57,66,0.22)", seamSoftColor: "rgba(255,255,255,0.18)", highlightColor: "rgba(255,255,255,0.24)", grainColor: "rgba(31,41,55,0.1)" },
+    { baseColor: "#ece7db", panelColor: "#26313d", seamColor: "rgba(53,61,71,0.22)", seamSoftColor: "rgba(255,255,255,0.16)", highlightColor: "rgba(255,255,255,0.22)", grainColor: "rgba(31,41,55,0.1)" },
   ] as const;
   return {
     layout,
@@ -944,10 +944,10 @@ function soccerBallVariant(node: MarketBubbleNode): SoccerBallVariant {
 function basketballVariant(node: MarketBubbleNode): BasketballVariant {
   const palette = hashVariant(node, "basketball-palette", 4);
   const variants = [
-    { baseColor: "#f59a48", channelColor: "#231816", grainColor: "rgba(67,28,11,0.34)", highlightColor: "rgba(255,236,214,0.22)", seamWidth: 0.048, grainScale: 1.25, shadowAlpha: 0.3, highlightX: -0.28, highlightY: -0.34 },
-    { baseColor: "#e68a39", channelColor: "#201713", grainColor: "rgba(90,39,13,0.3)", highlightColor: "rgba(255,229,199,0.2)", seamWidth: 0.044, grainScale: 1.1, shadowAlpha: 0.33, highlightX: -0.22, highlightY: -0.3 },
-    { baseColor: "#c7762e", channelColor: "#101214", grainColor: "rgba(43,20,10,0.34)", highlightColor: "rgba(255,238,216,0.18)", seamWidth: 0.05, grainScale: 1.32, shadowAlpha: 0.36, highlightX: -0.18, highlightY: -0.26 },
-    { baseColor: "#b96d2c", channelColor: "#242014", grainColor: "rgba(69,43,12,0.28)", highlightColor: "rgba(255,214,150,0.16)", seamWidth: 0.047, grainScale: 1.08, shadowAlpha: 0.35, highlightX: -0.26, highlightY: -0.34 },
+    { baseColor: "#f79c4b", channelColor: "#3a2013", grainColor: "rgba(112,53,18,0.26)", highlightColor: "rgba(255,240,220,0.24)", seamWidth: 0.048, grainScale: 1.25, shadowAlpha: 0.18, highlightX: -0.28, highlightY: -0.34 },
+    { baseColor: "#e98d3e", channelColor: "#331b11", grainColor: "rgba(102,46,16,0.24)", highlightColor: "rgba(255,231,202,0.2)", seamWidth: 0.044, grainScale: 1.1, shadowAlpha: 0.18, highlightX: -0.22, highlightY: -0.3 },
+    { baseColor: "#d97f31", channelColor: "#2f190f", grainColor: "rgba(88,40,14,0.24)", highlightColor: "rgba(255,236,216,0.18)", seamWidth: 0.05, grainScale: 1.32, shadowAlpha: 0.2, highlightX: -0.18, highlightY: -0.26 },
+    { baseColor: "#cb742c", channelColor: "#342014", grainColor: "rgba(82,38,14,0.22)", highlightColor: "rgba(255,224,164,0.18)", seamWidth: 0.047, grainScale: 1.08, shadowAlpha: 0.2, highlightX: -0.26, highlightY: -0.34 },
   ] as const;
   return variants[palette];
 }
@@ -957,9 +957,9 @@ function baseballVariant(node: MarketBubbleNode): BaseballVariant {
   const angle = hashVariant(node, "baseball-angle", 5);
   const spacing = hashVariant(node, "baseball-spacing", 4);
   const variants = [
-    { leatherColor: "#f4efe4", seamColor: "#9f1d23", stitchColor: "#b71c1c", seamAngle: -0.02, stitchSpacing: 0.13, grainColor: "rgba(90,70,50,0.18)", grainScale: 0.8, highlightColor: "rgba(255,255,255,0.2)" },
-    { leatherColor: "#f7f1e7", seamColor: "#a31c24", stitchColor: "#be1f25", seamAngle: -0.08, stitchSpacing: 0.12, grainColor: "rgba(90,70,50,0.16)", grainScale: 0.72, highlightColor: "rgba(255,255,255,0.18)" },
-    { leatherColor: "#efe7d8", seamColor: "#921a22", stitchColor: "#aa1d25", seamAngle: 0.06, stitchSpacing: 0.11, grainColor: "rgba(90,70,50,0.14)", grainScale: 0.76, highlightColor: "rgba(255,255,255,0.16)" },
+    { leatherColor: "#fbf8f1", seamColor: "#9f1d23", stitchColor: "#c21f27", seamAngle: -0.02, stitchSpacing: 0.13, grainColor: "rgba(90,70,50,0.12)", grainScale: 0.8, highlightColor: "rgba(255,255,255,0.24)" },
+    { leatherColor: "#f8f4ea", seamColor: "#a31c24", stitchColor: "#bf2229", seamAngle: -0.08, stitchSpacing: 0.12, grainColor: "rgba(90,70,50,0.1)", grainScale: 0.72, highlightColor: "rgba(255,255,255,0.22)" },
+    { leatherColor: "#f3efe2", seamColor: "#921a22", stitchColor: "#ae1f27", seamAngle: 0.06, stitchSpacing: 0.11, grainColor: "rgba(90,70,50,0.1)", grainScale: 0.76, highlightColor: "rgba(255,255,255,0.2)" },
   ] as const;
   const selected = variants[palette];
   return {
@@ -973,9 +973,9 @@ function tennisVariant(node: MarketBubbleNode): TennisVariant {
   const palette = hashVariant(node, "tennis-palette", 3);
   const curve = hashVariant(node, "tennis-curve", 5);
   const variants = [
-    { baseColor: "#eff2b2", seamColor: "rgba(245,250,212,0.92)", seamSoftColor: "rgba(87,103,32,0.28)", grainColor: "rgba(255,255,255,0.36)", grainScale: 1.5, highlightColor: "rgba(255,255,255,0.18)", seamCurve: -0.15 },
-    { baseColor: "#dfe33d", seamColor: "rgba(247,250,180,0.92)", seamSoftColor: "rgba(96,116,25,0.28)", grainColor: "rgba(255,255,255,0.34)", grainScale: 1.58, highlightColor: "rgba(255,255,255,0.16)", seamCurve: -0.08 },
-    { baseColor: "#b8d45a", seamColor: "rgba(239,244,180,0.92)", seamSoftColor: "rgba(72,93,21,0.3)", grainColor: "rgba(255,255,255,0.3)", grainScale: 1.42, highlightColor: "rgba(255,255,255,0.14)", seamCurve: -0.22 },
+    { baseColor: "#e9ef91", seamColor: "rgba(247,250,212,0.96)", seamSoftColor: "rgba(87,103,32,0.16)", grainColor: "rgba(255,255,255,0.3)", grainScale: 1.5, highlightColor: "rgba(255,255,255,0.2)", seamCurve: -0.15 },
+    { baseColor: "#dce84d", seamColor: "rgba(247,250,180,0.96)", seamSoftColor: "rgba(96,116,25,0.16)", grainColor: "rgba(255,255,255,0.28)", grainScale: 1.58, highlightColor: "rgba(255,255,255,0.18)", seamCurve: -0.08 },
+    { baseColor: "#cfe33f", seamColor: "rgba(239,244,180,0.96)", seamSoftColor: "rgba(72,93,21,0.18)", grainColor: "rgba(255,255,255,0.26)", grainScale: 1.42, highlightColor: "rgba(255,255,255,0.16)", seamCurve: -0.22 },
   ] as const;
   const selected = variants[palette];
   return {
@@ -989,10 +989,10 @@ function footballVariant(node: MarketBubbleNode): FootballVariant {
   const lace = hashVariant(node, "football-lace", 4);
   const seam = hashVariant(node, "football-seam", 4);
   const variants = [
-    { baseColor: "#92512c", panelColor: "#653018", laceColor: "#f6e6c4", stitchColor: "rgba(250,235,198,0.72)", grainColor: "rgba(15,8,5,0.4)", grainScale: 1.2, seamWidth: 0.035, laceWidth: 0.055, seamAngle: -0.18, highlightColor: "rgba(255,242,208,0.16)" },
-    { baseColor: "#8a4a28", panelColor: "#5e2a16", laceColor: "#f0dec0", stitchColor: "rgba(247,231,196,0.7)", grainColor: "rgba(18,10,6,0.38)", grainScale: 1.08, seamWidth: 0.033, laceWidth: 0.05, seamAngle: -0.12, highlightColor: "rgba(255,238,194,0.14)" },
-    { baseColor: "#734022", panelColor: "#4f2413", laceColor: "#f8ecd6", stitchColor: "rgba(252,238,205,0.72)", grainColor: "rgba(12,8,5,0.42)", grainScale: 1.26, seamWidth: 0.038, laceWidth: 0.06, seamAngle: -0.2, highlightColor: "rgba(255,240,215,0.16)" },
-    { baseColor: "#6c3a1d", panelColor: "#441e10", laceColor: "#ead7b5", stitchColor: "rgba(238,221,186,0.66)", grainColor: "rgba(14,8,5,0.4)", grainScale: 1.1, seamWidth: 0.032, laceWidth: 0.045, seamAngle: -0.16, highlightColor: "rgba(255,230,182,0.12)" },
+    { baseColor: "#98592f", panelColor: "#6b341a", laceColor: "#f6e6c4", stitchColor: "rgba(250,235,198,0.72)", grainColor: "rgba(15,8,5,0.24)", grainScale: 1.2, seamWidth: 0.035, laceWidth: 0.055, seamAngle: -0.18, highlightColor: "rgba(255,242,208,0.16)" },
+    { baseColor: "#8f4f2a", panelColor: "#612e17", laceColor: "#f0dec0", stitchColor: "rgba(247,231,196,0.7)", grainColor: "rgba(18,10,6,0.22)", grainScale: 1.08, seamWidth: 0.033, laceWidth: 0.05, seamAngle: -0.12, highlightColor: "rgba(255,238,194,0.14)" },
+    { baseColor: "#7d4525", panelColor: "#54301a", laceColor: "#f8ecd6", stitchColor: "rgba(252,238,205,0.72)", grainColor: "rgba(12,8,5,0.24)", grainScale: 1.26, seamWidth: 0.038, laceWidth: 0.06, seamAngle: -0.2, highlightColor: "rgba(255,240,215,0.16)" },
+    { baseColor: "#733d1f", panelColor: "#4a2312", laceColor: "#ead7b5", stitchColor: "rgba(238,221,186,0.66)", grainColor: "rgba(14,8,5,0.22)", grainScale: 1.1, seamWidth: 0.032, laceWidth: 0.045, seamAngle: -0.16, highlightColor: "rgba(255,230,182,0.12)" },
   ] as const;
   const selected = variants[palette];
   return {
@@ -1105,15 +1105,19 @@ function starPoints(x: number, y: number, outerRadius: number, innerRadius: numb
   });
 }
 
-function drawCenterTextOverlay(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
-  const overlay = ctx.createRadialGradient(x, y, radius * 0.1, x, y, radius * 0.72);
-  overlay.addColorStop(0, "rgba(0,0,0,0.58)");
-  overlay.addColorStop(0.62, "rgba(0,0,0,0.38)");
-  overlay.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = overlay;
+function drawLabelPlate(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
+  const plateWidth = radius * 1.34;
+  const plateHeight = radius * 0.68;
+  const plateY = y + radius * 0.1;
+  ctx.save();
+  ctx.fillStyle = "rgba(2, 6, 23, 0.28)";
   ctx.beginPath();
-  ctx.arc(x, y, safeRadius(radius * 0.72), 0, Math.PI * 2);
+  ctx.ellipse(x, plateY, plateWidth / 2, plateHeight / 2, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.08)";
+  ctx.lineWidth = Math.max(1, radius * 0.014);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawFallbackGlassBubble(ctx: CanvasRenderingContext2D, node: MarketBubbleNode, x: number, y: number, radius: number) {
@@ -1132,8 +1136,8 @@ function drawSoccerBall(ctx: CanvasRenderingContext2D, x: number, y: number, rad
   clipCircle(ctx, x, y, radius);
   const body = ctx.createRadialGradient(x + radius * variant.highlightX, y + radius * variant.highlightY, radius * 0.08, x, y, radius);
   body.addColorStop(0, variant.baseColor);
-  body.addColorStop(0.58, variant.baseColor);
-  body.addColorStop(1, variant.layout === 3 ? "#0d1015" : "#d7d7cf");
+  body.addColorStop(0.6, variant.baseColor);
+  body.addColorStop(1, "#eef0ea");
   ctx.fillStyle = body;
   ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
 
@@ -1172,7 +1176,7 @@ function drawSoccerBall(ctx: CanvasRenderingContext2D, x: number, y: number, rad
     ctx.stroke();
   }
   drawBallGrain(ctx, x, y, radius, variant.grainColor, variant.grainScale);
-  drawMatteLighting(ctx, x, y, radius, variant.layout === 3 ? 0.38 : 0.24, 0.16);
+  drawMatteLighting(ctx, x, y, radius, 0.16, 0.12);
   ctx.fillStyle = variant.highlightColor;
   ctx.beginPath();
   ctx.arc(x - radius * 0.34, y - radius * 0.38, safeRadius(radius * 0.18), 0, Math.PI * 2);
@@ -1203,7 +1207,7 @@ function drawBasketball(ctx: CanvasRenderingContext2D, x: number, y: number, rad
   ctx.ellipse(x - radius * 0.72, y, radius * 0.44, radius * 1.06, 0, -Math.PI / 2, Math.PI / 2);
   ctx.ellipse(x + radius * 0.72, y, radius * 0.44, radius * 1.06, 0, Math.PI / 2, Math.PI * 1.5);
   ctx.stroke();
-  drawMatteLighting(ctx, x, y, radius, variant.shadowAlpha, 0.17);
+  drawMatteLighting(ctx, x, y, radius, 0.22, 0.16);
   ctx.restore();
 }
 
@@ -1239,7 +1243,7 @@ function drawFootball(ctx: CanvasRenderingContext2D, x: number, y: number, radiu
   }
   ctx.rotate(-variant.seamAngle);
   ctx.translate(-x, -y);
-  drawMatteLighting(ctx, x, y, radius, 0.38, 0.12);
+  drawMatteLighting(ctx, x, y, radius, 0.22, 0.12);
   ctx.restore();
 }
 
@@ -1265,7 +1269,7 @@ function drawTennisBall(ctx: CanvasRenderingContext2D, x: number, y: number, rad
   ctx.ellipse(x - radius * 0.68, y + radius * 0.02, radius * 0.42, radius * 1.08, variant.seamCurve, -Math.PI / 2, Math.PI / 2);
   ctx.ellipse(x + radius * 0.68, y + radius * 0.02, radius * 0.42, radius * 1.08, variant.seamCurve, Math.PI / 2, Math.PI * 1.5);
   ctx.stroke();
-  drawMatteLighting(ctx, x, y, radius, 0.27, 0.14);
+  drawMatteLighting(ctx, x, y, radius, 0.18, 0.14);
   ctx.fillStyle = variant.highlightColor;
   ctx.beginPath();
   ctx.arc(x - radius * 0.35, y - radius * 0.36, safeRadius(radius * 0.16), 0, Math.PI * 2);
@@ -1297,7 +1301,7 @@ function drawBaseball(ctx: CanvasRenderingContext2D, x: number, y: number, radiu
       ctx.stroke();
     }
   }
-  drawMatteLighting(ctx, x, y, radius, 0.28, 0.13);
+  drawMatteLighting(ctx, x, y, radius, 0.2, 0.12);
   ctx.fillStyle = variant.highlightColor;
   ctx.beginPath();
   ctx.arc(x - radius * 0.38, y - radius * 0.38, safeRadius(radius * 0.18), 0, Math.PI * 2);
@@ -1403,7 +1407,6 @@ function drawSportBubble(ctx: CanvasRenderingContext2D, node: MarketBubbleNode, 
       drawFallbackGlassBubble(ctx, node, x, y, radius);
       break;
   }
-  drawCenterTextOverlay(ctx, x, y, radius);
 }
 
 function drawBubble(
@@ -1475,6 +1478,7 @@ function drawBubble(
   ctx.textBaseline = "middle";
 
   if (canRenderText) {
+    drawLabelPlate(ctx, x, y, radius);
     drawLogoMark(node, ctx, x, y - radius * 0.42, radius, screenRadius > 34 ? 0.92 : 0.55);
 
     ctx.fillStyle = "#f8fafc";
@@ -1518,58 +1522,22 @@ function TraakLoadingOverlay() {
           0%, 100% { transform: scale(0.97); opacity: 0.78; }
           50% { transform: scale(1.03); opacity: 1; }
         }
-        @keyframes traak-drift {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-2px); }
-        }
-        @keyframes traak-orbit {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
       `}</style>
-      <div className="flex flex-col items-center gap-4 px-6 text-center">
-        <div className="relative grid h-24 w-24 place-items-center">
-          <div
-            className="absolute h-24 w-24 rounded-full border border-cyan-400/15 bg-cyan-400/6 shadow-[0_0_44px_rgba(34,211,238,0.16)]"
-            style={{ animation: "traak-breathe 3.2s ease-in-out infinite" }}
-          />
-          <div
-            className="absolute h-16 w-16 rounded-full border border-cyan-300/22"
-            style={{ animation: "traak-orbit 5.8s linear infinite" }}
-          />
-          <div
-            className="absolute h-10 w-10 rounded-full border border-cyan-200/22 bg-cyan-300/12 shadow-[inset_0_0_18px_rgba(34,211,238,0.16)]"
-            style={{ animation: "traak-breathe 2s ease-in-out infinite" }}
-          />
-          <svg aria-hidden="true" className="relative h-12 w-12 text-cyan-100" viewBox="0 0 48 48">
-            <defs>
-              <linearGradient id="traak-loader-mark" x1="0%" x2="100%" y1="0%" y2="100%">
-                <stop offset="0%" stopColor="currentColor" stopOpacity="0.95" />
-                <stop offset="100%" stopColor="currentColor" stopOpacity="0.65" />
-              </linearGradient>
-            </defs>
-            <circle cx="24" cy="24" r="18" fill="none" stroke="url(#traak-loader-mark)" strokeWidth="2" opacity="0.8" />
-            <path
-              d="M24 11.5v25M16.5 16.5h15"
-              fill="none"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeWidth="3.25"
-            />
-            <path
-              d="M12 24.5c1.7-7.8 8.3-12.7 12-12.7s10.3 4.9 12 12.7c-1.7 7.7-8.3 12.6-12 12.6S13.7 32.2 12 24.5Z"
-              fill="none"
-              stroke="currentColor"
-              strokeOpacity="0.22"
-              strokeWidth="1.2"
-            />
-          </svg>
-        </div>
-        <div className="space-y-1">
-          <div className="text-base font-semibold tracking-[0.24em] text-slate-50">Traak</div>
-          <div className="text-xs uppercase tracking-[0.2em] text-cyan-200/70">Loading snapshot</div>
-          <div className="text-sm text-slate-300">Preparing the board</div>
-        </div>
+      <div className="relative grid place-items-center px-6 text-center">
+        <div
+          className="absolute h-36 w-36 rounded-full bg-cyan-400/8 blur-2xl"
+          style={{ animation: "traak-breathe 3.4s ease-in-out infinite" }}
+        />
+        <div
+          className="absolute h-28 w-28 rounded-full border border-cyan-300/15 shadow-[0_0_52px_rgba(34,211,238,0.18)]"
+          style={{ animation: "traak-breathe 2.8s ease-in-out infinite reverse" }}
+        />
+        <img
+          alt="Traak logo"
+          className="relative h-28 w-28 select-none object-contain"
+          src="/polytraak.jpg"
+          style={{ animation: "traak-breathe 2.4s ease-in-out infinite" }}
+        />
       </div>
     </div>
   );

@@ -143,7 +143,9 @@ describe("MarketBubbleMap", () => {
 
     expect(screen.getByTestId("traak-loader")).toBeInTheDocument();
     expect(screen.getByLabelText("Loading Traak markets")).toBeInTheDocument();
-    expect(screen.getByText("Traak")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /traak logo/i })).toBeInTheDocument();
+    expect(screen.queryByText("Loading snapshot")).not.toBeInTheDocument();
+    expect(screen.queryByText("Preparing the board")).not.toBeInTheDocument();
   });
 
   it("shows a readable hover tooltip", () => {
