@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Search, Settings } from "lucide-react";
+import { RefreshCw, Search, Settings } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { MarketBubbleMap } from "@/components/MarketBubbleMap";
-import { mergeLiveMarketUpdates, useMarketLiveUpdates } from "@/components/useMarketLiveUpdates";
+import { useMarketLiveUpdates } from "@/components/useMarketLiveUpdates";
 import { marketStore } from "@/app/store/marketStore";
+import { hasUsefulFavoredPrice } from "@/lib/polymarket/marketDisplay";
 import type { MarketPage, MarketQuerySort, MarketQueryStatus, SportsMarketDiscovery } from "@/lib/polymarket/markets";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
@@ -21,10 +22,7 @@ const rangeOptions = [
 ] as const;
 const maxMarketFetchLimit = rangeOptions[rangeOptions.length - 1].end;
 
-export function hasUsefulFavoredPrice(market: TerminalMarket) {
-  const favoredPrice = Math.max(Number.isFinite(market.yesPrice) ? market.yesPrice : 0, Number.isFinite(market.noPrice) ? market.noPrice : 0);
-  return favoredPrice >= 0.11 && favoredPrice <= 0.94;
-}
+export { hasUsefulFavoredPrice };
 
 type MarketsResponse = MarketPage & {
   counts: SportsMarketDiscovery["counts"];
@@ -84,6 +82,7 @@ export function MarketsExplorer({
   const [markets, setMarkets] = useState<TerminalMarket[]>(initialPage.markets);
   const [latestSource, setLatestSource] = useState(source);
   const [isLoading, setIsLoading] = useState(false);
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const liveRequestUrl = useMemo(
     () => buildMarketsUrl({ offset: 0, limit: maxMarketFetchLimit, search: debouncedQuery, sort, sport, status, minVolume }),
@@ -123,7 +122,7 @@ export function MarketsExplorer({
       .then(readMarketsResponse)
       .then((nextPage) => {
         if (requestId !== requestIdRef.current) return;
-        setMarkets((currentMarkets) => mergeLiveMarketUpdates(nextPage.markets, currentMarkets));
+        setMarkets(nextPage.markets);
         marketStore.setMarketSnapshots(nextPage.markets, { replace: true });
         setLatestSource(nextPage.source);
       })
@@ -138,7 +137,7 @@ export function MarketsExplorer({
       });
 
     return () => controller.abort();
-  }, [liveRequestUrl]);
+  }, [liveRequestUrl, refreshNonce]);
 
   const isInitialLoading = isLoading && markets.length === 0;
   const isRefreshing = isLoading && markets.length > 0;
@@ -205,6 +204,18 @@ export function MarketsExplorer({
         >
           {liveStatus}
         </span>
+        <Button
+          aria-label="Refresh markets"
+          className="h-6 gap-1 px-2 text-xs"
+          disabled={isLoading}
+          onClick={() => setRefreshNonce((value) => value + 1)}
+          size="sm"
+          type="button"
+          variant="ghost"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
+          Refresh
+        </Button>
         {latestSource === "mock" ? <span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-xs text-amber-200">Mock</span> : null}
         <Button aria-label="Settings" className="h-6 w-6" size="icon" type="button" variant="ghost">
           <Settings className="h-4 w-4" />

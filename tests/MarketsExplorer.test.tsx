@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { marketStore } from "@/app/store/marketStore";
 import { hasUsefulFavoredPrice, MarketsExplorer } from "@/components/MarketsExplorer";
+import { getFavoredOutcome } from "@/components/MarketBubbleMap";
 import type { MarketPage, SportsMarketDiscovery } from "@/lib/polymarket/markets";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
@@ -68,6 +70,7 @@ describe("MarketsExplorer", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    marketStore.reset();
   });
 
   it("calls the markets API with filter params", async () => {
@@ -216,5 +219,26 @@ describe("MarketsExplorer", () => {
       expect(params.get("limit")).toBe("250");
       expect(params.get("offset")).toBe("0");
     });
+  });
+
+  it("manual refresh reloads markets and recalculates favored outcome", async () => {
+    const refreshed = { ...market, yesPrice: 0.48, noPrice: 0.52 };
+    let requestCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        requestCount += 1;
+        const markets = requestCount >= 2 ? [refreshed] : [market];
+        return new Response(JSON.stringify({ ...initialPage, markets, counts, countsLoading: false, source: "polymarket" }), { status: 200 });
+      }),
+    );
+
+    render(<MarketsExplorer initialPage={{ ...initialPage, markets: [market] }} source="polymarket" />);
+
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Refresh markets" }));
+
+    await waitFor(() => expect(marketStore.getState().marketsById["market-1"].noPrice).toBe(0.52));
+    expect(getFavoredOutcome(marketStore.getState().marketsById["market-1"]).price).toBe(0.52);
   });
 });

@@ -46,6 +46,12 @@ export function MarketTradePanel({
         </Button>
       </div>
 
+      {market.activeRangeWarning ? (
+        <div className="mt-4 rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm font-medium text-amber-100">
+          Market moved outside active range
+        </div>
+      ) : null}
+
       <div className="mt-5 grid grid-cols-3 gap-2">
         <button
           className={`h-9 rounded-md text-sm font-semibold transition ${side === "Buy" ? "bg-emerald-400 text-black" : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"}`}
@@ -91,7 +97,7 @@ export function MarketTradePanel({
         <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Outcomes</p>
         <div className="mt-3 space-y-2">
           {market.outcomes.map((outcome) => {
-            const isFavored = outcome.name === market.favoredOutcome || outcome.priceCents === market.priceCents;
+            const isFavored = outcome.name === market.favoredOutcome;
             return (
               <div
                 className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 ${

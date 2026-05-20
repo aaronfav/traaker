@@ -20,7 +20,7 @@ function useOptionalWalletConnected() {
 
 export function TradeTicket({ market }: { market: MarketBubbleNode }) {
   const isConnected = useOptionalWalletConnected();
-  const [selectedOutcome, setSelectedOutcome] = useState(() => market.outcomes[0]?.name ?? market.favoredOutcome);
+  const [selectedOutcome, setSelectedOutcome] = useState(() => market.favoredOutcome || market.outcomes[0]?.name);
   const [quantity, setQuantity] = useState("10");
   const [orderType, setOrderType] = useState<TradeOrderType>("market");
   const selected = market.outcomes.find((outcome) => outcome.name === selectedOutcome) ?? market.outcomes[0];

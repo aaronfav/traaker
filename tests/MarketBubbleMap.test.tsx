@@ -15,6 +15,7 @@ import {
   tickBubblePhysics,
   type BubbleBody,
 } from "@/components/MarketBubbleMap";
+import { MarketTradePanel } from "@/components/MarketTradePanel";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
 function createStrictCanvasContext() {
@@ -309,7 +310,7 @@ describe("MarketBubbleMap", () => {
     expect(body.favoredPrice).toBe(0.62);
   });
 
-  it("delays visible favored outcome switches to avoid flicker", () => {
+  it("does not switch visible favored outcome from live updates", () => {
     const [body] = createBubbleBodies([marketToBubbleNode(market)], 1200, 680, false);
     const state = createBubbleVisualSmoothingState(body, 10_000);
     const celticsLead = { ...market, yesPrice: 0.49, noPrice: 0.51 };
@@ -320,8 +321,37 @@ describe("MarketBubbleMap", () => {
     applySmoothedMarketValueToBody(body, celticsLead, 0, state, undefined, 11_000);
     expect(body.favoredOutcome).toBe("Lakers");
 
-    applySmoothedMarketValueToBody(body, celticsLead, 0, state, undefined, 11_600);
-    expect(body.favoredOutcome).toBe("Celtics");
+    applySmoothedMarketValueToBody(body, celticsLead, 0, state, undefined, 20_000);
+    expect(body.favoredOutcome).toBe("Lakers");
+  });
+
+  it("hides a visible bubble when live price leaves the active range", () => {
+    const [body] = createBubbleBodies([marketToBubbleNode(market)], 1200, 680, false);
+    const state = createBubbleVisualSmoothingState(body, 10_000);
+
+    const applied = applySmoothedMarketValueToBody(body, { ...market, yesPrice: 0.99, noPrice: 0.01 }, 0, state, undefined, 10_000);
+
+    expect(applied).toBe(true);
+    expect(body.isLiveHidden).toBe(true);
+    expect(body.activeRangeWarning).toBe(true);
+    expect(body.favoredPrice).not.toBe(0.99);
+  });
+
+  it("trade panel keeps stable favored highlight and warns when market leaves active range", () => {
+    const panelMarket = {
+      ...marketToBubbleNode(market),
+      activeRangeWarning: true,
+      outcomes: [
+        { name: "Lakers", price: 0.09, priceCents: 9 },
+        { name: "Celtics", price: 0.91, priceCents: 91 },
+      ],
+    };
+
+    render(<MarketTradePanel market={panelMarket} onClose={vi.fn()} />);
+
+    expect(screen.getByText("Market moved outside active range")).toBeInTheDocument();
+    expect(screen.getByText("Favored:").parentElement).toHaveTextContent("Lakers");
+    expect(screen.getByRole("button", { name: /lakers/i })).toHaveClass("border-cyan-400");
   });
 
   it("physics keeps moving bubbles inside bounds without resizing", () => {
