@@ -101,7 +101,7 @@ describe("DashboardPage", () => {
     expect(screen.queryByText(/polymarket sports/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/minimum volume/i, { selector: "p" })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("application", { name: /50 sports market bubble map/i })).toBeInTheDocument());
-    expect(screen.getByLabelText("Market range")).toHaveValue("50");
+    expect(screen.getByLabelText("Market range")).toHaveValue("0");
     expect(vi.mocked(fetch)).toHaveBeenCalledWith(expect.stringContaining("limit=250"), expect.any(Object));
   });
 

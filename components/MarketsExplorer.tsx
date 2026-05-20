@@ -13,12 +13,13 @@ import type { TerminalMarket } from "@/lib/polymarket/types";
 const sports = ["All", "NBA", "NFL", "Soccer", "UFC", "Tennis"] as const;
 const timeframes = ["1H", "1D", "1W", "1M"] as const;
 const rangeOptions = [
-  { label: "1-50", value: 50 },
-  { label: "1-100", value: 100 },
-  { label: "1-150", value: 150 },
-  { label: "1-250", value: 250 },
+  { label: "1-50", start: 0, end: 50 },
+  { label: "51-100", start: 50, end: 100 },
+  { label: "101-150", start: 100, end: 150 },
+  { label: "151-200", start: 150, end: 200 },
+  { label: "201-250", start: 200, end: 250 },
 ] as const;
-const maxMarketFetchLimit = rangeOptions[rangeOptions.length - 1].value;
+const maxMarketFetchLimit = rangeOptions[rangeOptions.length - 1].end;
 
 export function hasUsefulFavoredPrice(market: TerminalMarket) {
   const favoredPrice = Math.max(Number.isFinite(market.yesPrice) ? market.yesPrice : 0, Number.isFinite(market.noPrice) ? market.noPrice : 0);
@@ -77,7 +78,7 @@ export function MarketsExplorer({
   const sort: MarketQuerySort = "volume";
   const minVolume = 2000;
   const [timeframe, setTimeframe] = useState<(typeof timeframes)[number]>("1D");
-  const [rangeLimit, setRangeLimit] = useState<(typeof rangeOptions)[number]["value"]>(50);
+  const [rangeStart, setRangeStart] = useState<(typeof rangeOptions)[number]["start"]>(0);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [markets, setMarkets] = useState<TerminalMarket[]>(initialPage.markets);
@@ -85,8 +86,8 @@ export function MarketsExplorer({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const liveRequestUrl = useMemo(
-    () => buildMarketsUrl({ offset: 0, limit: Math.max(rangeLimit, maxMarketFetchLimit), search: debouncedQuery, sort, sport, status, minVolume }),
-    [debouncedQuery, minVolume, rangeLimit, sort, sport, status],
+    () => buildMarketsUrl({ offset: 0, limit: maxMarketFetchLimit, search: debouncedQuery, sort, sport, status, minVolume }),
+    [debouncedQuery, minVolume, sort, sport, status],
   );
   const handleLiveMarketsUpdate = useCallback((incomingMarkets: TerminalMarket[]) => {
     marketStore.applyMarketSnapshots(incomingMarkets);
@@ -141,7 +142,8 @@ export function MarketsExplorer({
 
   const isInitialLoading = isLoading && markets.length === 0;
   const isRefreshing = isLoading && markets.length > 0;
-  const visibleMarkets = markets.filter(hasUsefulFavoredPrice).slice(0, rangeLimit);
+  const selectedRange = rangeOptions.find((option) => option.start === rangeStart) ?? rangeOptions[0];
+  const visibleMarkets = markets.filter(hasUsefulFavoredPrice).slice(selectedRange.start, selectedRange.end);
 
   return (
     <section className="w-screen bg-[#050505]">
@@ -172,11 +174,11 @@ export function MarketsExplorer({
         <select
           aria-label="Market range"
           className="h-6 rounded-md border border-zinc-800 bg-black px-2 text-xs font-semibold text-zinc-100"
-          onChange={(event) => setRangeLimit(Number(event.target.value) as typeof rangeLimit)}
-          value={rangeLimit}
+          onChange={(event) => setRangeStart(Number(event.target.value) as typeof rangeStart)}
+          value={rangeStart}
         >
           {rangeOptions.map((option) => (
-            <option key={option.value} value={option.value}>
+            <option key={option.start} value={option.start}>
               {option.label}
             </option>
           ))}

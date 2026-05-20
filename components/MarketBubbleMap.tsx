@@ -741,14 +741,61 @@ function clipCircle(ctx: CanvasRenderingContext2D, x: number, y: number, radius:
 }
 
 function drawBallGloss(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
-  const gloss = ctx.createRadialGradient(x - radius * 0.35, y - radius * 0.42, radius * 0.06, x, y, radius);
-  gloss.addColorStop(0, "rgba(255,255,255,0.34)");
-  gloss.addColorStop(0.35, "rgba(255,255,255,0.08)");
-  gloss.addColorStop(1, "rgba(0,0,0,0.34)");
+  const gloss = ctx.createRadialGradient(x - radius * 0.34, y - radius * 0.38, radius * 0.08, x, y, radius);
+  gloss.addColorStop(0, "rgba(255,255,255,0.24)");
+  gloss.addColorStop(0.34, "rgba(255,255,255,0.06)");
+  gloss.addColorStop(0.76, "rgba(0,0,0,0.08)");
+  gloss.addColorStop(1, "rgba(0,0,0,0.38)");
   ctx.fillStyle = gloss;
   ctx.beginPath();
   ctx.arc(x, y, safeRadius(radius), 0, Math.PI * 2);
   ctx.fill();
+}
+
+function drawMatteLighting(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, shadowAlpha = 0.34, highlightAlpha = 0.2) {
+  const edge = ctx.createRadialGradient(x - radius * 0.2, y - radius * 0.26, radius * 0.2, x, y, radius);
+  edge.addColorStop(0, `rgba(255,255,255,${highlightAlpha})`);
+  edge.addColorStop(0.56, "rgba(255,255,255,0)");
+  edge.addColorStop(0.82, "rgba(0,0,0,0.08)");
+  edge.addColorStop(1, `rgba(0,0,0,${shadowAlpha})`);
+  ctx.fillStyle = edge;
+  ctx.beginPath();
+  ctx.arc(x, y, safeRadius(radius), 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawBallGrain(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, color: string, countMultiplier = 1) {
+  const count = Math.max(10, Math.floor(radius * 0.8 * countMultiplier));
+  ctx.save();
+  ctx.globalAlpha *= 0.32;
+  ctx.fillStyle = color;
+  for (let index = 0; index < count; index += 1) {
+    const hash = hashString(`${Math.round(x)}:${Math.round(y)}:${Math.round(radius)}:${index}`);
+    const angle = (hash % 6283) / 1000;
+    const distance = Math.sqrt(((hash >> 8) % 1000) / 1000) * radius * 0.9;
+    const dotRadius = 0.45 + ((hash >> 18) % 12) / 20;
+    ctx.beginPath();
+    ctx.arc(x + Math.cos(angle) * distance, y + Math.sin(angle) * distance, safeRadius(dotRadius), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawPolygon(ctx: CanvasRenderingContext2D, points: Array<[number, number]>) {
+  ctx.beginPath();
+  points.forEach(([px, py], index) => {
+    if (index === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  });
+  ctx.closePath();
+}
+
+function starPoints(x: number, y: number, outerRadius: number, innerRadius: number, rotation = -Math.PI / 2) {
+  return Array.from({ length: 10 }, (_, index) => {
+    const pointRadius = index % 2 === 0 ? outerRadius : innerRadius;
+    const angle = rotation + (index * Math.PI) / 5;
+    return [x + Math.cos(angle) * pointRadius, y + Math.sin(angle) * pointRadius] as [number, number];
+  });
 }
 
 function drawCenterTextOverlay(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
@@ -776,64 +823,65 @@ function drawFallbackGlassBubble(ctx: CanvasRenderingContext2D, node: MarketBubb
 function drawSoccerBall(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
   ctx.save();
   clipCircle(ctx, x, y, radius);
-  ctx.fillStyle = "#f9fafb";
+  ctx.fillStyle = "#f3f1ea";
   ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
-  const shade = ctx.createRadialGradient(x - radius * 0.25, y - radius * 0.32, radius * 0.1, x, y, radius);
-  shade.addColorStop(0, "rgba(255,255,255,0.8)");
-  shade.addColorStop(0.72, "rgba(229,231,235,0.2)");
-  shade.addColorStop(1, "rgba(15,23,42,0.14)");
-  ctx.fillStyle = shade;
-  ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
-  ctx.strokeStyle = "rgba(17,24,39,0.82)";
-  ctx.lineWidth = Math.max(1.1, radius * 0.018);
-  const pentagonRadius = radius * 0.22;
-  ctx.beginPath();
-  for (let index = 0; index < 5; index += 1) {
-    const angle = -Math.PI / 2 + (index * Math.PI * 2) / 5;
-    const px = x + Math.cos(angle) * pentagonRadius;
-    const py = y + Math.sin(angle) * pentagonRadius;
-    if (index === 0) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
-  }
-  ctx.closePath();
-  ctx.fillStyle = "#050505";
-  ctx.fill();
-  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(47,52,59,0.22)";
+  ctx.lineWidth = Math.max(1, radius * 0.014);
   for (let index = 0; index < 5; index += 1) {
     const angle = -Math.PI / 2 + (index * Math.PI * 2) / 5;
     ctx.beginPath();
-    ctx.moveTo(x + Math.cos(angle) * pentagonRadius, y + Math.sin(angle) * pentagonRadius);
-    ctx.lineTo(x + Math.cos(angle) * radius * 0.86, y + Math.sin(angle) * radius * 0.86);
+    ctx.ellipse(
+      x + Math.cos(angle) * radius * 0.15,
+      y + Math.sin(angle) * radius * 0.12,
+      radius * 0.92,
+      radius * 0.22,
+      angle + Math.PI / 2,
+      -Math.PI * 0.38,
+      Math.PI * 0.38,
+    );
     ctx.stroke();
-    ctx.beginPath();
-    const panelX = x + Math.cos(angle) * radius * 0.62;
-    const panelY = y + Math.sin(angle) * radius * 0.62;
-    for (let point = 0; point < 6; point += 1) {
-      const hexAngle = Math.PI / 6 + (point * Math.PI * 2) / 6;
-      const px = panelX + Math.cos(hexAngle) * radius * 0.12;
-      const py = panelY + Math.sin(hexAngle) * radius * 0.12;
-      if (point === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    }
-    ctx.closePath();
-    ctx.fillStyle = "#050505";
+  }
+
+  const panels = [
+    starPoints(x, y - radius * 0.02, radius * 0.31, radius * 0.14, -Math.PI / 2),
+    starPoints(x - radius * 0.52, y - radius * 0.28, radius * 0.24, radius * 0.1, -Math.PI / 2.5),
+    starPoints(x + radius * 0.52, y - radius * 0.28, radius * 0.24, radius * 0.1, -Math.PI / 1.7),
+    starPoints(x - radius * 0.38, y + radius * 0.5, radius * 0.22, radius * 0.09, -Math.PI / 3),
+    starPoints(x + radius * 0.38, y + radius * 0.5, radius * 0.22, radius * 0.09, -Math.PI / 1.9),
+  ];
+
+  for (const points of panels) {
+    drawPolygon(ctx, points);
+    ctx.fillStyle = "rgba(18,24,32,0.12)";
+    ctx.save();
+    ctx.translate(radius * 0.018, radius * 0.022);
     ctx.fill();
+    ctx.restore();
+    drawPolygon(ctx, points);
+    ctx.fillStyle = "#2a3038";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.18)";
+    ctx.lineWidth = Math.max(0.8, radius * 0.01);
     ctx.stroke();
   }
+  drawBallGrain(ctx, x, y, radius, "rgba(31,41,55,0.18)", 0.5);
+  drawMatteLighting(ctx, x, y, radius, 0.24, 0.16);
   ctx.restore();
 }
 
 function drawBasketball(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
   ctx.save();
   clipCircle(ctx, x, y, radius);
-  const fill = ctx.createRadialGradient(x - radius * 0.3, y - radius * 0.35, radius * 0.08, x, y, radius);
-  fill.addColorStop(0, "#fb923c");
-  fill.addColorStop(0.55, "#d97706");
-  fill.addColorStop(1, "#7c2d12");
+  const fill = ctx.createRadialGradient(x - radius * 0.28, y - radius * 0.34, radius * 0.1, x, y, radius);
+  fill.addColorStop(0, "#f59a48");
+  fill.addColorStop(0.54, "#c96f21");
+  fill.addColorStop(1, "#6f2a12");
   ctx.fillStyle = fill;
   ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
-  ctx.strokeStyle = "rgba(17,24,39,0.9)";
-  ctx.lineWidth = Math.max(2, radius * 0.055);
+  drawBallGrain(ctx, x, y, radius, "rgba(67,28,11,0.34)", 1.25);
+  ctx.strokeStyle = "rgba(24,19,17,0.82)";
+  ctx.lineWidth = Math.max(2, radius * 0.048);
   ctx.beginPath();
   ctx.moveTo(x, y - radius);
   ctx.lineTo(x, y + radius);
@@ -844,23 +892,30 @@ function drawBasketball(ctx: CanvasRenderingContext2D, x: number, y: number, rad
   ctx.ellipse(x - radius * 0.72, y, radius * 0.44, radius * 1.06, 0, -Math.PI / 2, Math.PI / 2);
   ctx.ellipse(x + radius * 0.72, y, radius * 0.44, radius * 1.06, 0, Math.PI / 2, Math.PI * 1.5);
   ctx.stroke();
-  drawBallGloss(ctx, x, y, radius);
+  drawMatteLighting(ctx, x, y, radius, 0.3, 0.17);
   ctx.restore();
 }
 
 function drawFootball(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
   ctx.save();
   clipCircle(ctx, x, y, radius);
-  drawFallbackGlassBubble(ctx, { primaryColor: "#7c2d12", secondaryColor: "#fef3c7" } as MarketBubbleNode, x, y, radius);
+  const fill = ctx.createRadialGradient(x - radius * 0.24, y - radius * 0.36, radius * 0.08, x, y, radius);
+  fill.addColorStop(0, "#92512c");
+  fill.addColorStop(0.55, "#653018");
+  fill.addColorStop(1, "#2f160d");
+  ctx.fillStyle = fill;
+  ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  drawBallGrain(ctx, x, y, radius, "rgba(15,8,5,0.4)", 1.2);
   ctx.translate(x, y);
   ctx.rotate(-0.18);
-  ctx.fillStyle = "#7c2d12";
-  ctx.strokeStyle = "#fef3c7";
-  ctx.lineWidth = Math.max(2, radius * 0.04);
+  ctx.fillStyle = "rgba(83,38,18,0.55)";
+  ctx.strokeStyle = "rgba(254,243,199,0.82)";
+  ctx.lineWidth = Math.max(2, radius * 0.035);
   ctx.beginPath();
   ctx.ellipse(0, 0, radius * 0.82, radius * 0.46, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
+  ctx.strokeStyle = "rgba(250,235,198,0.7)";
   ctx.beginPath();
   ctx.moveTo(-radius * 0.28, 0);
   ctx.lineTo(radius * 0.28, 0);
@@ -871,6 +926,9 @@ function drawFootball(ctx: CanvasRenderingContext2D, x: number, y: number, radiu
     ctx.lineTo(index * radius * 0.09, radius * 0.08);
     ctx.stroke();
   }
+  ctx.rotate(0.18);
+  ctx.translate(-x, -y);
+  drawMatteLighting(ctx, x, y, radius, 0.38, 0.12);
   ctx.restore();
 }
 
@@ -878,41 +936,52 @@ function drawTennisBall(ctx: CanvasRenderingContext2D, x: number, y: number, rad
   ctx.save();
   clipCircle(ctx, x, y, radius);
   const fill = ctx.createRadialGradient(x - radius * 0.28, y - radius * 0.38, radius * 0.08, x, y, radius);
-  fill.addColorStop(0, "#ecfccb");
-  fill.addColorStop(0.48, "#a3e635");
-  fill.addColorStop(1, "#4d7c0f");
+  fill.addColorStop(0, "#edf6b9");
+  fill.addColorStop(0.5, "#b7cc4a");
+  fill.addColorStop(1, "#657725");
   ctx.fillStyle = fill;
   ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
-  ctx.strokeStyle = "rgba(255,255,255,0.88)";
-  ctx.lineWidth = Math.max(2, radius * 0.045);
+  drawBallGrain(ctx, x, y, radius, "rgba(255,255,255,0.4)", 1.6);
+  ctx.strokeStyle = "rgba(245,250,212,0.9)";
+  ctx.lineWidth = Math.max(2, radius * 0.043);
   ctx.beginPath();
   ctx.ellipse(x - radius * 0.68, y, radius * 0.38, radius * 1.05, -0.15, -Math.PI / 2, Math.PI / 2);
   ctx.ellipse(x + radius * 0.68, y, radius * 0.38, radius * 1.05, -0.15, Math.PI / 2, Math.PI * 1.5);
   ctx.stroke();
-  drawBallGloss(ctx, x, y, radius);
+  ctx.strokeStyle = "rgba(87,103,32,0.28)";
+  ctx.lineWidth = Math.max(1, radius * 0.018);
+  ctx.beginPath();
+  ctx.ellipse(x - radius * 0.68, y + radius * 0.02, radius * 0.42, radius * 1.08, -0.15, -Math.PI / 2, Math.PI / 2);
+  ctx.ellipse(x + radius * 0.68, y + radius * 0.02, radius * 0.42, radius * 1.08, -0.15, Math.PI / 2, Math.PI * 1.5);
+  ctx.stroke();
+  drawMatteLighting(ctx, x, y, radius, 0.27, 0.14);
   ctx.restore();
 }
 
 function drawBaseball(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
   ctx.save();
   clipCircle(ctx, x, y, radius);
-  ctx.fillStyle = "#f8fafc";
+  ctx.fillStyle = "#f4efe4";
   ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
-  ctx.strokeStyle = "#b91c1c";
-  ctx.lineWidth = Math.max(1.5, radius * 0.028);
+  drawBallGrain(ctx, x, y, radius, "rgba(90,70,50,0.18)", 0.8);
+  ctx.strokeStyle = "#9f1d23";
+  ctx.lineWidth = Math.max(1.4, radius * 0.024);
   for (const side of [-1, 1]) {
     ctx.beginPath();
     ctx.ellipse(x + side * radius * 0.55, y, radius * 0.34, radius * 1.1, 0, Math.PI * 0.5, Math.PI * 1.5);
     ctx.stroke();
     for (let index = -4; index <= 4; index += 1) {
       const sy = y + index * radius * 0.13;
+      const sx = x + side * radius * 0.5;
       ctx.beginPath();
-      ctx.moveTo(x + side * radius * 0.43, sy - radius * 0.04);
-      ctx.lineTo(x + side * radius * 0.55, sy + radius * 0.04);
+      ctx.moveTo(sx - side * radius * 0.055, sy - radius * 0.045);
+      ctx.lineTo(sx + side * radius * 0.055, sy + radius * 0.045);
+      ctx.moveTo(sx - side * radius * 0.055, sy + radius * 0.045);
+      ctx.lineTo(sx + side * radius * 0.055, sy - radius * 0.045);
       ctx.stroke();
     }
   }
-  drawBallGloss(ctx, x, y, radius);
+  drawMatteLighting(ctx, x, y, radius, 0.28, 0.13);
   ctx.restore();
 }
 
@@ -1029,13 +1098,13 @@ function drawBubble(
   const canRenderText = screenRadius >= (options.isMobile ? 24 : 18);
   const canRenderPrice = screenRadius >= (options.isMobile ? 28 : 22);
   const canRenderMovement = screenRadius >= (options.isMobile ? 42 : 34);
-  const glowRadius = safeRadius(radius * (isHovered ? 1.2 : node.isTrending ? 1.12 : 1.06), radius);
+  const glowRadius = safeRadius(radius * (isHovered ? 1.14 : node.isTrending ? 1.08 : 1.03), radius);
 
   ctx.save();
   ctx.globalAlpha = easeIntro;
 
   const glow = ctx.createRadialGradient(x, y, safeRadius(radius * 0.86), x, y, glowRadius);
-  glow.addColorStop(0, isHovered ? alphaColor(node.primaryColor, 0.42) : alphaColor(node.primaryColor, 0.25));
+  glow.addColorStop(0, isHovered ? alphaColor(node.primaryColor, 0.3) : alphaColor(node.primaryColor, 0.16));
   glow.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = glow;
   ctx.beginPath();

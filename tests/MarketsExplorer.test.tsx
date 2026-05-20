@@ -88,7 +88,7 @@ describe("MarketsExplorer", () => {
     render(<MarketsExplorer initialPage={initialPage} source="polymarket" />);
 
     fireEvent.click(screen.getByRole("button", { name: "NBA" }));
-    fireEvent.change(screen.getByLabelText("Market range"), { target: { value: "250" } });
+    fireEvent.change(screen.getByLabelText("Market range"), { target: { value: "200" } });
     fireEvent.change(screen.getByPlaceholderText("Search markets..."), { target: { value: "knicks" } });
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -134,6 +134,31 @@ describe("MarketsExplorer", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalled());
   });
 
+  it("treats ranges as categorical ranked slices", async () => {
+    const markets = Array.from({ length: 60 }, (_, index) => ({
+      ...market,
+      id: `market-${index}`,
+      conditionId: `condition-${index}`,
+      title: `NBA market ${index}`,
+      volume: 100_000 - index,
+    }));
+    const page: MarketPage = {
+      ...initialPage,
+      markets,
+      total: markets.length,
+      returned: markets.length,
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ...page, counts, countsLoading: false, source: "polymarket" }), { status: 200 })));
+
+    render(<MarketsExplorer initialPage={page} source="polymarket" />);
+
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    expect(screen.getByRole("application", { name: /50 sports market bubble map/i })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Market range"), { target: { value: "50" } });
+
+    expect(screen.getByRole("application", { name: /10 sports market bubble map/i })).toBeInTheDocument();
+  });
+
   it("keeps existing bubbles visible while refreshing", async () => {
     let resolveFetch: (value?: void | PromiseLike<void>) => void = () => undefined;
     const pending = new Promise<void>((resolve) => {
@@ -164,7 +189,7 @@ describe("MarketsExplorer", () => {
     await pending;
   });
 
-  it("keeps minVolume on range requests", async () => {
+  it("keeps the ranked fetch size fixed when selecting a range slice", async () => {
     const requestedUrls: string[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -181,7 +206,7 @@ describe("MarketsExplorer", () => {
 
     render(<MarketsExplorer initialPage={{ ...initialPage, hasMore: true }} source="polymarket" />);
 
-    fireEvent.change(screen.getByLabelText("Market range"), { target: { value: "250" } });
+    fireEvent.change(screen.getByLabelText("Market range"), { target: { value: "200" } });
 
     await waitFor(() => {
       const lastCall = [...requestedUrls].reverse().find((url) => url.includes("/api/polymarket/markets?"));
