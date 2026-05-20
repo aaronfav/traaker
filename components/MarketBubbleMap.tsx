@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MarketTradePanel } from "@/components/MarketTradePanel";
+import { marketStore, useMarketStore, type MarketValueState } from "@/app/store/marketStore";
 import { findTeamStyleMatch, marketBubbleRadius, momentumGlowColor } from "@/lib/sports/teamStyles";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
@@ -44,6 +45,9 @@ export type MarketOutcomeOption = {
 
 type RawOutcomeMarket = TerminalMarket & {
   outcomePrices?: unknown;
+  bestBid?: number;
+  bestAsk?: number;
+  lastTradePrice?: number;
 };
 
 type BackgroundParticle = {
@@ -80,7 +84,13 @@ const money = (value: number) => {
 };
 
 const pct = (value: number) => `${value >= 0 ? "+" : ""}${(value * 100).toFixed(1)}%`;
-const logoCache = new Map<string, HTMLImageElement>();
+type LogoCacheEntry = {
+  image: HTMLImageElement;
+  bitmap?: ImageBitmap;
+  bitmapLoading: boolean;
+  failed: boolean;
+};
+const logoCache = new Map<string, LogoCacheEntry>();
 
 function safeNumber(value: number, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
@@ -170,15 +180,35 @@ const parseNumberArray = (value: unknown) => {
   }
 };
 
-function getLogoImage(logoUrl?: string) {
+function getLogoAsset(logoUrl?: string) {
   if (!logoUrl || typeof window === "undefined") return null;
   const cached = logoCache.get(logoUrl);
   if (cached) return cached;
   const image = new Image();
   image.crossOrigin = "anonymous";
+  const entry: LogoCacheEntry = { image, bitmapLoading: false, failed: false };
+  image.decoding = "async";
+  image.loading = "lazy";
+  image.onload = () => {
+    if (entry.bitmapLoading || entry.bitmap || !("createImageBitmap" in window)) return;
+    entry.bitmapLoading = true;
+    void createImageBitmap(image)
+      .then((bitmap) => {
+        entry.bitmap = bitmap;
+      })
+      .catch(() => {
+        entry.failed = true;
+      })
+      .finally(() => {
+        entry.bitmapLoading = false;
+      });
+  };
+  image.onerror = () => {
+    entry.failed = true;
+  };
   image.src = logoUrl;
-  logoCache.set(logoUrl, image);
-  return image;
+  logoCache.set(logoUrl, entry);
+  return entry;
 }
 
 const hashString = (value: string) => {
@@ -320,6 +350,8 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
     favoredPrice: favored.price,
     priceCents: favored.priceCents,
     outcomes,
+    bestBid: Number.isFinite(market.bestBid) ? market.bestBid : undefined,
+    bestAsk: Number.isFinite(market.bestAsk) ? market.bestAsk : undefined,
     trendScore,
     isTrending: trendScore >= 10 || Math.abs(priceChange) >= 0.05 || safeNumber(market.recentTradesCount) >= 40 || safeNumber(market.volumeAcceleration) >= 1.5,
     driftPhase: (hashString(market.id) % 628) / 100,
@@ -464,6 +496,31 @@ export function mergeBubbleBodies(previousBodies: BubbleBody[], nextBodies: Bubb
   });
 }
 
+function applyMarketValueToBody(body: BubbleBody, market: TerminalMarket, index: number, value?: MarketValueState) {
+  const visual = marketToBubbleNode(market, index);
+  body.title = visual.title;
+  body.sport = visual.sport;
+  body.volume = value?.volume ?? visual.volume;
+  body.liquidity = value?.liquidity ?? visual.liquidity;
+  body.priceChange = value?.movement ?? visual.priceChange;
+  body.marketUrl = visual.marketUrl;
+  body.polymarketUrl = visual.polymarketUrl;
+  body.tradeUrl = visual.tradeUrl;
+  body.logoUrl = visual.logoUrl;
+  body.logoPath = visual.logoPath;
+  body.primaryColor = visual.primaryColor;
+  body.secondaryColor = visual.secondaryColor;
+  body.glowColor = visual.glowColor;
+  body.favoredOutcome = visual.favoredOutcome;
+  body.favoredPrice = visual.favoredPrice;
+  body.priceCents = visual.priceCents;
+  body.outcomes = visual.outcomes;
+  body.bestBid = value?.bestBid ?? visual.bestBid;
+  body.bestAsk = value?.bestAsk ?? visual.bestAsk;
+  body.trendScore = visual.trendScore;
+  body.isTrending = visual.isTrending;
+}
+
 function clampBodyToBounds(body: BubbleBody, width: number, height: number) {
   const radius = Math.max(8, safeRadius(body.radius, 8));
   if (body.x - radius < 0) {
@@ -580,9 +637,10 @@ function resolveOverlapsBeforeDraw(bodies: BubbleBody[], width: number, height: 
   assertNoBubbleOverlapInDevelopment(bodies, padding);
 }
 
-function drawBackground(ctx: CanvasRenderingContext2D, particles: BackgroundParticle[]) {
+function drawBackground(ctx: CanvasRenderingContext2D, particles: BackgroundParticle[], pixelRatio: number, isMobile: boolean) {
   const width = ctx.canvas.width;
   const height = ctx.canvas.height;
+  const particleLimit = Math.min(particles.length, isMobile ? 55 : pixelRatio > 1.5 ? 95 : 130);
 
   ctx.save();
   ctx.resetTransform();
@@ -595,7 +653,7 @@ function drawBackground(ctx: CanvasRenderingContext2D, particles: BackgroundPart
   ctx.fillStyle = shade;
   ctx.fillRect(0, 0, width, height);
 
-  for (const particle of particles) {
+  for (const particle of particles.slice(0, particleLimit)) {
     ctx.globalAlpha = particle.alpha;
     ctx.fillStyle = particle.color;
     ctx.shadowColor = particle.color;
@@ -623,7 +681,7 @@ function drawTextLine(ctx: CanvasRenderingContext2D, text: string, x: number, y:
 }
 
 function drawLogoMark(node: MarketBubbleNode, ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, opacity: number) {
-  const logo = getLogoImage(node.logoUrl);
+  const logo = getLogoAsset(node.logoUrl);
   const safeBubbleRadius = safeRadius(radius, 8);
   const logoSize = safeRadius(safeBubbleRadius * 0.32, 4);
   const logoX = safeCoordinate(x);
@@ -631,11 +689,16 @@ function drawLogoMark(node: MarketBubbleNode, ctx: CanvasRenderingContext2D, x: 
 
   ctx.save();
   ctx.globalAlpha *= opacity;
-  if (logo?.complete && logo.naturalWidth > 0) {
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  const bitmap = logo?.bitmap;
+  const image = logo?.image;
+  const drawable = bitmap ?? (image?.complete && image.naturalWidth > 0 ? image : null);
+  if (drawable) {
     ctx.beginPath();
     ctx.arc(logoX, logoY, safeRadius(logoSize / 2), 0, Math.PI * 2);
     ctx.clip();
-    ctx.drawImage(logo, logoX - logoSize / 2, logoY - logoSize / 2, logoSize, logoSize);
+    ctx.drawImage(drawable, logoX - logoSize / 2, logoY - logoSize / 2, logoSize, logoSize);
   } else {
     const initials = initialsForName(node.favoredOutcome);
     ctx.fillStyle = "rgba(255,255,255,0.08)";
@@ -1057,7 +1120,11 @@ export function MarketBubbleMap({
   const particles = useMemo(() => createBackgroundParticles(), []);
   const isMobile = dimensions.width < 640;
   const bodyCount = nodes.length;
-  const selectedMarket = useMemo(() => nodes.find((node) => node.id === selectedMarketId) ?? null, [nodes, selectedMarketId]);
+  const selectedStoreMarket = useMarketStore((snapshot) => (selectedMarketId ? snapshot.marketsById[selectedMarketId] ?? null : null));
+  const selectedMarket = useMemo(
+    () => (selectedStoreMarket ? marketToBubbleNode(selectedStoreMarket) : nodes.find((node) => node.id === selectedMarketId) ?? null),
+    [nodes, selectedMarketId, selectedStoreMarket],
+  );
 
   useEffect(() => {
     const ids = nodes.map((node) => node.id).join("|");
@@ -1072,6 +1139,19 @@ export function MarketBubbleMap({
     const timer = window.setTimeout(() => setHoveredMarket(null), 0);
     return () => window.clearTimeout(timer);
   }, [dimensions.height, dimensions.width, isMobile, nodes]);
+
+  useEffect(() => {
+    const visibleIndexById = new Map(nodes.map((node, index) => [node.id, index]));
+    return marketStore.subscribe(() => {
+      const snapshot = marketStore.getState();
+      for (const body of bodiesRef.current) {
+        const index = visibleIndexById.get(body.id);
+        const market = snapshot.marketsById[body.id];
+        if (index === undefined || !market) continue;
+        applyMarketValueToBody(body, market, index, snapshot.marketValuesById[body.id]);
+      }
+    });
+  }, [nodes]);
 
   useEffect(() => {
     const node = containerRef.current;
@@ -1101,13 +1181,19 @@ export function MarketBubbleMap({
     canvas.style.width = `${dimensions.width}px`;
     canvas.style.height = `${dimensions.height}px`;
 
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+
     const drawFrame = () => {
       context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-      drawBackground(context, particles);
+      drawBackground(context, particles, pixelRatio, isMobile);
       tickBubblePhysics(bodiesRef.current, dimensions.width, dimensions.height, 1, isMobile);
       resolveOverlapsBeforeDraw(bodiesRef.current, dimensions.width, dimensions.height, isMobile);
       const hoveredId = hoveredMarket?.id;
       for (const node of bodiesRef.current) {
+        if (node.x + node.radius < -80 || node.x - node.radius > dimensions.width + 80 || node.y + node.radius < -80 || node.y - node.radius > dimensions.height + 80) {
+          continue;
+        }
         if (node.id !== hoveredId) drawBubble(node, context, 1, { hoveredId, introStartedAt, isMobile });
       }
       const hoveredNode = hoveredId ? bodiesRef.current.find((node) => node.id === hoveredId) : null;
@@ -1124,7 +1210,10 @@ export function MarketBubbleMap({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSelectedMarketId(null);
+      if (event.key === "Escape") {
+        setSelectedMarketId(null);
+        marketStore.setSelectedMarketId(null);
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -1168,7 +1257,10 @@ export function MarketBubbleMap({
     (event: React.MouseEvent<HTMLDivElement>) => {
       const rect = event.currentTarget.getBoundingClientRect();
       const node = findNodeAtPoint(event.clientX - rect.left, event.clientY - rect.top);
-      if (node) setSelectedMarketId(node.id);
+      if (node) {
+        setSelectedMarketId(node.id);
+        marketStore.setSelectedMarketId(node.id);
+      }
     },
     [findNodeAtPoint],
   );
@@ -1248,9 +1340,16 @@ export function MarketBubbleMap({
             onClick={(event) => {
               event.stopPropagation();
               setSelectedMarketId(null);
+              marketStore.setSelectedMarketId(null);
             }}
           />
-          <MarketTradePanel market={selectedMarket} onClose={() => setSelectedMarketId(null)} />
+          <MarketTradePanel
+            market={selectedMarket}
+            onClose={() => {
+              setSelectedMarketId(null);
+              marketStore.setSelectedMarketId(null);
+            }}
+          />
         </>
       ) : null}
     </div>

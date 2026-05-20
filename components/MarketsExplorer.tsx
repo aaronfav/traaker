@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { MarketBubbleMap } from "@/components/MarketBubbleMap";
 import { mergeLiveMarketUpdates, useMarketLiveUpdates } from "@/components/useMarketLiveUpdates";
+import { marketStore } from "@/app/store/marketStore";
 import type { MarketPage, MarketQuerySort, MarketQueryStatus, SportsMarketDiscovery } from "@/lib/polymarket/markets";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
@@ -88,13 +89,19 @@ export function MarketsExplorer({
     [debouncedQuery, minVolume, rangeLimit, sort, sport, status],
   );
   const handleLiveMarketsUpdate = useCallback((incomingMarkets: TerminalMarket[]) => {
-    setMarkets((currentMarkets) => mergeLiveMarketUpdates(currentMarkets, incomingMarkets));
+    marketStore.applyMarketSnapshots(incomingMarkets);
   }, []);
   const liveStatus = useMarketLiveUpdates({
     enabled: markets.length > 0,
+    intervalMs: 20_000,
+    markets,
     onMarketsUpdate: handleLiveMarketsUpdate,
     requestUrl: liveRequestUrl,
   });
+
+  useEffect(() => {
+    if (markets.length > 0) marketStore.setMarketSnapshots(markets);
+  }, [markets]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query), 300);
@@ -115,7 +122,8 @@ export function MarketsExplorer({
       .then(readMarketsResponse)
       .then((nextPage) => {
         if (requestId !== requestIdRef.current) return;
-        setMarkets(nextPage.markets);
+        setMarkets((currentMarkets) => mergeLiveMarketUpdates(nextPage.markets, currentMarkets));
+        marketStore.setMarketSnapshots(nextPage.markets, { replace: true });
         setLatestSource(nextPage.source);
       })
       .catch((error) => {
@@ -186,7 +194,7 @@ export function MarketsExplorer({
           className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${
             liveStatus === "Live"
               ? "border-emerald-400/40 text-emerald-200"
-              : liveStatus === "Updating"
+              : liveStatus === "Reconnecting"
                 ? "border-cyan-400/40 text-cyan-200"
                 : liveStatus === "Polling"
                   ? "border-amber-400/40 text-amber-200"

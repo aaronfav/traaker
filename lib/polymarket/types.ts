@@ -19,6 +19,9 @@ export type TerminalMarket = {
   volume1wk: number;
   volumeAcceleration: number;
   spread: number;
+  bestBid?: number;
+  bestAsk?: number;
+  lastTradePrice?: number;
   recentTradesCount: number;
   opportunityScore: number;
   outcomes: {

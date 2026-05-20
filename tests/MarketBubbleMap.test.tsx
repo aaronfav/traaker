@@ -155,9 +155,10 @@ describe("MarketBubbleMap", () => {
     expect(screen.getByText("NBA")).toBeInTheDocument();
     expect(screen.getByText("$250k")).toBeInTheDocument();
     expect(screen.getAllByText("62\u00a2").length).toBeGreaterThan(0);
-    expect(screen.getByText("Celtics")).toBeInTheDocument();
+    expect(screen.getAllByText("Celtics").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: /open on polymarket/i })).toHaveAttribute("href", "https://polymarket.com/event/lakers-celtics");
-    expect(screen.getByRole("button", { name: "Trade in Traak coming soon" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Connect wallet to trade" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Execution disabled" })).toBeDisabled();
   });
 
   it("closes the trade panel with Escape", () => {

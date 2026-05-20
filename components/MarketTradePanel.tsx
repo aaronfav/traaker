@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ExternalLink, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { TradeTicket } from "@/components/trading/TradeTicket";
 import type { MarketBubbleNode } from "@/components/MarketBubbleMap";
 
 const money = (value: number) => {
@@ -86,7 +87,7 @@ export function MarketTradePanel({
         </div>
       </div>
 
-      <div className="mt-5 rounded-lg border border-zinc-800 bg-zinc-950/85 p-3">
+      <div className="mt-5 rounded-md border border-zinc-800 bg-zinc-950/85 p-3">
         <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Outcomes</p>
         <div className="mt-3 space-y-2">
           {market.outcomes.map((outcome) => {
@@ -106,6 +107,8 @@ export function MarketTradePanel({
         </div>
       </div>
 
+      <TradeTicket market={market} />
+
       <div className="mt-5 grid gap-2">
         {polymarketUrl ? (
           <a
@@ -119,7 +122,7 @@ export function MarketTradePanel({
           </a>
         ) : null}
         <Button disabled type="button" variant="secondary">
-          Trade in Traak coming soon
+          Execution disabled
         </Button>
       </div>
     </aside>

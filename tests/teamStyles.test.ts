@@ -14,6 +14,12 @@ describe("teamStyles", () => {
     expect(findTeamStyle("Oklahoma City Thunder to win", "NBA")).toMatchObject({ logoPath: "/team-logos/thunder.svg" });
   });
 
+  it("supports league styles that fall back to initials when no logo asset exists", () => {
+    expect(findTeamStyle("La Liga champion", "Soccer")).toMatchObject({ primary: "#EE8707" });
+    expect(findTeamStyle("Formula 1 constructors champion", "F1")).toMatchObject({ primary: "#E10600" });
+    expect(findTeamStyle("UCL winner", "Soccer")).not.toHaveProperty("logoPath");
+  });
+
   it("falls back to sport colors", () => {
     expect(findTeamStyle("Unknown cup winner", "Soccer")).toEqual({ primary: "#00A86B", secondary: "#FFFFFF" });
     expect(findTeamStyle("Unknown fight winner", "UFC")).toEqual({ primary: "#111111", secondary: "#D20A0A" });

@@ -146,6 +146,46 @@ export const TEAM_STYLES = {
     secondary: "#DA291C",
     logoPath: "/team-logos/psg.svg",
   },
+  nba: {
+    aliases: ["nba", "national basketball association"],
+    primary: "#1D428A",
+    secondary: "#C8102E",
+  },
+  nfl: {
+    aliases: ["nfl", "national football league", "super bowl"],
+    primary: "#013369",
+    secondary: "#D50A0A",
+  },
+  mlb: {
+    aliases: ["mlb", "major league baseball", "world series"],
+    primary: "#002D72",
+    secondary: "#D50032",
+  },
+  nhl: {
+    aliases: ["nhl", "national hockey league", "stanley cup"],
+    primary: "#111827",
+    secondary: "#D1D5DB",
+  },
+  epl: {
+    aliases: ["epl", "premier league", "english premier league"],
+    primary: "#3D195B",
+    secondary: "#00FF85",
+  },
+  la_liga: {
+    aliases: ["la liga", "laliga", "spanish league"],
+    primary: "#EE8707",
+    secondary: "#111827",
+  },
+  ucl: {
+    aliases: ["ucl", "champions league", "uefa champions league"],
+    primary: "#003B79",
+    secondary: "#F4F7FF",
+  },
+  f1: {
+    aliases: ["f1", "formula 1", "formula one", "grand prix"],
+    primary: "#E10600",
+    secondary: "#FFFFFF",
+  },
 } satisfies Record<string, TeamStyle>;
 
 const SPORT_FALLBACKS = {
@@ -175,12 +215,14 @@ export function findTeamStyleMatch(title: string) {
   const normalizedTitle = title.toLowerCase();
   for (const style of Object.values(TEAM_STYLES) as TeamStyle[]) {
     if (style.aliases.some((alias) => normalizedTitle.includes(alias))) {
-      return {
+      const matched: TeamStyle = {
+        aliases: style.aliases,
         primary: style.primary,
         secondary: style.secondary,
-        logoPath: style.logoPath,
-        logoUrl: style.logoUrl,
       };
+      if (style.logoPath) matched.logoPath = style.logoPath;
+      if (style.logoUrl) matched.logoUrl = style.logoUrl;
+      return matched;
     }
   }
   return null;
