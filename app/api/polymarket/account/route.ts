@@ -27,7 +27,7 @@ export async function GET() {
   } catch (error) {
     logError("api.polymarket.account", error);
     const message = error instanceof Error ? error.message : "Unable to load Polymarket account data.";
-    const configInvalid = /POLYMARKET_(ADDRESS|API_KEY|SECRET|PASSPHRASE)|bytes32 hex string|CLOB trading is not configured on server|RPC URL is missing or invalid/i.test(message);
+    const configInvalid = /POLYMARKET_(ADDRESS|API_KEY|SECRET|PASSPHRASE)|bytes32 hex string|CLOB trading is not configured on server|POLYMARKET_RPC_URL is missing or invalid/i.test(message);
     return NextResponse.json(
       {
         ok: false,

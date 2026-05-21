@@ -1,5 +1,6 @@
 const BYTES32_RE = /^0x[0-9a-fA-F]{64}$/;
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+const RPC_ERROR_MESSAGE = "POLYMARKET_RPC_URL is missing or invalid. Set a Polygon mainnet RPC URL.";
 
 export type PolymarketRuntimeConfigSummary = {
   builderReady: boolean;
@@ -25,6 +26,16 @@ type ConfigIssue = {
 
 const env = (name: string) => process.env[name]?.trim() ?? "";
 
+const isValidHttpUrl = (value: string | null) => {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:") && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
+};
+
 export function getPolymarketRuntimeConfigDetails(): PolymarketRuntimeConfigDetails {
   const builderCode = env("POLYMARKET_BUILDER_CODE") || null;
   const relayerApiKey = env("RELAYER_API_KEY") || null;
@@ -38,7 +49,7 @@ export function getPolymarketRuntimeConfigDetails(): PolymarketRuntimeConfigDeta
   const builderReady = Boolean(builderCode && BYTES32_RE.test(builderCode));
   const hasRelayerCreds = Boolean(relayerApiKey && relayerApiKeyAddress && ADDRESS_RE.test(relayerApiKeyAddress));
   const hasClobCreds = Boolean(clobAccountAddress && ADDRESS_RE.test(clobAccountAddress) && clobApiKey && clobSecret && clobPassphrase);
-  const rpcReady = Boolean(rpcUrl && /^https?:\/\//i.test(rpcUrl));
+  const rpcReady = isValidHttpUrl(rpcUrl);
 
   const issues: ConfigIssue[] = [];
   if (!builderCode) {
@@ -64,7 +75,7 @@ export function getPolymarketRuntimeConfigDetails(): PolymarketRuntimeConfigDeta
   if (!rpcReady) {
     issues.push({
       key: "rpc",
-      message: "RPC URL is missing or invalid.",
+      message: RPC_ERROR_MESSAGE,
     });
   }
 
@@ -115,8 +126,8 @@ export function requireRelayerAuth() {
     throw new Error("RELAYER_API_KEY_ADDRESS is invalid. Expected an Ethereum address.");
   }
   const rpcUrl = env("POLYMARKET_RPC_URL");
-  if (!rpcUrl || !/^https?:\/\//i.test(rpcUrl)) {
-    throw new Error("RPC URL is missing or invalid.");
+  if (!isValidHttpUrl(rpcUrl)) {
+    throw new Error(RPC_ERROR_MESSAGE);
   }
   return { relayerApiKey, relayerApiKeyAddress, rpcUrl };
 }
