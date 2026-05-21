@@ -26,6 +26,7 @@ function createStrictCanvasContext() {
     save: vi.fn(),
     restore: vi.fn(),
     resetTransform: vi.fn(),
+    clearRect: vi.fn(),
     fillRect: vi.fn(),
     beginPath: vi.fn(),
     fill: vi.fn(),

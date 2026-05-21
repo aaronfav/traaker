@@ -56,14 +56,6 @@ type RawOutcomeMarket = TerminalMarket & {
   lastTradePrice?: number;
 };
 
-type BackgroundParticle = {
-  x: number;
-  y: number;
-  size: number;
-  alpha: number;
-  color: string;
-};
-
 type BackgroundTheme = "neutral" | "soccer" | "basketball" | "football" | "tennis" | "ufc";
 
 export type BubbleBody = MarketBubbleNode & {
@@ -324,21 +316,6 @@ const initialsForName = (name: string) => {
     .map((word) => word[0])
     .join("")
     .toUpperCase();
-};
-
-const createBackgroundParticles = (): BackgroundParticle[] => {
-  const colors = ["#38BDF8", "#22C55E", "#F59E0B", "#F43F5E", "#A78BFA"];
-  return Array.from({ length: 130 }, (_, index) => {
-    const hash = hashString(`particle-${index}`);
-    const hashY = hashString(`particle-y-${index}`);
-    return {
-      x: (hash % 10_000) / 10_000,
-      y: (hashY % 10_000) / 10_000,
-      size: 0.7 + ((hash >> 8) % 18) / 10,
-      alpha: 0.12 + ((hash >> 16) % 34) / 100,
-      color: colors[index % colors.length],
-    };
-  });
 };
 
 const trendScoreForMarket = (market: TerminalMarket, volume: number) =>
@@ -794,78 +771,6 @@ function resolveOverlapsBeforeDraw(bodies: BubbleBody[], width: number, height: 
   assertNoBubbleOverlapInDevelopment(bodies, padding);
 }
 
-function drawFieldLines(
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  color: string,
-  alpha: number,
-  variant: "soccer" | "basketball" | "football" | "tennis" | "ufc",
-) {
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1.2;
-  if (variant === "soccer") {
-    ctx.strokeRect(width * 0.12, height * 0.13, width * 0.76, height * 0.68);
-    ctx.beginPath();
-    ctx.moveTo(width * 0.5, height * 0.13);
-    ctx.lineTo(width * 0.5, height * 0.81);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(width * 0.5, height * 0.47, Math.min(width, height) * 0.13, 0, Math.PI * 2);
-    ctx.stroke();
-  } else if (variant === "basketball") {
-    ctx.beginPath();
-    ctx.arc(width * 0.5, height * 0.5, Math.min(width, height) * 0.26, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(width * 0.5, height * 0.5, Math.min(width, height) * 0.58, -Math.PI / 2, Math.PI / 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(width * 0.5, height * 0.5, Math.min(width, height) * 0.58, Math.PI / 2, Math.PI * 1.5);
-    ctx.stroke();
-  } else if (variant === "football") {
-    const left = width * 0.12;
-    const right = width * 0.88;
-    for (let y = height * 0.14; y < height * 0.86; y += height * 0.14) {
-      ctx.beginPath();
-      ctx.moveTo(left, y);
-      ctx.lineTo(right, y);
-      ctx.stroke();
-    }
-    ctx.beginPath();
-    ctx.moveTo(width * 0.22, height * 0.5);
-    ctx.lineTo(width * 0.78, height * 0.5);
-    ctx.stroke();
-  } else if (variant === "tennis") {
-    ctx.strokeRect(width * 0.16, height * 0.2, width * 0.68, height * 0.56);
-    ctx.beginPath();
-    ctx.moveTo(width * 0.5, height * 0.2);
-    ctx.lineTo(width * 0.5, height * 0.76);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(width * 0.16, height * 0.5);
-    ctx.lineTo(width * 0.84, height * 0.5);
-    ctx.stroke();
-  } else if (variant === "ufc") {
-    const cx = width * 0.5;
-    const cy = height * 0.5;
-    const r = Math.min(width, height) * 0.24;
-    ctx.beginPath();
-    for (let index = 0; index < 8; index += 1) {
-      const angle = Math.PI / 8 + (index * Math.PI * 2) / 8;
-      const px = cx + Math.cos(angle) * r;
-      const py = cy + Math.sin(angle) * r;
-      if (index === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    }
-    ctx.closePath();
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
 function backgroundThemeForSport(sport?: string): BackgroundTheme {
   const value = (sport ?? "").toLowerCase();
   if (value === "all" || value === "") return "neutral";
@@ -883,117 +788,9 @@ function drawBackgroundTheme(
   width: number,
   height: number,
   alpha = 1,
-  pixelRatio = 1,
-  particles: BackgroundParticle[] = [],
 ) {
   ctx.save();
   ctx.globalAlpha = alpha;
-
-  const drawStadiumLights = (intensity: number) => {
-    const blooms = [
-      { x: width * 0.16, y: height * 0.12, r: Math.max(width, height) * 0.42 },
-      { x: width * 0.84, y: height * 0.11, r: Math.max(width, height) * 0.38 },
-      { x: width * 0.5, y: height * 0.05, r: Math.max(width, height) * 0.52 },
-    ];
-    for (const bloom of blooms) {
-      const grad = ctx.createRadialGradient(bloom.x, bloom.y, bloom.r * 0.06, bloom.x, bloom.y, bloom.r);
-      grad.addColorStop(0, `rgba(255,255,255,${0.11 * intensity})`);
-      grad.addColorStop(0.3, `rgba(148,163,184,${0.04 * intensity})`);
-      grad.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.arc(bloom.x, bloom.y, bloom.r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  };
-
-  const drawCrowdSilhouette = (baseY: number, opacityValue: number) => {
-    ctx.fillStyle = `rgba(15,23,42,${opacityValue})`;
-    ctx.beginPath();
-    ctx.moveTo(0, baseY);
-    const segments = 16;
-    for (let index = 0; index <= segments; index += 1) {
-      const px = (width / segments) * index;
-      const wave = Math.sin(index * 0.9) * height * 0.01 + Math.cos(index * 0.45) * height * 0.006;
-      const py = baseY + wave;
-      ctx.lineTo(px, py);
-    }
-    ctx.lineTo(width, height);
-    ctx.lineTo(0, height);
-    ctx.closePath();
-    ctx.fill();
-  };
-
-  if (theme === "soccer") {
-    ctx.fillStyle = "#050b07";
-    ctx.fillRect(0, 0, width, height);
-    drawStadiumLights(1);
-    drawCrowdSilhouette(height * 0.16, 0.18);
-    drawCrowdSilhouette(height * 0.22, 0.12);
-    ctx.fillStyle = "rgba(16,64,42,0.18)";
-    ctx.fillRect(0, height * 0.26, width, height * 0.5);
-    const pitch = ctx.createRadialGradient(width * 0.5, height * 0.46, Math.min(width, height) * 0.1, width * 0.5, height * 0.5, Math.max(width, height) * 0.82);
-    pitch.addColorStop(0, "rgba(34,197,94,0.05)");
-    pitch.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = pitch;
-    ctx.fillRect(0, 0, width, height);
-    drawFieldLines(ctx, width, height, "rgba(186,255,200,0.08)", 0.06, "soccer");
-  } else if (theme === "basketball") {
-    ctx.fillStyle = "#090603";
-    ctx.fillRect(0, 0, width, height);
-    drawStadiumLights(0.85);
-    drawCrowdSilhouette(height * 0.18, 0.16);
-    ctx.fillStyle = "rgba(86,47,19,0.18)";
-    ctx.fillRect(0, height * 0.28, width, height * 0.46);
-    const courtGlow = ctx.createRadialGradient(width * 0.5, height * 0.55, Math.min(width, height) * 0.1, width * 0.5, height * 0.55, Math.max(width, height) * 0.82);
-    courtGlow.addColorStop(0, "rgba(245,158,11,0.055)");
-    courtGlow.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = courtGlow;
-    ctx.fillRect(0, 0, width, height);
-    drawFieldLines(ctx, width, height, "rgba(245,158,11,0.07)", 0.05, "basketball");
-  } else if (theme === "football") {
-    ctx.fillStyle = "#050a06";
-    ctx.fillRect(0, 0, width, height);
-    drawStadiumLights(0.92);
-    drawCrowdSilhouette(height * 0.17, 0.16);
-    ctx.fillStyle = "rgba(19,86,45,0.16)";
-    ctx.fillRect(0, height * 0.3, width, height * 0.42);
-    const turfGlow = ctx.createRadialGradient(width * 0.5, height * 0.56, Math.min(width, height) * 0.1, width * 0.5, height * 0.56, Math.max(width, height) * 0.8);
-    turfGlow.addColorStop(0, "rgba(34,197,94,0.04)");
-    turfGlow.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = turfGlow;
-    ctx.fillRect(0, 0, width, height);
-    drawFieldLines(ctx, width, height, "rgba(236,253,245,0.07)", 0.06, "football");
-  } else if (theme === "tennis") {
-    ctx.fillStyle = "#050a09";
-    ctx.fillRect(0, 0, width, height);
-    drawStadiumLights(0.78);
-    drawCrowdSilhouette(height * 0.16, 0.14);
-    ctx.fillStyle = "rgba(21,77,50,0.16)";
-    ctx.fillRect(0, height * 0.28, width, height * 0.46);
-    const courtGlow = ctx.createRadialGradient(width * 0.5, height * 0.52, Math.min(width, height) * 0.08, width * 0.5, height * 0.52, Math.max(width, height) * 0.78);
-    courtGlow.addColorStop(0, "rgba(187,247,208,0.035)");
-    courtGlow.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = courtGlow;
-    ctx.fillRect(0, 0, width, height);
-    drawFieldLines(ctx, width, height, "rgba(187,247,208,0.08)", 0.06, "tennis");
-  } else if (theme === "ufc") {
-    ctx.fillStyle = "#040404";
-    ctx.fillRect(0, 0, width, height);
-    drawStadiumLights(0.7);
-    drawCrowdSilhouette(height * 0.15, 0.15);
-    const cageGlow = ctx.createRadialGradient(width * 0.5, height * 0.5, Math.min(width, height) * 0.08, width * 0.5, height * 0.5, Math.max(width, height) * 0.78);
-    cageGlow.addColorStop(0, "rgba(255,255,255,0.025)");
-    cageGlow.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = cageGlow;
-    ctx.fillRect(0, 0, width, height);
-    drawFieldLines(ctx, width, height, "rgba(255,255,255,0.07)", 0.06, "ufc");
-  } else {
-    ctx.fillStyle = "#050505";
-    ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = "rgba(31,41,55,0.24)";
-    ctx.fillRect(0, 0, width, height);
-  }
 
   const sweepPhase = (Date.now() % 12000) / 12000;
   const sweepX = width * (0.1 + sweepPhase * 0.8);
@@ -1005,17 +802,21 @@ function drawBackgroundTheme(
   ctx.fillStyle = sweep;
   ctx.fillRect(0, 0, width, height);
 
-  const particleLimit = Math.min(particles.length, pixelRatio > 1.5 ? 70 : 88);
-  for (const particle of particles.slice(0, particleLimit)) {
-    ctx.globalAlpha = particle.alpha * alpha * (theme === "neutral" ? 1 : 0.68);
-    ctx.fillStyle = particle.color;
-    ctx.shadowColor = particle.color;
-    ctx.shadowBlur = particle.size * 3;
-    ctx.beginPath();
-    ctx.arc(safeCoordinate(particle.x * width), safeCoordinate(particle.y * height), safeRadius(particle.size), 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.shadowBlur = 0;
+  const glowColor =
+    theme === "basketball"
+      ? "245,158,11"
+      : theme === "ufc"
+        ? "226,232,240"
+        : theme === "neutral"
+          ? "56,189,248"
+          : "34,197,94";
+  const clusterGlow = ctx.createRadialGradient(width * 0.5, height * 0.44, Math.min(width, height) * 0.08, width * 0.5, height * 0.46, Math.max(width, height) * 0.48);
+  clusterGlow.addColorStop(0, `rgba(${glowColor},0.11)`);
+  clusterGlow.addColorStop(0.42, `rgba(${glowColor},0.045)`);
+  clusterGlow.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = clusterGlow;
+  ctx.fillRect(0, 0, width, height);
+
   ctx.restore();
 }
 
@@ -1806,6 +1607,45 @@ function drawBubble(
   ctx.restore();
 }
 
+function SportsFieldBackground() {
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 overflow-hidden bg-[#01030a]">
+      <div
+        className="absolute inset-0"
+        style={{
+          backgroundImage: [
+            "radial-gradient(circle at 50% 43%, rgba(34,197,94,0.13) 0%, rgba(34,197,94,0.055) 28%, rgba(34,197,94,0) 56%)",
+            "repeating-linear-gradient(104deg, rgba(74,222,128,0.03) 0px, rgba(74,222,128,0.03) 1px, transparent 1px, transparent 11px)",
+            "repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0px, rgba(255,255,255,0.018) 1px, transparent 1px, transparent 7px)",
+            "linear-gradient(180deg, rgba(2,6,23,0.92) 0%, rgba(3,15,20,0.94) 46%, rgba(1,3,10,0.98) 100%)",
+          ].join(", "),
+          backgroundSize: "auto, 120px 120px, 9px 9px, auto",
+        }}
+      />
+      <div className="absolute inset-0" style={{ backgroundImage: "radial-gradient(ellipse at center, transparent 0%, transparent 45%, rgba(0,0,0,0.56) 100%)" }} />
+      <div className="absolute left-1/2 top-[43%] h-[46rem] w-[62rem] max-w-[95vw] -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-400/8 blur-3xl" />
+      <svg className="absolute inset-0 h-full w-full opacity-[0.1]" preserveAspectRatio="none" viewBox="0 0 100 60">
+        <g fill="none" stroke="rgba(226,232,240,0.9)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="0.18" vectorEffect="non-scaling-stroke">
+          <rect height="50" rx="0.7" width="90" x="5" y="5" />
+          <line x1="50" x2="50" y1="5" y2="55" />
+          <circle cx="50" cy="30" r="8" />
+          <rect height="26" width="15" x="5" y="17" />
+          <rect height="26" width="15" x="80" y="17" />
+          <rect height="14" width="6" x="5" y="23" />
+          <rect height="14" width="6" x="89" y="23" />
+          <path d="M20 22 A8 8 0 0 1 20 38" />
+          <path d="M80 22 A8 8 0 0 0 80 38" />
+          <line x1="0.5" x2="5" y1="5" y2="5" />
+          <line x1="95" x2="99.5" y1="5" y2="5" />
+          <line x1="0.5" x2="5" y1="55" y2="55" />
+          <line x1="95" x2="99.5" y1="55" y2="55" />
+        </g>
+        <circle cx="50" cy="30" fill="rgba(226,232,240,0.65)" r="0.42" />
+      </svg>
+    </div>
+  );
+}
+
 function TraakLoadingOverlay() {
   return (
     <div
@@ -1863,19 +1703,14 @@ export function MarketBubbleMap({
   const [dimensions, setDimensions] = useState({ width: 1200, height: 680 });
 
   const nodes = useMemo(() => markets.map((market, index) => marketToBubbleNode(market, index)), [markets]);
-  const particles = useMemo(() => createBackgroundParticles(), []);
   const isMobile = dimensions.width < 640;
   const bodyCount = nodes.length;
   const selectedMarket = useMemo(() => selectedPanelSnapshot ?? nodes.find((node) => node.id === selectedMarketId) ?? null, [nodes, selectedMarketId, selectedPanelSnapshot]);
   const backgroundTheme = useMemo(() => backgroundThemeForSport(activeSport ?? nodes[0]?.sport), [activeSport, nodes]);
-  const backgroundTransitionRef = useRef({ previous: backgroundTheme as BackgroundTheme | null, current: backgroundTheme, startedAt: Date.now() });
+  const backgroundTransitionRef = useRef({ previous: backgroundTheme as BackgroundTheme | null, current: backgroundTheme, startedAt: 0 });
 
   useEffect(() => {
-    if (isLoading) {
-      setLoadingVisible(true);
-      return;
-    }
-    const timer = window.setTimeout(() => setLoadingVisible(false), 300);
+    const timer = window.setTimeout(() => setLoadingVisible(isLoading), isLoading ? 0 : 300);
     return () => window.clearTimeout(timer);
   }, [isLoading]);
 
@@ -1942,12 +1777,13 @@ export function MarketBubbleMap({
 
     const drawFrame = () => {
       context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      context.clearRect(0, 0, dimensions.width, dimensions.height);
       const transition = backgroundTransitionRef.current;
       const fadeProgress = transition.previous && transition.previous !== transition.current ? Math.min(1, (Date.now() - transition.startedAt) / 420) : 1;
       if (transition.previous && transition.previous !== transition.current) {
-        drawBackgroundTheme(context, transition.previous, dimensions.width, dimensions.height, 1 - fadeProgress, pixelRatio, particles);
+        drawBackgroundTheme(context, transition.previous, dimensions.width, dimensions.height, 1 - fadeProgress);
       }
-      drawBackgroundTheme(context, transition.current, dimensions.width, dimensions.height, transition.previous && transition.previous !== transition.current ? fadeProgress : 1, pixelRatio, particles);
+      drawBackgroundTheme(context, transition.current, dimensions.width, dimensions.height, transition.previous && transition.previous !== transition.current ? fadeProgress : 1);
       tickBubblePhysics(bodiesRef.current, dimensions.width, dimensions.height, 1, isMobile);
       resolveOverlapsBeforeDraw(bodiesRef.current, dimensions.width, dimensions.height, isMobile);
       const hoveredId = hoveredMarket?.id;
@@ -1967,7 +1803,7 @@ export function MarketBubbleMap({
       if (frameRef.current !== null) window.cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
     };
-  }, [dimensions.height, dimensions.width, hoveredMarket?.id, introStartedAt, isMobile, particles]);
+  }, [dimensions.height, dimensions.width, hoveredMarket?.id, introStartedAt, isMobile]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -2031,13 +1867,15 @@ export function MarketBubbleMap({
   return (
     <div
       aria-label={`${bodyCount} sports market bubble map`}
-      className="relative h-[calc(100vh-5.45rem)] min-h-[480px] w-screen overflow-hidden bg-[#050505] sm:h-[calc(100vh-5.15rem)]"
+      className="relative h-[calc(100vh-5.45rem)] min-h-[480px] w-screen overflow-hidden bg-[#01030a] sm:h-[calc(100vh-5.15rem)]"
       onClick={handleClick}
       onMouseLeave={handleMouseLeave}
       onMouseMove={handleMouseMove}
       role="application"
     >
-      <div ref={containerRef} className="h-full w-full">
+      <SportsFieldBackground />
+
+      <div ref={containerRef} className="relative z-10 h-full w-full">
         <canvas aria-hidden="true" className="block h-full w-full" data-testid="bubble-canvas" ref={canvasRef} />
       </div>
 
@@ -2061,19 +1899,19 @@ export function MarketBubbleMap({
       ) : null}
 
       {loadingVisible ? (
-        <div className={`absolute inset-0 transition-opacity duration-300 ${isLoading ? "opacity-100" : "pointer-events-none opacity-0"}`}>
+        <div className={`absolute inset-0 z-30 transition-opacity duration-300 ${isLoading ? "opacity-100" : "pointer-events-none opacity-0"}`}>
           <TraakLoadingOverlay />
         </div>
       ) : null}
 
       {isRefreshing ? (
-        <div className="absolute left-3 top-3 rounded-full border border-cyan-400/30 bg-slate-950/80 px-3 py-1 text-xs text-cyan-100">
+        <div className="absolute left-3 top-3 z-20 rounded-full border border-cyan-400/30 bg-slate-950/80 px-3 py-1 text-xs text-cyan-100">
           Refreshing
         </div>
       ) : null}
 
       {bodyCount === 0 && !loadingVisible ? (
-        <div className="absolute inset-0 grid place-items-center text-sm text-slate-400">No sports markets matched this view.</div>
+        <div className="absolute inset-0 z-20 grid place-items-center text-sm text-slate-400">No sports markets matched this view.</div>
       ) : null}
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex min-h-10 flex-wrap items-center justify-between gap-3 border-t border-zinc-800/80 bg-black/55 px-5 py-2 text-xs font-semibold text-zinc-200 backdrop-blur-sm">
