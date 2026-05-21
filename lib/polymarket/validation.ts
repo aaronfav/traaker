@@ -11,7 +11,10 @@ export const tradeValidationSchema = z.object({
   price: z.number().gt(0, "Price must be greater than 0.").lt(1, "Price must be less than 1."),
   slippageBps: z.number().int().min(0).max(1_000, "Slippage cannot exceed 10%."),
   availableBalance: z.number().min(0),
-  builderCode: z.string().regex(/^0x[a-fA-F0-9]{64}$/, "Builder code must be a bytes32 hex string."),
+  builderCode: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{64}$/, "Builder code must be a bytes32 hex string.")
+    .optional(),
 });
 
 export type TradeValidationInput = z.input<typeof tradeValidationSchema>;

@@ -9,6 +9,7 @@ import { getDepositWalletStatus } from "@/lib/polymarket/depositWallet";
 import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
 import { getTradeDisabledReason } from "@/lib/polymarket/readiness";
 import { placeLimitOrder, Side, validateTrade } from "@/lib/polymarket/orders";
+import { ensureTradingReady, type TradeProgress } from "@/lib/polymarket/tradeSetup";
 import type { PortfolioBalanceState } from "@/lib/polymarket/types";
 import type { MarketBubbleNode } from "@/components/MarketBubbleMap";
 
@@ -97,13 +98,13 @@ export function MarketTradePanel({
   const [selectedOutcomeName, setSelectedOutcomeName] = useState(() => selectedOutcomeFromMarket(market)?.name ?? "");
   const [shares, setShares] = useState(DEFAULT_SHARES);
   const [realTradingEnabled, setRealTradingEnabled] = useState(false);
-  const [builderCode, setBuilderCode] = useState("");
   const [configError, setConfigError] = useState<string | null>(null);
   const [depositWalletInitialized, setDepositWalletInitialized] = useState<boolean | null>(null);
   const [depositWalletAddress, setDepositWalletAddress] = useState<string | null>(null);
   const [accountBalance, setAccountBalance] = useState<PortfolioBalanceState | null>(null);
   const [accountError, setAccountError] = useState<string | null>(null);
   const [submittingSide, setSubmittingSide] = useState<TradeSide | null>(null);
+  const [tradeProgress, setTradeProgress] = useState<TradeProgress>("idle");
   const [toast, setToast] = useState<TradeToast | null>(null);
   const [orderId, setOrderId] = useState("");
   const [quoteUpdatedAt, setQuoteUpdatedAt] = useState<number | null>(null);
@@ -127,7 +128,7 @@ export function MarketTradePanel({
   const quoteLabel = quoteStatus === "stale" ? "Quote stale" : quoteStatus === "refreshing" ? "Refreshing quote" : formatSeconds(secondsSinceUpdate);
   const polymarketUrl = displayMarket.polymarketUrl ?? displayMarket.marketUrl;
   const tradeDisabledReason = getTradeDisabledReason({
-    configReady: Boolean(builderCode) && !configError,
+    configReady: !configError,
     configError,
     realTradingEnabled,
     isConnected,
@@ -173,7 +174,6 @@ export function MarketTradePanel({
         }
         setConfigError(null);
         setRealTradingEnabled(Boolean(data.realTradingEnabled));
-        if (data.builderCode) setBuilderCode(data.builderCode);
       })
       .catch(() => {
         if (!active) return;
@@ -324,17 +324,13 @@ export function MarketTradePanel({
       const outcome = selectedOutcome;
       const price = side === "Buy" ? buyPrice : sellPrice;
       if (!outcome || !Number.isFinite(price)) return;
-      if (tradeDisabledReason) {
-        setToast({ tone: "error", message: tradeDisabledReason });
-        return;
-      }
       setSubmittingSide(side);
       setToast(null);
       setOrderId("");
+      setTradeProgress("checking-wallet");
 
       const tokenID = outcome.tokenId ?? "";
       const orderValue = safeShares * (price as number);
-      const activeBuilderCode = builderCode;
 
       try {
         if (!isConnected) {
@@ -353,12 +349,41 @@ export function MarketTradePanel({
           setToast({ tone: "error", message: "Enter an order size greater than 0." });
           return;
         }
+        if (!walletClient) {
+          setToast({ tone: "error", message: "Connect a wallet before trading." });
+          return;
+        }
 
-        let availableBalance = side === "Sell" ? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
-        if (realTradingEnabled && side === "Buy") {
+        let availableBalance = Number.MAX_SAFE_INTEGER;
+        if (realTradingEnabled) {
+          const walletAddress = walletClient.account?.address;
+          if (!walletAddress) {
+            setToast({ tone: "error", message: "Connect a wallet before trading." });
+            return;
+          }
+          const setup = await ensureTradingReady({
+            walletClient,
+            address: walletAddress as `0x${string}`,
+            publicClient,
+            side,
+            tokenId: tokenID,
+            amount: orderValue,
+            price: price as number,
+            onProgress: setTradeProgress,
+          });
+          setDepositWalletAddress(setup.depositWalletAddress);
+          setDepositWalletInitialized(setup.depositWalletInitialized);
+          setAccountBalance(setup.balance);
+          setAccountError(null);
+          availableBalance = side === "Buy" ? setup.balance.usdc.balance : Number.MAX_SAFE_INTEGER;
+          if (side === "Buy" && availableBalance <= 0) {
+            setToast({ tone: "error", message: "Polymarket deposit wallet has no USDC balance. Fund the wallet before trading." });
+            return;
+          }
+        } else {
           const accountResponse = await fetch("/api/polymarket/account", { cache: "no-store" });
-          const accountData = await accountResponse.json();
-          availableBalance = Number(accountData.balance?.balance ?? 0) / 1_000_000;
+          const accountData = await accountResponse.json().catch(() => null);
+          availableBalance = Number(accountData?.balance?.balance ?? 0) / 1_000_000;
         }
 
         const validation = validateTrade({
@@ -369,7 +394,6 @@ export function MarketTradePanel({
           price: price as number,
           slippageBps: 100,
           availableBalance,
-          builderCode: activeBuilderCode,
         });
 
         if (!validation.ok) {
@@ -382,16 +406,11 @@ export function MarketTradePanel({
           return;
         }
 
-        if (!walletClient) {
-          setToast({ tone: "error", message: "Connect a wallet before trading." });
-          return;
-        }
-
+        setTradeProgress("submitting-order");
         const client = await createSignerClient({
           signer: walletClient,
           signatureType: SignatureTypeV2.POLY_1271,
-          funderAddress: depositWalletInitialized ? depositWalletAddress ?? undefined : undefined,
-          builderCode: activeBuilderCode,
+          funderAddress: depositWalletAddress ?? undefined,
         });
         const response = await placeLimitOrder(client, {
           tokenID,
@@ -399,7 +418,6 @@ export function MarketTradePanel({
           size: safeShares,
           side: side === "Buy" ? Side.BUY : Side.SELL,
           userUSDCBalance: side === "Buy" ? availableBalance : undefined,
-          builderCode: activeBuilderCode,
         });
         const nextOrderId = extractOrderId(response);
         setOrderId(nextOrderId);
@@ -411,9 +429,10 @@ export function MarketTradePanel({
         });
       } finally {
         setSubmittingSide(null);
+        setTradeProgress("idle");
       }
     },
-    [builderCode, buyPrice, chainId, depositWalletAddress, depositWalletInitialized, isConnected, realTradingEnabled, safeShares, selectedOutcome, sellPrice, tradeDisabledReason, walletClient],
+    [buyPrice, chainId, depositWalletAddress, isConnected, publicClient, realTradingEnabled, safeShares, selectedOutcome, sellPrice, walletClient],
   );
 
   const actionButtons = useMemo(
@@ -553,6 +572,19 @@ export function MarketTradePanel({
 
       <div className="border-t border-zinc-800/90 bg-[#07080b]/98 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-18px_38px_rgba(0,0,0,0.32)]">
         <div className="flex gap-2">{actionButtons}</div>
+        {tradeProgress !== "idle" ? (
+          <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-cyan-200">
+            {tradeProgress === "checking-wallet"
+              ? "Checking wallet"
+              : tradeProgress === "initializing-trading-wallet"
+                ? "Initializing trading wallet"
+                : tradeProgress === "checking-balance"
+                  ? "Checking balance"
+                  : tradeProgress === "approving-trading"
+                    ? "Approving trading"
+                    : "Submitting order"}
+          </p>
+        ) : null}
         {tradeDisabledReason ? <p className="mt-2 text-[11px] leading-4 text-amber-200">{tradeDisabledReason}</p> : null}
         <p className="mt-2 text-[11px] leading-4 text-zinc-500">
           Orders are signed by your wallet and posted to Polymarket CLOB V2. Traak never takes custody of funds.

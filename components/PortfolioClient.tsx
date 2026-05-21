@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { Activity, AlertTriangle, Clock, Info, Loader2, RefreshCw, Wallet, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cancelOrder } from "@/lib/polymarket/orders";
 import { getDepositWalletStatus } from "@/lib/polymarket/depositWallet";
-import { buildPortfolioSetupSteps } from "@/lib/polymarket/readiness";
 import { getPnLPlaceholder, getPositions } from "@/lib/polymarket/portfolio";
 import type { PortfolioBalanceState, Position } from "@/lib/polymarket/types";
 import type { OpenOrder } from "@polymarket/clob-client-v2";
@@ -122,7 +120,7 @@ export default function PortfolioClient() {
           setOpenOrders([]);
           setTrades([]);
           setError("");
-          setNotice("Initialize the trading wallet from the connect flow, then refresh balances and allowances.");
+          setNotice("Trading wallet will initialize from the Markets trade flow when needed.");
           return;
         }
 
@@ -186,21 +184,17 @@ export default function PortfolioClient() {
     groups[sport] = [...(groups[sport] ?? []), position];
     return groups;
   }, {});
-  const setupSteps = buildPortfolioSetupSteps({
-    isConnected,
-    chainId,
-    configReady: error === "" && !notice.includes("Trading configuration is unavailable"),
-    configError: error.includes("Trading configuration is unavailable") ? error : null,
-    depositWalletInitialized: depositWallet?.initialized ?? null,
-    balance,
-  });
   const totalPositionValue = positions.reduce((sum, position) => sum + position.value, 0);
-  const accountReady = setupSteps.every((step) => step.ready);
+  const walletReady = isConnected && chainId === 137;
+  const depositWalletReady = depositWallet?.initialized ?? false;
+  const balanceReady = balance.source === "polymarket" && balance.usdc.balance > 0;
+  const allowanceReady = balance.source === "polymarket" && balance.usdc.hasExchangeAllowance && balance.usdc.hasCtfAllowance;
+  const accountReady = walletReady && depositWalletReady && balanceReady && allowanceReady && error === "";
   const walletStatusText = isConnected ? (chainId === 137 ? "Polygon connected" : "Wrong network") : "Wallet disconnected";
   const accountStatusDetail = accountReady
     ? "Balances and allowances are ready"
-    : isConnected && chainId === 137
-      ? "Review setup notices before trading"
+    : walletReady
+      ? "Trading setup still needs attention"
       : "Connect on Polygon to load live data";
 
   async function refreshPortfolio() {
@@ -216,7 +210,7 @@ export default function PortfolioClient() {
         setOpenOrders([]);
         setTrades([]);
         setPositions(await getPositions());
-        setNotice("Initialize the trading wallet from the connect flow, then refresh balances and allowances.");
+        setNotice("Trading wallet will initialize from the Markets trade flow when needed.");
         return;
       }
 
@@ -315,38 +309,37 @@ export default function PortfolioClient() {
           ) : null}
 
           {notice ? (
-            <Card className="border-emerald-400/30 bg-emerald-950/20">
-              <CardContent className="p-4 text-sm text-emerald-100">{notice}</CardContent>
+            <Card className="border-cyan-400/25 bg-cyan-950/20 lg:col-span-2">
+              <CardContent className="flex gap-3 p-4 text-sm text-cyan-100">
+                <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{notice}</span>
+              </CardContent>
             </Card>
           ) : null}
 
           <Card className="border-slate-800/90 bg-slate-950/72 shadow-xl shadow-black/15 lg:col-span-2">
             <CardHeader className="pb-4">
-              <CardTitle>Setup checklist</CardTitle>
-              <CardDescription>Follow these steps to move from a connected wallet to a ready trading account.</CardDescription>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <CardTitle>Trading readiness</CardTitle>
+                  <CardDescription>Informational state only. Trade setup now runs from the Markets panel.</CardDescription>
+                </div>
+                <Badge tone={accountReady ? "green" : "amber"}>{accountReady ? "Ready" : "Setup needed"}</Badge>
+              </div>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {setupSteps.map((step) => (
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-black/20 p-3" key={step.key}>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <Badge tone={step.ready ? "green" : "amber"}>{step.ready ? "Ready" : "Pending"}</Badge>
-                      <p className="text-sm font-semibold text-slate-100">{step.label}</p>
-                    </div>
-                    <p className="mt-1 text-sm leading-6 text-slate-400">{step.detail}</p>
+            <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {[
+                { label: "Wallet connected", ok: walletReady, detail: walletStatusText },
+                { label: "Deposit wallet", ok: depositWalletReady, detail: depositWalletReady ? "Trading wallet deployed" : "Will initialize on first trade" },
+                { label: "Balance", ok: balanceReady, detail: balance.source === "polymarket" ? `$${balance.usdc.balance.toFixed(2)} available` : "Load live balance from account" },
+                { label: "Allowances", ok: allowanceReady, detail: allowanceReady ? "USDC and CTF allowances ready" : "Will sync inside the trade flow" },
+              ].map((item) => (
+                <div className="rounded-lg border border-slate-800 bg-black/20 p-3" key={item.label}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs uppercase tracking-[0.16em] text-slate-500">{item.label}</p>
+                    <Badge tone={item.ok ? "green" : "amber"}>{item.ok ? "Ready" : "Pending"}</Badge>
                   </div>
-                  {!step.ready && step.actionLabel ? (
-                    step.actionHref ? (
-                      <Link className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-100 transition hover:bg-slate-800" href={step.actionHref}>
-                        {step.actionLabel}
-                      </Link>
-                    ) : (
-                      <Button disabled={loading} onClick={() => void refreshPortfolio()} size="sm" type="button" variant="secondary">
-                        <RefreshCw className="h-3 w-3" />
-                        {step.actionLabel}
-                      </Button>
-                    )
-                  ) : null}
+                  <p className="mt-2 text-sm leading-6 text-slate-300">{item.detail}</p>
                 </div>
               ))}
             </CardContent>
@@ -387,9 +380,9 @@ export default function PortfolioClient() {
                   <div className="flex gap-3">
                     <Info className="mt-0.5 h-4 w-4 shrink-0 text-cyan-200" />
                     <div>
-                      <p className="font-semibold text-cyan-50">Set up your Polymarket trading wallet</p>
+                      <p className="font-semibold text-cyan-50">Trading wallet will initialize on first trade</p>
                       <p className="mt-1 text-sm leading-6 text-cyan-100/75">
-                        Use the official Polymarket setup flow, then return to Traak and refresh balances.
+                        Markets will derive the deposit wallet, sync allowances, and submit the order inline.
                       </p>
                     </div>
                   </div>

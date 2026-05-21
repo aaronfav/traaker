@@ -7,10 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getDepositWalletStatus } from "@/lib/polymarket/depositWallet";
 import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
 import { OrderType, placeLimitOrder, placeMarketOrder, Side, validateTrade } from "@/lib/polymarket/orders";
 import { getPositions } from "@/lib/polymarket/portfolio";
+import { ensureTradingReady, type TradeProgress } from "@/lib/polymarket/tradeSetup";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
 type TradeMode = "limit" | "market";
@@ -39,9 +39,7 @@ export function TradeTicket({
   const [orderId, setOrderId] = useState("");
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [availableBalance, setAvailableBalance] = useState<number | null>(null);
-  const [builderCode, setBuilderCode] = useState("");
-  const [depositWalletAddress, setDepositWalletAddress] = useState<string | null>(null);
-  const [depositWalletInitialized, setDepositWalletInitialized] = useState<boolean | null>(null);
+  const [tradeProgress, setTradeProgress] = useState<TradeProgress>("idle");
 
   const price = outcome === "yes" ? market.yesPrice : market.noPrice;
   const tradePrice = mode === "limit" ? Number(limitPrice) / 100 : price;
@@ -51,49 +49,6 @@ export function TradeTicket({
   const tokenID = outcome === "yes" ? market.tokenIds.yes : market.tokenIds.no;
 
   const parsedSlippage = Number(slippage);
-
-  useEffect(() => {
-    let active = true;
-
-    fetch("/api/polymarket/config", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((data: { builderCode?: string }) => {
-        if (active && data.builderCode) setBuilderCode(data.builderCode);
-      })
-      .catch(() => undefined);
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-
-    void (async () => {
-      if (!walletClient || !isConnected || chainId !== 137 || !publicClient) {
-        if (!active) return;
-        setDepositWalletAddress(null);
-        setDepositWalletInitialized(null);
-        return;
-      }
-
-      try {
-        const status = await getDepositWalletStatus(walletClient.account.address, publicClient);
-        if (!active) return;
-        setDepositWalletAddress(status.depositWallet);
-        setDepositWalletInitialized(status.initialized);
-      } catch {
-        if (!active) return;
-        setDepositWalletAddress(null);
-        setDepositWalletInitialized(null);
-      }
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, [chainId, isConnected, publicClient, walletClient]);
 
   const validation = useMemo(
     () =>
@@ -105,14 +60,26 @@ export function TradeTicket({
         price: Number.isFinite(tradePrice) ? tradePrice : 0,
         slippageBps: Number.isFinite(parsedSlippage) ? parsedSlippage : -1,
         availableBalance: availableBalance ?? Number.MAX_SAFE_INTEGER,
-        builderCode,
       }),
-    [availableBalance, builderCode, chainId, isConnected, parsedSlippage, tokenID, tradePrice, usdcAmount],
+    [availableBalance, chainId, isConnected, parsedSlippage, tokenID, tradePrice, usdcAmount],
   );
 
-  const canSubmit = realTradingEnabled
-    ? Boolean(walletClient && validation.ok && depositWalletInitialized === true)
-    : validation.ok;
+  const canSubmit = Boolean(walletClient && validation.ok);
+
+  useEffect(() => {
+    if (tradeProgress === "idle") return;
+    setMessage(
+      tradeProgress === "checking-wallet"
+        ? "Checking wallet"
+        : tradeProgress === "initializing-trading-wallet"
+          ? "Initializing trading wallet"
+          : tradeProgress === "checking-balance"
+            ? "Checking balance"
+            : tradeProgress === "approving-trading"
+              ? "Approving trading"
+              : "Submitting order",
+    );
+  }, [tradeProgress]);
 
   function extractOrderId(response: unknown) {
     if (!response || typeof response !== "object") return "";
@@ -124,6 +91,7 @@ export function TradeTicket({
     setStatus("validating");
     setMessage("Checking balance, token, price, slippage, and wallet state.");
     setValidationErrors([]);
+    setTradeProgress("idle");
 
     try {
       if (!realTradingEnabled) {
@@ -140,16 +108,18 @@ export function TradeTicket({
       }
 
       if (!walletClient) return;
-      const client = await createSignerClient({
-        signer: walletClient,
-        signatureType: SignatureTypeV2.POLY_1271,
-        funderAddress: depositWalletInitialized === true ? depositWalletAddress ?? undefined : undefined,
-        builderCode,
+      const setup = await ensureTradingReady({
+        walletClient,
+        address: walletClient.account.address as `0x${string}`,
+        publicClient,
+        side: "Buy",
+        tokenId: tokenID,
+        amount: usdcAmount,
+        price: tradePrice,
+        onProgress: setTradeProgress,
       });
-      const accountResponse = await fetch("/api/polymarket/account", { cache: "no-store" });
-      const accountData = await accountResponse.json();
-      const liveUsdcBalance = Number(accountData.balance?.balance ?? 0) / 1_000_000;
-      setAvailableBalance(liveUsdcBalance);
+      setAvailableBalance(setup.balance.usdc.balance);
+      const liveUsdcBalance = setup.balance.usdc.balance;
 
       const liveValidation = validateTrade({
         walletConnected: isConnected,
@@ -159,7 +129,6 @@ export function TradeTicket({
         price: tradePrice,
         slippageBps: parsedSlippage,
         availableBalance: liveUsdcBalance,
-        builderCode,
       });
 
       if (!liveValidation.ok) {
@@ -171,6 +140,13 @@ export function TradeTicket({
 
       setStatus("submitting");
       setMessage("Posting signed order to Polymarket CLOB V2.");
+      setTradeProgress("submitting-order");
+
+      const client = await createSignerClient({
+        signer: walletClient,
+        signatureType: SignatureTypeV2.POLY_1271,
+        funderAddress: setup.depositWalletAddress,
+      });
 
       const response =
         mode === "limit"
@@ -179,7 +155,6 @@ export function TradeTicket({
               price: tradePrice,
               size: estimatedShares,
               side: Side.BUY,
-              builderCode,
             })
           : await placeMarketOrder(client, {
               tokenID,
@@ -188,7 +163,6 @@ export function TradeTicket({
               maxSlippageBps: Number(slippage),
               orderType: OrderType.FOK,
               side: Side.BUY,
-              builderCode,
             });
 
       const nextOrderId = extractOrderId(response);
@@ -202,6 +176,8 @@ export function TradeTicket({
     } catch (error) {
       setStatus("error");
       setMessage(error instanceof Error ? `Polymarket rejected the order: ${error.message}` : "Polymarket rejected the order. Check wallet setup, balance, allowances, and market liquidity.");
+    } finally {
+      setTradeProgress("idle");
     }
   }
 

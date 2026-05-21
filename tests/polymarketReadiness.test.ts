@@ -61,7 +61,7 @@ describe("polymarket readiness", () => {
     expect(steps.every((step) => step.ready)).toBe(true);
   });
 
-  it("disables live trading when the deposit wallet is missing", () => {
+  it("keeps live trading available while the deposit wallet initializes in-flow", () => {
     expect(
       getTradeDisabledReason({
         configReady: true,
@@ -72,10 +72,10 @@ describe("polymarket readiness", () => {
         balance: readyBalance,
         quoteFresh: true,
       }),
-    ).toBe("Initialize trading wallet.");
+    ).toBeNull();
   });
 
-  it("disables live trading when allowances are missing", () => {
+  it("keeps live trading available while allowances sync in-flow", () => {
     const missingAllowance: PortfolioBalanceState = {
       ...readyBalance,
       usdc: {
@@ -95,10 +95,10 @@ describe("polymarket readiness", () => {
         balance: missingAllowance,
         quoteFresh: true,
       }),
-    ).toBe("Approve USDC.");
+    ).toBeNull();
   });
 
-  it("requires fresh account data before enabling live trading", () => {
+  it("does not require fresh account data before enabling live trading", () => {
     expect(
       getTradeDisabledReason({
         configReady: true,
@@ -109,7 +109,7 @@ describe("polymarket readiness", () => {
         balance: null,
         quoteFresh: true,
       }),
-    ).toBe("Refresh account data.");
+    ).toBeNull();
   });
 
   it("returns null when the account is ready to trade", () => {

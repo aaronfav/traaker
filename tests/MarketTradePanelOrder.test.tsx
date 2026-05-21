@@ -6,10 +6,30 @@ import type { MarketBubbleNode } from "@/components/MarketBubbleMap";
 const mocks = vi.hoisted(() => ({
   placeLimitOrder: vi.fn(),
   createSignerClient: vi.fn(),
+  ensureTradingReady: vi.fn(),
   publicClient: {},
   account: { chainId: 137, isConnected: true },
   walletClient: { account: { address: "0x123" } },
   depositWalletStatus: { initialized: true, depositWallet: "0xdeadbeef" },
+  tradingSetup: {
+    depositWalletAddress: "0xdeadbeef",
+    depositWalletInitialized: true,
+    balance: {
+      usdc: {
+        balance: 100,
+        rawBalance: "100000000",
+        allowances: { exchange: "1", conditional: "1" },
+        exchangeAllowance: "1",
+        ctfAllowance: "1",
+        hasExchangeAllowance: true,
+        hasCtfAllowance: true,
+      },
+      pUsd: null,
+      conditional: null,
+      source: "polymarket",
+    },
+    accountResponse: {},
+  },
 }));
 
 vi.mock("wagmi", () => ({
@@ -20,6 +40,10 @@ vi.mock("wagmi", () => ({
 
 vi.mock("@/lib/polymarket/depositWallet", () => ({
   getDepositWalletStatus: vi.fn(async () => mocks.depositWalletStatus),
+}));
+
+vi.mock("@/lib/polymarket/tradeSetup", () => ({
+  ensureTradingReady: mocks.ensureTradingReady,
 }));
 
 vi.mock("@/lib/polymarket/client", () => ({
@@ -71,6 +95,7 @@ describe("MarketTradePanel orders", () => {
   });
 
   it("submits the selected outcome's real CLOB tokenID", async () => {
+    mocks.ensureTradingReady.mockResolvedValue(mocks.tradingSetup);
     mocks.createSignerClient.mockResolvedValue({ client: "signed" });
     mocks.placeLimitOrder.mockResolvedValue({ orderID: "order-1" });
     vi.stubGlobal(
@@ -97,7 +122,14 @@ describe("MarketTradePanel orders", () => {
         signer: mocks.walletClient,
         signatureType: 2,
         funderAddress: "0xdeadbeef",
-        builderCode: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      }),
+    );
+    expect(mocks.ensureTradingReady).toHaveBeenCalledWith(
+      expect.objectContaining({
+        side: "Buy",
+        tokenId: "222221",
+        amount: 4.3,
+        price: 0.43,
       }),
     );
     await waitFor(() => expect(mocks.placeLimitOrder).toHaveBeenCalled());
@@ -111,8 +143,9 @@ describe("MarketTradePanel orders", () => {
     );
   });
 
-  it("disables live trading and shows the setup reason when the deposit wallet is missing", async () => {
+  it("runs the trading setup flow when the deposit wallet is missing", async () => {
     mocks.depositWalletStatus = { initialized: false, depositWallet: "0xdeadbeef" };
+    mocks.ensureTradingReady.mockResolvedValue(mocks.tradingSetup);
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -129,8 +162,13 @@ describe("MarketTradePanel orders", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/polymarket/config", { cache: "no-store" }));
     const buyButton = screen.getByRole("button", { name: /buy psg\s+59/i });
     const sellButton = screen.getByRole("button", { name: /sell psg\s+59/i });
-    expect(buyButton).toBeDisabled();
-    expect(sellButton).toBeDisabled();
-    expect(screen.getByText("Initialize trading wallet.")).toBeInTheDocument();
+    expect(buyButton).toBeEnabled();
+    expect(sellButton).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: /arsenal\s+43/i }));
+    fireEvent.click(buyButton);
+
+    await waitFor(() => expect(mocks.ensureTradingReady).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.placeLimitOrder).toHaveBeenCalled());
   });
 });
