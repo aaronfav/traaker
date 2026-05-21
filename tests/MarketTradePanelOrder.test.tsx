@@ -91,6 +91,15 @@ describe("MarketTradePanel orders", () => {
     fireEvent.click(screen.getByRole("button", { name: /arsenal\s+43/i }));
     fireEvent.click(screen.getByRole("button", { name: /buy arsenal\s+43/i }));
 
+    await waitFor(() => expect(mocks.createSignerClient).toHaveBeenCalled());
+    expect(mocks.createSignerClient).toHaveBeenCalledWith(
+      expect.objectContaining({
+        signer: mocks.walletClient,
+        signatureType: 2,
+        funderAddress: "0xdeadbeef",
+        builderCode: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      }),
+    );
     await waitFor(() => expect(mocks.placeLimitOrder).toHaveBeenCalled());
     expect(mocks.placeLimitOrder).toHaveBeenCalledWith(
       { client: "signed" },

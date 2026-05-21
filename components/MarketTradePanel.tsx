@@ -100,6 +100,7 @@ export function MarketTradePanel({
   const [builderCode, setBuilderCode] = useState("");
   const [configError, setConfigError] = useState<string | null>(null);
   const [depositWalletInitialized, setDepositWalletInitialized] = useState<boolean | null>(null);
+  const [depositWalletAddress, setDepositWalletAddress] = useState<string | null>(null);
   const [accountBalance, setAccountBalance] = useState<PortfolioBalanceState | null>(null);
   const [accountError, setAccountError] = useState<string | null>(null);
   const [submittingSide, setSubmittingSide] = useState<TradeSide | null>(null);
@@ -189,6 +190,7 @@ export function MarketTradePanel({
 
     if (!isConnected || chainId !== 137 || !walletClient || !publicClient) {
       setDepositWalletInitialized(null);
+      setDepositWalletAddress(null);
       setAccountBalance(null);
       setAccountError(null);
       return () => {
@@ -199,6 +201,7 @@ export function MarketTradePanel({
     const address = walletClient.account?.address;
     if (!address) {
       setDepositWalletInitialized(null);
+      setDepositWalletAddress(null);
       setAccountBalance(null);
       setAccountError(null);
       return () => {
@@ -209,6 +212,7 @@ export function MarketTradePanel({
     void getDepositWalletStatus(address, publicClient)
       .then(async (status) => {
         if (!active) return;
+        setDepositWalletAddress(status.depositWallet);
         setDepositWalletInitialized(status.initialized);
         if (!status.initialized) {
           setAccountBalance(null);
@@ -386,6 +390,7 @@ export function MarketTradePanel({
         const client = await createSignerClient({
           signer: walletClient,
           signatureType: SignatureTypeV2.POLY_1271,
+          funderAddress: depositWalletInitialized ? depositWalletAddress ?? undefined : undefined,
           builderCode: activeBuilderCode,
         });
         const response = await placeLimitOrder(client, {
@@ -408,7 +413,7 @@ export function MarketTradePanel({
         setSubmittingSide(null);
       }
     },
-    [builderCode, buyPrice, chainId, isConnected, realTradingEnabled, safeShares, selectedOutcome, sellPrice, tradeDisabledReason, walletClient],
+    [builderCode, buyPrice, chainId, depositWalletAddress, depositWalletInitialized, isConnected, realTradingEnabled, safeShares, selectedOutcome, sellPrice, tradeDisabledReason, walletClient],
   );
 
   const actionButtons = useMemo(

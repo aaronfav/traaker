@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle2, Loader2, ShieldCheck, FlaskConical } from "lucide-react";
-import { useAccount, useWalletClient } from "wagmi";
+import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { getDepositWalletStatus } from "@/lib/polymarket/depositWallet";
 import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
 import { OrderType, placeLimitOrder, placeMarketOrder, Side, validateTrade } from "@/lib/polymarket/orders";
 import { getPositions } from "@/lib/polymarket/portfolio";
@@ -26,6 +27,7 @@ export function TradeTicket({
 }) {
   const { chainId, isConnected } = useAccount();
   const { data: walletClient } = useWalletClient({ chainId: 137 });
+  const publicClient = usePublicClient({ chainId: 137 });
   const [outcome, setOutcome] = useState<Outcome>(initialOutcome);
   const [mode, setMode] = useState<TradeMode>("limit");
   const [amount, setAmount] = useState("25");
@@ -38,6 +40,8 @@ export function TradeTicket({
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [availableBalance, setAvailableBalance] = useState<number | null>(null);
   const [builderCode, setBuilderCode] = useState("");
+  const [depositWalletAddress, setDepositWalletAddress] = useState<string | null>(null);
+  const [depositWalletInitialized, setDepositWalletInitialized] = useState<boolean | null>(null);
 
   const price = outcome === "yes" ? market.yesPrice : market.noPrice;
   const tradePrice = mode === "limit" ? Number(limitPrice) / 100 : price;
@@ -63,6 +67,34 @@ export function TradeTicket({
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+
+    void (async () => {
+      if (!walletClient || !isConnected || chainId !== 137 || !publicClient) {
+        if (!active) return;
+        setDepositWalletAddress(null);
+        setDepositWalletInitialized(null);
+        return;
+      }
+
+      try {
+        const status = await getDepositWalletStatus(walletClient.account.address, publicClient);
+        if (!active) return;
+        setDepositWalletAddress(status.depositWallet);
+        setDepositWalletInitialized(status.initialized);
+      } catch {
+        if (!active) return;
+        setDepositWalletAddress(null);
+        setDepositWalletInitialized(null);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [chainId, isConnected, publicClient, walletClient]);
+
   const validation = useMemo(
     () =>
       validateTrade({
@@ -78,7 +110,9 @@ export function TradeTicket({
     [availableBalance, builderCode, chainId, isConnected, parsedSlippage, tokenID, tradePrice, usdcAmount],
   );
 
-  const canSubmit = realTradingEnabled ? Boolean(walletClient && validation.ok) : validation.ok;
+  const canSubmit = realTradingEnabled
+    ? Boolean(walletClient && validation.ok && depositWalletInitialized === true)
+    : validation.ok;
 
   function extractOrderId(response: unknown) {
     if (!response || typeof response !== "object") return "";
@@ -109,6 +143,7 @@ export function TradeTicket({
       const client = await createSignerClient({
         signer: walletClient,
         signatureType: SignatureTypeV2.POLY_1271,
+        funderAddress: depositWalletInitialized === true ? depositWalletAddress ?? undefined : undefined,
         builderCode,
       });
       const accountResponse = await fetch("/api/polymarket/account", { cache: "no-store" });
