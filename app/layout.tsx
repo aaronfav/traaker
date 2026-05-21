@@ -43,9 +43,6 @@ export default function RootLayout({
                     <Link className="rounded-md px-3 py-2 transition hover:bg-slate-900 hover:text-slate-100" href="/portfolio">
                       Portfolio
                     </Link>
-                    <Link className="rounded-md px-3 py-2 transition hover:bg-slate-900 hover:text-slate-100" href="/settings">
-                      Settings
-                    </Link>
                   </nav>
                 </div>
                 <WalletConnectButton />
@@ -57,10 +54,10 @@ export default function RootLayout({
                 <p>
                   Prediction markets involve risk. Users can lose money. Traak is non-custodial, not financial advice, and geographic restrictions may apply.
                 </p>
-                <div className="flex gap-4">
-                  <Link href="/settings">Terms</Link>
-                  <Link href="/settings">Privacy</Link>
-                  <Link href="/settings">Risk Disclosure</Link>
+                <div className="flex gap-4 text-slate-500">
+                  <span>Terms</span>
+                  <span>Privacy</span>
+                  <span>Risk Disclosure</span>
                 </div>
               </div>
             </footer>

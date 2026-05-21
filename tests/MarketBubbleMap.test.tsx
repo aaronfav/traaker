@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { marketStore } from "@/app/store/marketStore";
 import {
@@ -35,9 +35,11 @@ function createStrictCanvasContext() {
     drawImage: vi.fn(),
     strokeText: vi.fn(),
     fillText: vi.fn(),
+    measureText: vi.fn((text: string) => ({ width: text.length * 7 })),
     setTransform: vi.fn(),
     moveTo: vi.fn(),
     lineTo: vi.fn(),
+    quadraticCurveTo: vi.fn(),
     closePath: vi.fn(),
     ellipse: vi.fn(),
     translate: vi.fn(),
@@ -144,7 +146,7 @@ describe("MarketBubbleMap", () => {
 
     expect(screen.getByTestId("traak-loader")).toBeInTheDocument();
     expect(screen.getByLabelText("Loading Traak markets")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: /traak logo/i })).toBeInTheDocument();
+    expect(screen.getByText("Refreshing markets")).toBeInTheDocument();
     expect(screen.queryByText("Loading snapshot")).not.toBeInTheDocument();
     expect(screen.queryByText("Preparing the board")).not.toBeInTheDocument();
   });

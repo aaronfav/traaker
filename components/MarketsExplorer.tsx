@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { RefreshCw, Search, Settings } from "lucide-react";
+import { RefreshCw, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { fetchLatestMarketForNode, MarketBubbleMap, marketToBubbleNode, type MarketBubbleNode } from "@/components/MarketBubbleMap";
@@ -206,9 +206,6 @@ export function MarketsExplorer({
           Refresh
         </Button>
         {latestSource === "mock" ? <span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-xs text-amber-200">Mock</span> : null}
-        <Button aria-label="Settings" className="h-6 w-6" size="icon" type="button" variant="ghost">
-          <Settings className="h-4 w-4" />
-        </Button>
       </div>
 
       {error ? (

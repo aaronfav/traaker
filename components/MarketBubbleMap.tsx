@@ -827,6 +827,53 @@ function drawTextLine(ctx: CanvasRenderingContext2D, text: string, x: number, y:
   ctx.fillText(text, x, y, maxWidth);
 }
 
+function measuredTextWidth(ctx: CanvasRenderingContext2D, text: string) {
+  return ctx.measureText(text).width;
+}
+
+function ellipsizeText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (measuredTextWidth(ctx, clean) <= maxWidth) return clean;
+  const ellipsis = "...";
+  let low = 0;
+  let high = clean.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (measuredTextWidth(ctx, `${clean.slice(0, mid).trim()}${ellipsis}`) <= maxWidth) low = mid;
+    else high = mid - 1;
+  }
+  return `${clean.slice(0, low).trim()}${ellipsis}`;
+}
+
+function fitTextLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines = 2) {
+  const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  if (words.length === 0) return [];
+  const lines: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (measuredTextWidth(ctx, next) <= maxWidth) {
+      current = next;
+      continue;
+    }
+    if (current) lines.push(current);
+    current = word;
+    if (lines.length === maxLines - 1) break;
+  }
+
+  const usedWords = lines.join(" ").split(" ").filter(Boolean).length;
+  const remaining = words.slice(usedWords).join(" ");
+  if (lines.length < maxLines && (current || remaining)) lines.push(current || remaining);
+  if (lines.length > maxLines) lines.length = maxLines;
+  if (lines.length === maxLines) {
+    const consumed = lines.slice(0, maxLines - 1).join(" ").split(" ").filter(Boolean).length;
+    const tail = words.slice(consumed).join(" ");
+    lines[maxLines - 1] = ellipsizeText(ctx, tail || lines[maxLines - 1], maxWidth);
+  }
+  return lines.map((line) => ellipsizeText(ctx, line, maxWidth));
+}
+
 function drawLogoMark(node: MarketBubbleNode, ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, opacity: number) {
   const logo = getLogoAsset(node.logoUrl);
   const safeBubbleRadius = safeRadius(radius, 8);
@@ -1133,19 +1180,101 @@ function starPoints(x: number, y: number, outerRadius: number, innerRadius: numb
   });
 }
 
-function drawLabelPlate(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
-  const plateWidth = radius * 1.34;
-  const plateHeight = radius * 0.68;
-  const plateY = y + radius * 0.1;
-  ctx.save();
-  ctx.fillStyle = "rgba(2, 6, 23, 0.28)";
+function drawRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+  const safeCorner = Math.min(radius, width / 2, height / 2);
   ctx.beginPath();
-  ctx.ellipse(x, plateY, plateWidth / 2, plateHeight / 2, 0, 0, Math.PI * 2);
+  ctx.moveTo(x + safeCorner, y);
+  ctx.lineTo(x + width - safeCorner, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + safeCorner);
+  ctx.lineTo(x + width, y + height - safeCorner);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - safeCorner, y + height);
+  ctx.lineTo(x + safeCorner, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - safeCorner);
+  ctx.lineTo(x, y + safeCorner);
+  ctx.quadraticCurveTo(x, y, x + safeCorner, y);
+  ctx.closePath();
+}
+
+function drawLabelPlate(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number, alpha = 0.68) {
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.45)";
+  ctx.shadowBlur = Math.max(4, radius * 0.1);
+  ctx.fillStyle = `rgba(2, 6, 23, ${alpha})`;
+  drawRoundedRect(ctx, x - width / 2, y - height / 2, width, height, Math.max(6, radius * 0.12));
   ctx.fill();
-  ctx.strokeStyle = "rgba(255,255,255,0.08)";
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = "rgba(255,255,255,0.11)";
   ctx.lineWidth = Math.max(1, radius * 0.014);
   ctx.stroke();
   ctx.restore();
+}
+
+function drawPercentBadge(ctx: CanvasRenderingContext2D, node: MarketBubbleNode, x: number, y: number, radius: number, maxWidth: number) {
+  const label = pct(node.priceChange);
+  const fontSize = Math.max(8, Math.min(12, radius * 0.13));
+  ctx.save();
+  ctx.font = `800 ${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
+  const badgeWidth = Math.min(maxWidth, Math.max(radius * 0.48, measuredTextWidth(ctx, label) + radius * 0.18));
+  const badgeHeight = Math.max(13, fontSize + 5);
+  const positive = node.priceChange >= 0;
+  ctx.fillStyle = positive ? "rgba(16,185,129,0.18)" : "rgba(244,63,94,0.2)";
+  drawRoundedRect(ctx, x - badgeWidth / 2, y - badgeHeight / 2, badgeWidth, badgeHeight, badgeHeight / 2);
+  ctx.fill();
+  ctx.strokeStyle = positive ? "rgba(110,231,183,0.34)" : "rgba(251,113,133,0.36)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.fillStyle = positive ? "#a7f3d0" : "#fecdd3";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  drawTextLine(ctx, label, x, y + 0.3, badgeWidth - 6);
+  ctx.restore();
+}
+
+function drawBubbleLabel(ctx: CanvasRenderingContext2D, node: MarketBubbleNode, x: number, y: number, radius: number, screenRadius: number, isMobile: boolean) {
+  const label = node.favoredOutcome;
+  const price = formatCents(node.favoredPrice);
+  const fullLabel = screenRadius >= (isMobile ? 38 : 34);
+  const priceOnly = screenRadius >= (isMobile ? 22 : 20);
+  const initialsOnly = screenRadius >= 13;
+  const maxWidth = radius * (fullLabel ? 1.36 : 1.0);
+
+  if (fullLabel) {
+    const nameSize = Math.max(9, Math.min(15, radius * 0.15));
+    const priceSize = Math.max(17, Math.min(30, radius * 0.28));
+    const lineHeight = nameSize * 1.08;
+    const plateHeight = Math.min(radius * 0.86, lineHeight * 2 + priceSize + radius * 0.26);
+    drawLabelPlate(ctx, x, y + radius * 0.13, maxWidth + radius * 0.14, plateHeight, radius);
+
+    ctx.fillStyle = "#e5edf6";
+    ctx.font = `650 ${nameSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
+    const lines = fitTextLines(ctx, label, maxWidth, 2);
+    const firstNameY = y - radius * 0.1 - (lines.length > 1 ? lineHeight * 0.5 : 0);
+    lines.forEach((line, index) => drawTextLine(ctx, line, x, firstNameY + index * lineHeight, maxWidth));
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = `900 ${priceSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
+    drawTextLine(ctx, price, x, y + radius * 0.28, maxWidth);
+    drawPercentBadge(ctx, node, x, y + radius * 0.57, radius, maxWidth * 0.74);
+    return;
+  }
+
+  if (priceOnly) {
+    const priceSize = Math.max(13, Math.min(22, radius * 0.32));
+    const badgeY = y + radius * 0.16;
+    drawLabelPlate(ctx, x, badgeY, radius * 1.04, Math.max(24, radius * 0.44), radius, 0.72);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = `900 ${priceSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
+    drawTextLine(ctx, price, x, badgeY, radius * 0.9);
+    return;
+  }
+
+  if (initialsOnly) {
+    const initials = initialsForName(label);
+    drawLabelPlate(ctx, x, y + radius * 0.12, radius * 0.74, radius * 0.38, radius, 0.7);
+    ctx.fillStyle = "#f8fafc";
+    ctx.font = `800 ${Math.max(8, radius * 0.22)}px Inter, ui-sans-serif, system-ui, sans-serif`;
+    drawTextLine(ctx, initials || price.slice(0, 2), x, y + radius * 0.12, radius * 0.62);
+  }
 }
 
 function drawClippedImageAsset(
@@ -1521,9 +1650,7 @@ function drawBubble(
   const y = safeCoordinate(node.y);
   const screenRadius = radius / safeRadius(globalScale, 1);
   const depth = Math.max(0, Math.min(1, (screenRadius - 12) / 36));
-  const canRenderText = screenRadius >= (options.isMobile ? 24 : 18);
-  const canRenderPrice = screenRadius >= (options.isMobile ? 28 : 22);
-  const canRenderMovement = screenRadius >= (options.isMobile ? 42 : 34);
+  const canRenderLogo = screenRadius >= (options.isMobile ? 34 : 30);
   const glowRadius = safeRadius(radius * (isHovered ? 1.2 : node.isTrending ? 1.12 : 1.03), radius);
 
   ctx.save();
@@ -1575,26 +1702,10 @@ function drawBubble(
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
-  if (canRenderText) {
-    drawLabelPlate(ctx, x, y, radius);
+  if (canRenderLogo) {
     drawLogoMark(node, ctx, x, y - radius * 0.5, radius, screenRadius > 34 ? 0.93 : 0.88);
-
-    ctx.fillStyle = "#f8fafc";
-    ctx.font = `900 ${Math.max(13, radius * (node.favoredOutcome.length > 9 ? 0.21 : 0.25))}px Inter, ui-sans-serif, system-ui, sans-serif`;
-    drawTextLine(ctx, node.favoredOutcome, x, y - radius * 0.03, radius * 1.48);
   }
-
-  if (canRenderPrice) {
-    ctx.fillStyle = "#ffffff";
-    ctx.font = `950 ${Math.max(18, radius * 0.32)}px Inter, ui-sans-serif, system-ui, sans-serif`;
-    drawTextLine(ctx, formatCents(node.favoredPrice), x, y + radius * 0.29, radius * 1.2);
-  }
-
-  if (canRenderMovement) {
-    ctx.fillStyle = node.priceChange >= 0 ? "#7CFFB2" : "#FF7A84";
-    ctx.font = `800 ${Math.max(8, radius * 0.12)}px Inter, ui-sans-serif, system-ui, sans-serif`;
-    drawTextLine(ctx, pct(node.priceChange), x, y + radius * 0.56, radius * 1.0);
-  }
+  drawBubbleLabel(ctx, node, x, y, radius, screenRadius, options.isMobile);
 
   if (options.priorityPass) {
     ctx.lineWidth = 2;
@@ -1650,28 +1761,23 @@ function TraakLoadingOverlay() {
   return (
     <div
       aria-label="Loading Traak markets"
-      className="absolute inset-0 grid place-items-center bg-black/24 text-slate-100 transition-opacity duration-300"
+      className="absolute inset-0 text-slate-100 transition-opacity duration-300"
       data-testid="traak-loader"
       role="status"
     >
       <style>{`
-        @keyframes traak-breathe {
-          0%, 100% { transform: scale(0.97); opacity: 0.78; }
-          50% { transform: scale(1.03); opacity: 1; }
+        @keyframes traak-status-pulse {
+          0%, 100% { transform: scale(0.82); opacity: 0.52; }
+          50% { transform: scale(1); opacity: 1; }
         }
       `}</style>
-      <div className="relative grid place-items-center px-6 text-center">
+      <div className="absolute left-1/2 top-5 flex -translate-x-1/2 items-center gap-3 rounded-full border border-cyan-300/20 bg-slate-950/78 px-4 py-2 text-xs font-semibold text-cyan-50 shadow-2xl shadow-black/35 backdrop-blur-md">
         <div
-          className="absolute h-36 w-36 rounded-full bg-cyan-400/8 blur-2xl"
-          style={{ animation: "traak-breathe 3.4s ease-in-out infinite" }}
+          className="h-2.5 w-2.5 rounded-full bg-cyan-300 shadow-[0_0_16px_rgba(34,211,238,0.9)]"
+          style={{ animation: "traak-status-pulse 1.25s ease-in-out infinite" }}
         />
-        <div
-          className="absolute h-28 w-28 rounded-full border border-cyan-300/15 shadow-[0_0_52px_rgba(34,211,238,0.18)]"
-          style={{ animation: "traak-breathe 2.8s ease-in-out infinite reverse" }}
-        />
-        <div className="relative h-28 w-28 overflow-hidden rounded-full shadow-[0_0_44px_rgba(34,211,238,0.16)]">
-          <img alt="Traak logo" className="h-full w-full select-none object-cover" src="/polytraak.jpg" style={{ animation: "traak-breathe 2.4s ease-in-out infinite" }} />
-        </div>
+        <span>Refreshing markets</span>
+        <div className="h-3 w-3 animate-spin rounded-full border border-cyan-200/30 border-t-cyan-200" />
       </div>
     </div>
   );
@@ -1905,8 +2011,9 @@ export function MarketBubbleMap({
       ) : null}
 
       {isRefreshing ? (
-        <div className="absolute left-3 top-3 z-20 rounded-full border border-cyan-400/30 bg-slate-950/80 px-3 py-1 text-xs text-cyan-100">
-          Refreshing
+        <div className="absolute left-3 top-3 z-20 flex items-center gap-2 rounded-full border border-cyan-400/25 bg-slate-950/78 px-3 py-1.5 text-xs font-semibold text-cyan-100 shadow-xl shadow-black/30 backdrop-blur-md">
+          <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.9)]" />
+          Refreshing markets
         </div>
       ) : null}
 

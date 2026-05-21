@@ -188,7 +188,7 @@ describe("MarketsExplorer", () => {
     expect(screen.getByRole("application", { name: /1 sports market bubble map/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "UFC" }));
 
-    await waitFor(() => expect(screen.getAllByText("Refreshing").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText("Refreshing markets").length).toBeGreaterThan(0));
     expect(screen.getByRole("application", { name: /1 sports market bubble map/i })).toBeInTheDocument();
     expect(screen.queryByText("Loading sports bubbles...")).not.toBeInTheDocument();
 

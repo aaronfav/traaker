@@ -65,7 +65,7 @@ export function MarketTradePanel({
     return () => {
       mountedRef.current = false;
     };
-  }, [market.id]);
+  }, [market]);
 
   const refreshQuote = useCallback(async () => {
     if (!onUpdatePrices || !mountedRef.current) return;
@@ -102,7 +102,7 @@ export function MarketTradePanel({
       if (mountedRef.current) setQuoteNow(Date.now());
       refreshInFlightRef.current = false;
     }
-  }, [displayMarket, onUpdatePrices, quoteStatus]);
+  }, [displayMarket, onUpdatePrices]);
 
   useEffect(() => {
     if (!onUpdatePrices) return;

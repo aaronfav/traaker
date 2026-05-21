@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getServerBuilderCode } from "@/lib/server/polymarketAuth";
 import { isRealTradingEnabled } from "@/lib/server/tradingConfig";
 
 export const runtime = "nodejs";
@@ -8,7 +7,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     return NextResponse.json(
-      { ok: true, builderCode: getServerBuilderCode(), realTradingEnabled: isRealTradingEnabled() },
+      { ok: true, realTradingEnabled: isRealTradingEnabled() },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
