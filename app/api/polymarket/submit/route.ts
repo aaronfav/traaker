@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { requireRelayerAuth } from "@/lib/server/polymarketRuntimeConfig";
+import { BuilderSigner } from "@polymarket/builder-signing-sdk";
+import { requireBuilderRelayerAuth } from "@/lib/server/polymarketRuntimeConfig";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -99,9 +100,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "Unexpected auth headers." }, { status: 400, headers: { "Cache-Control": "no-store" } });
   }
 
-  let relayerAuth: ReturnType<typeof requireRelayerAuth>;
+  let builderAuth: ReturnType<typeof requireBuilderRelayerAuth>;
   try {
-    relayerAuth = requireRelayerAuth();
+    builderAuth = requireBuilderRelayerAuth();
   } catch (error) {
     return NextResponse.json(
       {
@@ -130,12 +131,16 @@ export async function POST(request: NextRequest) {
 
   const body = JSON.stringify(payload);
   try {
+    const builderHeaders = new BuilderSigner({
+      key: builderAuth.builderApiKey,
+      secret: builderAuth.builderSecret,
+      passphrase: builderAuth.builderPassphrase,
+    }).createBuilderHeaderPayload("POST", "/submit", body);
     const upstream = await fetch(RELAYER_SUBMIT_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        RELAYER_API_KEY: relayerAuth.relayerApiKey,
-        RELAYER_API_KEY_ADDRESS: relayerAuth.relayerApiKeyAddress,
+        ...builderHeaders,
       },
       body,
     });

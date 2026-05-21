@@ -8,8 +8,9 @@ describe("polymarket runtime config", () => {
 
   it("marks a full gasless deposit-wallet deployment as ready", () => {
     vi.stubEnv("POLYMARKET_BUILDER_CODE", "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    vi.stubEnv("RELAYER_API_KEY", "relayer-key");
-    vi.stubEnv("RELAYER_API_KEY_ADDRESS", "0x1111111111111111111111111111111111111111");
+    vi.stubEnv("POLYMARKET_BUILDER_API_KEY", "builder-key");
+    vi.stubEnv("POLYMARKET_BUILDER_SECRET", "builder-secret");
+    vi.stubEnv("POLYMARKET_BUILDER_PASSPHRASE", "builder-passphrase");
     vi.stubEnv("POLYMARKET_RPC_URL", "https://polygon-rpc.example");
     vi.stubEnv("POLYMARKET_ADDRESS", "0x2222222222222222222222222222222222222222");
     vi.stubEnv("POLYMARKET_API_KEY", "api-key");
@@ -26,8 +27,9 @@ describe("polymarket runtime config", () => {
 
   it("reports an invalid builder code separately from relayer config", () => {
     vi.stubEnv("POLYMARKET_BUILDER_CODE", "builder");
-    vi.stubEnv("RELAYER_API_KEY", "relayer-key");
-    vi.stubEnv("RELAYER_API_KEY_ADDRESS", "0x1111111111111111111111111111111111111111");
+    vi.stubEnv("POLYMARKET_BUILDER_API_KEY", "builder-key");
+    vi.stubEnv("POLYMARKET_BUILDER_SECRET", "builder-secret");
+    vi.stubEnv("POLYMARKET_BUILDER_PASSPHRASE", "builder-passphrase");
     vi.stubEnv("POLYMARKET_RPC_URL", "https://polygon-rpc.example");
     vi.stubEnv("POLYMARKET_ADDRESS", "0x2222222222222222222222222222222222222222");
     vi.stubEnv("POLYMARKET_API_KEY", "api-key");
@@ -44,6 +46,9 @@ describe("polymarket runtime config", () => {
   it("reports missing relayer credentials as gasless setup only", () => {
     vi.stubEnv("POLYMARKET_BUILDER_CODE", "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     vi.stubEnv("POLYMARKET_RPC_URL", "https://polygon-rpc.example");
+    vi.stubEnv("POLYMARKET_BUILDER_API_KEY", "");
+    vi.stubEnv("POLYMARKET_BUILDER_SECRET", "");
+    vi.stubEnv("POLYMARKET_BUILDER_PASSPHRASE", "");
     vi.stubEnv("POLYMARKET_ADDRESS", "0x2222222222222222222222222222222222222222");
     vi.stubEnv("POLYMARKET_API_KEY", "api-key");
     vi.stubEnv("POLYMARKET_SECRET", "secret");
@@ -59,8 +64,9 @@ describe("polymarket runtime config", () => {
 
   it("reports missing CLOB credentials separately", () => {
     vi.stubEnv("POLYMARKET_BUILDER_CODE", "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    vi.stubEnv("RELAYER_API_KEY", "relayer-key");
-    vi.stubEnv("RELAYER_API_KEY_ADDRESS", "0x1111111111111111111111111111111111111111");
+    vi.stubEnv("POLYMARKET_BUILDER_API_KEY", "builder-key");
+    vi.stubEnv("POLYMARKET_BUILDER_SECRET", "builder-secret");
+    vi.stubEnv("POLYMARKET_BUILDER_PASSPHRASE", "builder-passphrase");
     vi.stubEnv("POLYMARKET_RPC_URL", "https://polygon-rpc.example");
 
     const config = getPolymarketRuntimeConfigDetails();
@@ -73,8 +79,9 @@ describe("polymarket runtime config", () => {
 
   it("accepts a valid Polygon RPC URL and reports a clear error when it is missing", () => {
     vi.stubEnv("POLYMARKET_BUILDER_CODE", "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    vi.stubEnv("RELAYER_API_KEY", "relayer-key");
-    vi.stubEnv("RELAYER_API_KEY_ADDRESS", "0x1111111111111111111111111111111111111111");
+    vi.stubEnv("POLYMARKET_BUILDER_API_KEY", "builder-key");
+    vi.stubEnv("POLYMARKET_BUILDER_SECRET", "builder-secret");
+    vi.stubEnv("POLYMARKET_BUILDER_PASSPHRASE", "builder-passphrase");
     vi.stubEnv("POLYMARKET_RPC_URL", "https://polygon-rpc.com");
     vi.stubEnv("POLYMARKET_ADDRESS", "0x2222222222222222222222222222222222222222");
     vi.stubEnv("POLYMARKET_API_KEY", "api-key");

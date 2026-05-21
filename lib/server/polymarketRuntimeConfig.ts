@@ -20,7 +20,7 @@ export type PolymarketRuntimeConfigDetails = PolymarketRuntimeConfigSummary & {
 };
 
 type ConfigIssue = {
-  key: "builder" | "relayer" | "clob" | "rpc";
+  key: "builder" | "builder_relayer" | "clob" | "rpc";
   message: string;
 };
 
@@ -38,8 +38,9 @@ const isValidHttpUrl = (value: string | null) => {
 
 export function getPolymarketRuntimeConfigDetails(): PolymarketRuntimeConfigDetails {
   const builderCode = env("POLYMARKET_BUILDER_CODE") || null;
-  const relayerApiKey = env("RELAYER_API_KEY") || null;
-  const relayerApiKeyAddress = env("RELAYER_API_KEY_ADDRESS") || null;
+  const builderApiKey = env("POLYMARKET_BUILDER_API_KEY") || null;
+  const builderSecret = env("POLYMARKET_BUILDER_SECRET") || null;
+  const builderPassphrase = env("POLYMARKET_BUILDER_PASSPHRASE") || null;
   const rpcUrl = env("POLYMARKET_RPC_URL") || null;
   const clobAccountAddress = env("POLYMARKET_ADDRESS") || null;
   const clobApiKey = env("POLYMARKET_API_KEY") || null;
@@ -47,7 +48,7 @@ export function getPolymarketRuntimeConfigDetails(): PolymarketRuntimeConfigDeta
   const clobPassphrase = env("POLYMARKET_PASSPHRASE") || null;
 
   const builderReady = Boolean(builderCode && BYTES32_RE.test(builderCode));
-  const hasRelayerCreds = Boolean(relayerApiKey && relayerApiKeyAddress && ADDRESS_RE.test(relayerApiKeyAddress));
+  const hasRelayerCreds = Boolean(builderApiKey && builderSecret && builderPassphrase);
   const hasClobCreds = Boolean(clobAccountAddress && ADDRESS_RE.test(clobAccountAddress) && clobApiKey && clobSecret && clobPassphrase);
   const rpcReady = isValidHttpUrl(rpcUrl);
 
@@ -60,8 +61,8 @@ export function getPolymarketRuntimeConfigDetails(): PolymarketRuntimeConfigDeta
 
   if (!hasRelayerCreds) {
     issues.push({
-      key: "relayer",
-      message: "Gasless trading is not configured on server.",
+      key: "builder_relayer",
+      message: "Builder relayer credentials are missing. Gasless trading is not configured on server.",
     });
   }
 
@@ -87,7 +88,7 @@ export function getPolymarketRuntimeConfigDetails(): PolymarketRuntimeConfigDeta
     realTradingEnabled: process.env.ENABLE_REAL_TRADING === "true",
     rpcReady,
     builderCode,
-    relayerApiKeyAddress,
+    relayerApiKeyAddress: null,
     clobAccountAddress,
     hasClobCreds,
     hasRelayerCreds,
@@ -117,19 +118,17 @@ export function requireBuilderCode() {
 }
 
 export function requireRelayerAuth() {
-  const relayerApiKey = env("RELAYER_API_KEY");
-  const relayerApiKeyAddress = env("RELAYER_API_KEY_ADDRESS");
-  if (!relayerApiKey || !relayerApiKeyAddress) {
-    throw new Error("Gasless trading is not configured on server.");
+  return requireBuilderRelayerAuth();
+}
+
+export function requireBuilderRelayerAuth() {
+  const builderApiKey = env("POLYMARKET_BUILDER_API_KEY");
+  const builderSecret = env("POLYMARKET_BUILDER_SECRET");
+  const builderPassphrase = env("POLYMARKET_BUILDER_PASSPHRASE");
+  if (!builderApiKey || !builderSecret || !builderPassphrase) {
+    throw new Error("Builder relayer credentials are missing. Gasless trading is not configured on server.");
   }
-  if (!ADDRESS_RE.test(relayerApiKeyAddress)) {
-    throw new Error("RELAYER_API_KEY_ADDRESS is invalid. Expected an Ethereum address.");
-  }
-  const rpcUrl = env("POLYMARKET_RPC_URL");
-  if (!isValidHttpUrl(rpcUrl)) {
-    throw new Error(RPC_ERROR_MESSAGE);
-  }
-  return { relayerApiKey, relayerApiKeyAddress, rpcUrl };
+  return { builderApiKey, builderSecret, builderPassphrase };
 }
 
 export function requireClobAuth() {
