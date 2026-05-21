@@ -113,7 +113,6 @@ export async function POST(request: Request) {
   logInfo("api.polymarket.order", "order_submission_started", {
     orderType: execution,
     tokenIdPrefix: normalizedOrder.tokenId.slice(0, 12),
-    builderCode,
     apiKey: redactCredential(creds.key),
     tradeMode: parsed.tradeMode ?? null,
     signatureType: normalizedOrder.signatureType,
