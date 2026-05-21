@@ -6,13 +6,20 @@ import type { MarketBubbleNode } from "@/components/MarketBubbleMap";
 const mocks = vi.hoisted(() => ({
   placeLimitOrder: vi.fn(),
   createSignerClient: vi.fn(),
+  publicClient: {},
   account: { chainId: 137, isConnected: true },
   walletClient: { account: { address: "0x123" } },
+  depositWalletStatus: { initialized: true, depositWallet: "0xdeadbeef" },
 }));
 
 vi.mock("wagmi", () => ({
   useAccount: () => mocks.account,
   useWalletClient: () => ({ data: mocks.walletClient }),
+  usePublicClient: () => mocks.publicClient,
+}));
+
+vi.mock("@/lib/polymarket/depositWallet", () => ({
+  getDepositWalletStatus: vi.fn(async () => mocks.depositWalletStatus),
 }));
 
 vi.mock("@/lib/polymarket/client", () => ({
@@ -71,8 +78,9 @@ describe("MarketTradePanel orders", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.includes("/api/polymarket/config"))
-          return new Response(JSON.stringify({ realTradingEnabled: true, builderCode: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }), { status: 200 });
-        if (url.includes("/api/polymarket/account")) return new Response(JSON.stringify({ balance: { balance: "100000000" } }), { status: 200 });
+          return new Response(JSON.stringify({ ok: true, realTradingEnabled: true, builderCode: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }), { status: 200 });
+        if (url.includes("/api/polymarket/account"))
+          return new Response(JSON.stringify({ ok: true, balance: { balance: "100000000", allowances: { exchange: "1", conditional: "1" } } }), { status: 200 });
         return new Response(JSON.stringify({}), { status: 200 });
       }),
     );
@@ -92,5 +100,28 @@ describe("MarketTradePanel orders", () => {
         size: 10,
       }),
     );
+  });
+
+  it("disables live trading and shows the setup reason when the deposit wallet is missing", async () => {
+    mocks.depositWalletStatus = { initialized: false, depositWallet: "0xdeadbeef" };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/polymarket/config"))
+          return new Response(JSON.stringify({ ok: true, realTradingEnabled: true, builderCode: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }), { status: 200 });
+        if (url.includes("/api/polymarket/account")) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        return new Response(JSON.stringify({}), { status: 200 });
+      }),
+    );
+
+    render(<MarketTradePanel market={market} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/polymarket/config", { cache: "no-store" }));
+    const buyButton = screen.getByRole("button", { name: /buy psg\s+59/i });
+    const sellButton = screen.getByRole("button", { name: /sell psg\s+59/i });
+    expect(buyButton).toBeDisabled();
+    expect(sellButton).toBeDisabled();
+    expect(screen.getByText("Initialize trading wallet.")).toBeInTheDocument();
   });
 });

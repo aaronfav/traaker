@@ -19,6 +19,23 @@ import {
 import { MarketTradePanel } from "@/components/MarketTradePanel";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
+const mocks = vi.hoisted(() => ({
+  account: { chainId: 137, isConnected: true },
+  walletClient: { account: { address: "0x123" } },
+  publicClient: {},
+  depositWalletStatus: { initialized: true, depositWallet: "0xdeadbeef" },
+}));
+
+vi.mock("wagmi", () => ({
+  useAccount: () => mocks.account,
+  useWalletClient: () => ({ data: mocks.walletClient }),
+  usePublicClient: () => mocks.publicClient,
+}));
+
+vi.mock("@/lib/polymarket/depositWallet", () => ({
+  getDepositWalletStatus: vi.fn(async () => mocks.depositWalletStatus),
+}));
+
 function createStrictCanvasContext() {
   const gradient = { addColorStop: vi.fn() };
   return {
@@ -96,6 +113,19 @@ describe("MarketBubbleMap", () => {
   beforeEach(() => {
     let frameCount = 0;
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(createStrictCanvasContext());
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/polymarket/config")) {
+          return new Response(JSON.stringify({ ok: true, realTradingEnabled: true, builderCode: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }), { status: 200 });
+        }
+        if (url.includes("/api/polymarket/account")) {
+          return new Response(JSON.stringify({ ok: true, balance: { balance: "100000000", allowances: { exchange: "1", conditional: "1" } } }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }),
+    );
     vi.stubGlobal(
       "requestAnimationFrame",
       vi.fn((callback: FrameRequestCallback) => {
@@ -479,10 +509,6 @@ describe("MarketBubbleMap", () => {
     const sellButton = screen.getByRole("button", { name: /sell lakers\s+47/i });
     expect(buyButton).toBeEnabled();
     expect(sellButton).toBeEnabled();
-
-    fireEvent.click(buyButton);
-
-    expect(screen.getAllByText("Connect a wallet before trading.").length).toBeGreaterThan(0);
   });
 
   it("refreshes the quote on a 10-second cycle and via the refresh-now icon", async () => {

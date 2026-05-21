@@ -26,6 +26,16 @@ export async function GET() {
     return NextResponse.json({ ok: true, balance, openOrders, trades }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     logError("api.polymarket.account", error);
-    return NextResponse.json({ ok: false, error: "Unable to load Polymarket account data." }, { status: 502 });
+    const message = error instanceof Error ? error.message : "Unable to load Polymarket account data.";
+    const configInvalid = /POLYMARKET_(ADDRESS|API_KEY|SECRET|PASSPHRASE)|bytes32 hex string/i.test(message);
+    return NextResponse.json(
+      {
+        ok: false,
+        code: configInvalid ? "POLYMARKET_CONFIG_INVALID" : "POLYMARKET_ACCOUNT_UNAVAILABLE",
+        error: configInvalid ? "POLYMARKET configuration is missing or invalid." : "Unable to load Polymarket account data.",
+        details: { message },
+      },
+      { status: configInvalid ? 500 : 502, headers: { "Cache-Control": "no-store" } },
+    );
   }
 }

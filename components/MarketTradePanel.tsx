@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
-import { useAccount, useWalletClient } from "wagmi";
+import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { getDepositWalletStatus } from "@/lib/polymarket/depositWallet";
 import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
+import { getTradeDisabledReason } from "@/lib/polymarket/readiness";
 import { placeLimitOrder, Side, validateTrade } from "@/lib/polymarket/orders";
+import type { PortfolioBalanceState } from "@/lib/polymarket/types";
 import type { MarketBubbleNode } from "@/components/MarketBubbleMap";
 
 const QUOTE_REFRESH_MS = 10_000;
@@ -47,7 +50,7 @@ function extractOrderId(response: unknown) {
 }
 
 function userFacingTradeError(message: string) {
-  return /builder code/i.test(message) ? "Trading configuration is unavailable. Try again after deployment configuration is updated." : message;
+  return message;
 }
 
 function selectedOutcomeFromMarket(market: MarketBubbleNode, preferred?: string | null) {
@@ -70,6 +73,14 @@ function useOptionalWalletClient() {
   }
 }
 
+function useOptionalPublicClient() {
+  try {
+    return usePublicClient({ chainId: 137 });
+  } catch {
+    return undefined;
+  }
+}
+
 export function MarketTradePanel({
   market,
   onUpdatePrices,
@@ -80,12 +91,17 @@ export function MarketTradePanel({
   onClose: () => void;
 }) {
   const { chainId, isConnected } = useOptionalAccount();
+  const publicClient = useOptionalPublicClient();
   const walletClient = useOptionalWalletClient();
   const [displayMarket, setDisplayMarket] = useState(market);
   const [selectedOutcomeName, setSelectedOutcomeName] = useState(() => selectedOutcomeFromMarket(market)?.name ?? "");
   const [shares, setShares] = useState(DEFAULT_SHARES);
   const [realTradingEnabled, setRealTradingEnabled] = useState(false);
   const [builderCode, setBuilderCode] = useState("");
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [depositWalletInitialized, setDepositWalletInitialized] = useState<boolean | null>(null);
+  const [accountBalance, setAccountBalance] = useState<PortfolioBalanceState | null>(null);
+  const [accountError, setAccountError] = useState<string | null>(null);
   const [submittingSide, setSubmittingSide] = useState<TradeSide | null>(null);
   const [toast, setToast] = useState<TradeToast | null>(null);
   const [orderId, setOrderId] = useState("");
@@ -109,6 +125,17 @@ export function MarketTradePanel({
   const secondsSinceUpdate = quoteUpdatedAt !== null ? Math.max(0, Math.floor((quoteNow - quoteUpdatedAt) / 1000)) : null;
   const quoteLabel = quoteStatus === "stale" ? "Quote stale" : quoteStatus === "refreshing" ? "Refreshing quote" : formatSeconds(secondsSinceUpdate);
   const polymarketUrl = displayMarket.polymarketUrl ?? displayMarket.marketUrl;
+  const tradeDisabledReason = getTradeDisabledReason({
+    configReady: Boolean(builderCode) && !configError,
+    configError,
+    realTradingEnabled,
+    isConnected,
+    chainId,
+    depositWalletInitialized,
+    balance: accountBalance,
+    accountError,
+    quoteFresh: quoteStatus === "healthy",
+  });
 
   useEffect(() => {
     mountedRef.current = true;
@@ -136,15 +163,102 @@ export function MarketTradePanel({
     let active = true;
     fetch("/api/polymarket/config", { cache: "no-store" })
       .then((response) => response.json())
-      .then((data: { realTradingEnabled?: boolean; builderCode?: string }) => {
-        if (active && data.realTradingEnabled) setRealTradingEnabled(true);
-        if (active && data.builderCode) setBuilderCode(data.builderCode);
+      .then((data: { ok?: boolean; realTradingEnabled?: boolean; builderCode?: string; error?: string }) => {
+        if (!active) return;
+        if (!data.ok) {
+          setConfigError(data.error ?? "Trading configuration is unavailable.");
+          setRealTradingEnabled(false);
+          return;
+        }
+        setConfigError(null);
+        setRealTradingEnabled(Boolean(data.realTradingEnabled));
+        if (data.builderCode) setBuilderCode(data.builderCode);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!active) return;
+        setConfigError("Trading configuration is unavailable.");
+        setRealTradingEnabled(false);
+      });
     return () => {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!isConnected || chainId !== 137 || !walletClient || !publicClient) {
+      setDepositWalletInitialized(null);
+      setAccountBalance(null);
+      setAccountError(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    const address = walletClient.account?.address;
+    if (!address) {
+      setDepositWalletInitialized(null);
+      setAccountBalance(null);
+      setAccountError(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    void getDepositWalletStatus(address, publicClient)
+      .then(async (status) => {
+        if (!active) return;
+        setDepositWalletInitialized(status.initialized);
+        if (!status.initialized) {
+          setAccountBalance(null);
+          setAccountError(null);
+          return;
+        }
+        if (configError) {
+          setAccountBalance(null);
+          setAccountError(configError);
+          return;
+        }
+        try {
+          const response = await fetch("/api/polymarket/account", { cache: "no-store" });
+          const data = await response.json().catch(() => null);
+          if (!active) return;
+          if (!response.ok || !data?.ok) {
+            setAccountBalance(null);
+            setAccountError(data?.error ?? "Unable to load Polymarket account data.");
+            return;
+          }
+          setAccountError(null);
+          setAccountBalance({
+            usdc: {
+              balance: Number(data.balance?.balance ?? 0) / 1_000_000,
+              rawBalance: String(data.balance?.balance ?? "0"),
+              allowances: data.balance?.allowances ?? {},
+              exchangeAllowance: (Object.values(data.balance?.allowances ?? {})[0] as string | undefined) ?? null,
+              ctfAllowance: (Object.values(data.balance?.allowances ?? {})[1] as string | undefined) ?? null,
+              hasExchangeAllowance: Boolean(Object.values(data.balance?.allowances ?? {})[0]),
+              hasCtfAllowance: Boolean(Object.values(data.balance?.allowances ?? {})[1]),
+            },
+            pUsd: null,
+            conditional: null,
+            source: "polymarket",
+          });
+        } catch {
+          if (!active) return;
+          setAccountBalance(null);
+          setAccountError("Unable to load Polymarket account data.");
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        setDepositWalletInitialized(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [chainId, configError, isConnected, publicClient, walletClient]);
 
   const refreshQuote = useCallback(async () => {
     if (!onUpdatePrices || !mountedRef.current) return;
@@ -206,6 +320,10 @@ export function MarketTradePanel({
       const outcome = selectedOutcome;
       const price = side === "Buy" ? buyPrice : sellPrice;
       if (!outcome || !Number.isFinite(price)) return;
+      if (tradeDisabledReason) {
+        setToast({ tone: "error", message: tradeDisabledReason });
+        return;
+      }
       setSubmittingSide(side);
       setToast(null);
       setOrderId("");
@@ -290,7 +408,7 @@ export function MarketTradePanel({
         setSubmittingSide(null);
       }
     },
-    [builderCode, buyPrice, chainId, isConnected, realTradingEnabled, safeShares, selectedOutcome, sellPrice, walletClient],
+    [builderCode, buyPrice, chainId, isConnected, realTradingEnabled, safeShares, selectedOutcome, sellPrice, tradeDisabledReason, walletClient],
   );
 
   const actionButtons = useMemo(
@@ -299,7 +417,7 @@ export function MarketTradePanel({
         { side: "Buy" as const, price: buyPrice, className: "bg-emerald-400 text-slate-950 hover:bg-emerald-300" },
         { side: "Sell" as const, price: sellPrice, className: "bg-rose-400 text-slate-950 hover:bg-rose-300" },
       ]).map((action) => {
-        const disabled = !selectedOutcome || !Number.isFinite(action.price) || safeShares <= 0 || submittingSide !== null;
+        const disabled = Boolean(tradeDisabledReason) || !selectedOutcome || !Number.isFinite(action.price) || safeShares <= 0 || submittingSide !== null;
         const label = Number.isFinite(action.price) && selectedOutcome ? `${action.side} ${selectedOutcome.name}  ${formatCents(action.price as number)}` : `${action.side} unavailable`;
         return (
           <Button
@@ -309,13 +427,14 @@ export function MarketTradePanel({
             onClick={() => void createOrder(action.side)}
             type="button"
             variant={Number.isFinite(action.price) ? "default" : "secondary"}
+            title={tradeDisabledReason ?? undefined}
           >
             {submittingSide === action.side ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {label}
           </Button>
         );
       }),
-    [buyPrice, createOrder, safeShares, selectedOutcome, sellPrice, submittingSide],
+    [buyPrice, createOrder, safeShares, selectedOutcome, sellPrice, submittingSide, tradeDisabledReason],
   );
 
   return (
@@ -429,6 +548,7 @@ export function MarketTradePanel({
 
       <div className="border-t border-zinc-800/90 bg-[#07080b]/98 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-18px_38px_rgba(0,0,0,0.32)]">
         <div className="flex gap-2">{actionButtons}</div>
+        {tradeDisabledReason ? <p className="mt-2 text-[11px] leading-4 text-amber-200">{tradeDisabledReason}</p> : null}
         <p className="mt-2 text-[11px] leading-4 text-zinc-500">
           Orders are signed by your wallet and posted to Polymarket CLOB V2. Traak never takes custody of funds.
         </p>

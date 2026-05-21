@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { Activity, AlertTriangle, Clock, Info, Loader2, RefreshCw, Wallet, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cancelOrder } from "@/lib/polymarket/orders";
 import { getDepositWalletStatus } from "@/lib/polymarket/depositWallet";
+import { buildPortfolioSetupSteps } from "@/lib/polymarket/readiness";
 import { getPnLPlaceholder, getPositions } from "@/lib/polymarket/portfolio";
 import type { PortfolioBalanceState, Position } from "@/lib/polymarket/types";
 import type { OpenOrder } from "@polymarket/clob-client-v2";
@@ -112,12 +114,29 @@ export default function PortfolioClient() {
         }
 
         const walletStatus = await getDepositWalletStatus(address as Address, publicClient);
+        if (!active) return;
+        setDepositWallet(walletStatus);
+        if (!walletStatus.initialized) {
+          setBalance(emptyBalance);
+          setPositions(fallbackPositions);
+          setOpenOrders([]);
+          setTrades([]);
+          setError("");
+          setNotice("Initialize the trading wallet from the connect flow, then refresh balances and allowances.");
+          return;
+        }
+
+        const configResponse = await fetch("/api/polymarket/config", { cache: "no-store" });
+        const configData = await configResponse.json().catch(() => null);
+        if (!configResponse.ok || !configData?.ok) {
+          throw new Error(configData?.error ?? "Trading configuration is unavailable.");
+        }
+
         const accountResponse = await fetch("/api/polymarket/account", { cache: "no-store" });
         const accountData = await accountResponse.json();
         if (!accountResponse.ok || !accountData.ok) throw new Error(accountData.error ?? "Unable to load Polymarket account data.");
 
         if (!active) return;
-        setDepositWallet(walletStatus);
         setBalance({
           usdc: {
             balance: Number(accountData.balance?.balance ?? 0) / 1_000_000,
@@ -135,6 +154,8 @@ export default function PortfolioClient() {
         setPositions(fallbackPositions);
         setOpenOrders(Array.isArray(accountData.openOrders) ? accountData.openOrders : []);
         setTrades(Array.isArray(accountData.trades) ? accountData.trades : []);
+        setError("");
+        setNotice("");
       } catch (err) {
         if (!active) return;
         setError(err instanceof Error ? err.message : "Unable to load portfolio.");
@@ -165,13 +186,16 @@ export default function PortfolioClient() {
     groups[sport] = [...(groups[sport] ?? []), position];
     return groups;
   }, {});
-  const approvalWarnings = [
-    !depositWallet?.initialized && isConnected && chainId === 137 ? "Polymarket deposit wallet is not initialized. Trading wallet setup is required before real orders can settle." : "",
-    balance.source === "polymarket" && !balance.usdc.hasExchangeAllowance ? "Exchange allowance is missing or zero." : "",
-    balance.source === "polymarket" && !balance.usdc.hasCtfAllowance ? "CTF allowance is missing or zero." : "",
-  ].filter(Boolean);
+  const setupSteps = buildPortfolioSetupSteps({
+    isConnected,
+    chainId,
+    configReady: error === "" && !notice.includes("Trading configuration is unavailable"),
+    configError: error.includes("Trading configuration is unavailable") ? error : null,
+    depositWalletInitialized: depositWallet?.initialized ?? null,
+    balance,
+  });
   const totalPositionValue = positions.reduce((sum, position) => sum + position.value, 0);
-  const accountReady = isConnected && chainId === 137 && balance.source === "polymarket" && approvalWarnings.length === 0;
+  const accountReady = setupSteps.every((step) => step.ready);
   const walletStatusText = isConnected ? (chainId === 137 ? "Polygon connected" : "Wrong network") : "Wallet disconnected";
   const accountStatusDetail = accountReady
     ? "Balances and allowances are ready"
@@ -186,10 +210,25 @@ export default function PortfolioClient() {
     setNotice("");
     try {
       const walletStatus = await getDepositWalletStatus(address as Address, publicClient);
+      setDepositWallet(walletStatus);
+      if (!walletStatus.initialized) {
+        setBalance(emptyBalance);
+        setOpenOrders([]);
+        setTrades([]);
+        setPositions(await getPositions());
+        setNotice("Initialize the trading wallet from the connect flow, then refresh balances and allowances.");
+        return;
+      }
+
+      const configResponse = await fetch("/api/polymarket/config", { cache: "no-store" });
+      const configData = await configResponse.json().catch(() => null);
+      if (!configResponse.ok || !configData?.ok) {
+        throw new Error(configData?.error ?? "Trading configuration is unavailable.");
+      }
+
       const accountResponse = await fetch("/api/polymarket/account", { cache: "no-store" });
       const accountData = await accountResponse.json();
       if (!accountResponse.ok || !accountData.ok) throw new Error(accountData.error ?? "Unable to load Polymarket account data.");
-      setDepositWallet(walletStatus);
       setBalance({
         usdc: {
           balance: Number(accountData.balance?.balance ?? 0) / 1_000_000,
@@ -207,6 +246,8 @@ export default function PortfolioClient() {
       setOpenOrders(Array.isArray(accountData.openOrders) ? accountData.openOrders : []);
       setTrades(Array.isArray(accountData.trades) ? accountData.trades : []);
       setPositions(await getPositions());
+      setError("");
+      setNotice("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to refresh portfolio.");
     } finally {
@@ -279,23 +320,37 @@ export default function PortfolioClient() {
             </Card>
           ) : null}
 
-          {approvalWarnings.length > 0 ? (
-            <Card className="border-amber-400/30 bg-amber-950/20 shadow-xl shadow-black/15">
-              <CardContent className="p-4">
-                <div className="flex gap-3">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
-                  <div>
-                    <p className="font-semibold text-amber-100">Wallet setup needs attention</p>
-                    <div className="mt-1 space-y-1 text-sm leading-6 text-amber-100/75">
-                      {approvalWarnings.map((warning) => (
-                        <p key={warning}>{warning}</p>
-                      ))}
+          <Card className="border-slate-800/90 bg-slate-950/72 shadow-xl shadow-black/15 lg:col-span-2">
+            <CardHeader className="pb-4">
+              <CardTitle>Setup checklist</CardTitle>
+              <CardDescription>Follow these steps to move from a connected wallet to a ready trading account.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {setupSteps.map((step) => (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-black/20 p-3" key={step.key}>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <Badge tone={step.ready ? "green" : "amber"}>{step.ready ? "Ready" : "Pending"}</Badge>
+                      <p className="text-sm font-semibold text-slate-100">{step.label}</p>
                     </div>
+                    <p className="mt-1 text-sm leading-6 text-slate-400">{step.detail}</p>
                   </div>
+                  {!step.ready && step.actionLabel ? (
+                    step.actionHref ? (
+                      <Link className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-100 transition hover:bg-slate-800" href={step.actionHref}>
+                        {step.actionLabel}
+                      </Link>
+                    ) : (
+                      <Button disabled={loading} onClick={() => void refreshPortfolio()} size="sm" type="button" variant="secondary">
+                        <RefreshCw className="h-3 w-3" />
+                        {step.actionLabel}
+                      </Button>
+                    )
+                  ) : null}
                 </div>
-              </CardContent>
-            </Card>
-          ) : null}
+              ))}
+            </CardContent>
+          </Card>
         </div>
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

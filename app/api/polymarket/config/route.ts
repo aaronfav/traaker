@@ -12,8 +12,14 @@ export async function GET() {
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Invalid Polymarket config.";
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Invalid Polymarket config." },
+      {
+        ok: false,
+        code: "POLYMARKET_CONFIG_INVALID",
+        error: message,
+        details: { message },
+      },
       { status: 500, headers: { "Cache-Control": "no-store" } },
     );
   }
