@@ -61,6 +61,8 @@ type NormalizedMarketOutcome = {
   name: string;
   price: number;
   tokenId: string;
+  marketId?: string;
+  conditionId?: string;
   bestBid?: number;
   bestAsk?: number;
 };
@@ -251,6 +253,8 @@ function chooseOutcomeName(tokenName: string, rawName: string, marketTitle: stri
 
 function buildOutcomeOptions(raw: GammaMarket) {
   const title = asString(pick(raw, ["question", "title", "q", "name"]), "");
+  const conditionId = asString(pick(raw, ["conditionId", "condition_id", "id", "c"]), "");
+  const marketId = asString(pick(raw, ["id", "market", "marketId", "questionID", "question_id"], conditionId), conditionId);
   const rawOutcomes = parseStringArray(raw.outcomes);
   const rawPrices = parseNumberArray(raw.outcomePrices);
   const rawTokenIds = parseStringArray(raw.clobTokenIds);
@@ -268,6 +272,8 @@ function buildOutcomeOptions(raw: GammaMarket) {
       name: name.trim() || fallbackOutcomeName(index),
       price,
       tokenId,
+      ...(marketId ? { marketId } : {}),
+      ...(conditionId ? { conditionId } : {}),
       ...(Number.isFinite(bestBid) ? { bestBid } : {}),
       ...(Number.isFinite(bestAsk) ? { bestAsk } : {}),
     };
@@ -472,7 +478,8 @@ export function getMarketPage(discovery: SportsMarketDiscovery, params: MarketQu
     if (getMarketVolume(market) < minVolume) return false;
     if (!matchesSportFilter(market, params.sport)) return false;
     if (!search) return true;
-    const text = `${market.title} ${market.outcomes.yes} ${market.outcomes.no} ${market.league} ${market.sport}`.toLowerCase();
+    const optionText = (market.outcomeOptions ?? []).map((outcome) => outcome.name).join(" ");
+    const text = `${market.title} ${market.outcomes.yes} ${market.outcomes.no} ${optionText} ${market.league} ${market.sport}`.toLowerCase();
     return text.includes(search);
   });
 
@@ -630,7 +637,147 @@ function marketPreferenceScore(market: GammaMarket) {
   return typeBonus + volume;
 }
 
-function normalizeGammaSportsEvent(event: GammaEvent): TerminalMarket | null {
+function isBinaryGenericOutcomeName(name: string) {
+  return /^(yes|no)$/i.test(name.trim());
+}
+
+function fieldOutcomeName(value: unknown, eventTitle: string, index: number) {
+  const text = asString(value, "").replace(/\s+/g, " ").trim();
+  if (!text || isBinaryGenericOutcomeName(text) || isUnhelpfulOutcomeName(text, eventTitle, index)) return "";
+  return text;
+}
+
+function labelFromMarketQuestion(question: string, eventTitle: string, index: number) {
+  const afterColon = question.split(/[:|–-]\s*/).map((item) => item.trim()).filter(Boolean).at(-1) ?? "";
+  const colonLabel = fieldOutcomeName(afterColon, eventTitle, index);
+  if (colonLabel) return colonLabel;
+
+  const escapedTitle = eventTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const cleaned = question
+    .replace(new RegExp(escapedTitle, "ig"), " ")
+    .replace(/\b(will|to|win|wins|winner|champion|champions|league|market|yes|no)\b/gi, " ")
+    .replace(/[?()[\]{}]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return fieldOutcomeName(cleaned, eventTitle, index);
+}
+
+function eventOutcomeLabel(raw: GammaMarket, normalized: TerminalMarket, eventTitle: string, index: number) {
+  const directFields = [
+    raw.groupItemTitle,
+    raw.groupItemThreshold,
+    raw.outcome,
+    raw.name,
+    raw.title,
+  ];
+  for (const field of directFields) {
+    const label = fieldOutcomeName(field, eventTitle, index);
+    if (label) return label;
+  }
+
+  const normalizedYes = fieldOutcomeName(normalized.outcomes.yes, eventTitle, index);
+  if (normalizedYes) return normalizedYes;
+
+  const question = asString(pick(raw, ["question", "q"], ""), "");
+  return labelFromMarketQuestion(question, eventTitle, index) || fallbackOutcomeName(index);
+}
+
+function hasAggregationSignal(eventTitle: string, candidates: Array<{ market: GammaMarket; normalized: TerminalMarket }>) {
+  const title = eventTitle.toLowerCase();
+  if (/\b(winner|champion|champions|outright|who will win|which team|where will)\b/.test(title)) return true;
+  return candidates.length > 1 && candidates.every((candidate) => fieldOutcomeName(candidate.market.groupItemTitle, eventTitle, 0));
+}
+
+function aggregateEventMarkets(event: GammaEvent, candidates: Array<{ market: GammaMarket; normalized: TerminalMarket; score: number }>): TerminalMarket | null {
+  const eventTitle = asString(pick(event, ["title", "ticker", "slug"], ""), "");
+  if (!hasAggregationSignal(eventTitle, candidates)) return null;
+
+  const seen = new Set<string>();
+  const outcomeOptions = candidates
+    .map(({ market, normalized }, index): NormalizedMarketOutcome | null => {
+      const yesOption = normalized.outcomeOptions?.[0];
+      const name = eventOutcomeLabel(market, normalized, eventTitle, index);
+      const normalizedName = normalizeOutcomeText(name);
+      if (!normalizedName || seen.has(normalizedName)) return null;
+      seen.add(normalizedName);
+      const tokenId = yesOption?.tokenId || normalized.tokenIds.yes;
+      const price = yesOption?.price ?? normalized.yesPrice;
+      if (!tokenId || !Number.isFinite(price)) return null;
+      const bestBid = yesOption?.bestBid ?? normalized.bestBid;
+      const bestAsk = yesOption?.bestAsk ?? normalized.bestAsk;
+      return {
+        name,
+        price,
+        tokenId,
+        marketId: yesOption?.marketId ?? normalized.id,
+        conditionId: yesOption?.conditionId ?? normalized.conditionId,
+        ...(Number.isFinite(bestBid) ? { bestBid } : {}),
+        ...(Number.isFinite(bestAsk) ? { bestAsk } : {}),
+      };
+    })
+    .filter((outcome): outcome is NormalizedMarketOutcome => outcome !== null);
+
+  if (outcomeOptions.length < 2) return null;
+
+  const selected = [...candidates].sort((a, b) => b.score - a.score)[0]?.normalized;
+  if (!selected) return null;
+
+  const volume24h = asNumber(pick(event, ["volume24hr", "volume24h"], selected.volume24h), selected.volume24h);
+  const volume = getGammaEventVolume(event);
+  const volume1wk = asNumber(pick(event, ["volume1wk", "volume_1wk"], selected.volume1wk), selected.volume1wk);
+  const liquidity = asNumber(pick(event, ["liquidity", "liquidityNum"], selected.liquidity), selected.liquidity);
+  const acceleration = volumeAcceleration(volume24h, volume1wk);
+  const haystack = buildSportsSignalText(event);
+  const sport = inferSport(haystack);
+  const eventSlug = asString(pick(event, ["slug", "ticker"], ""), eventTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+  const first = outcomeOptions[0];
+  const second = outcomeOptions[1] ?? outcomeOptions[0];
+  const spread = outcomeOptions
+    .map((outcome) => (Number.isFinite(outcome.bestBid) && Number.isFinite(outcome.bestAsk) ? (outcome.bestAsk as number) - (outcome.bestBid as number) : Number.NaN))
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b)[0] ?? selected.spread;
+
+  return {
+    ...selected,
+    id: eventSlug || String(event.id ?? selected.id),
+    conditionId: selected.conditionId,
+    slug: eventSlug || selected.slug,
+    title: eventTitle || selected.title,
+    sport,
+    league: inferLeague(haystack, sport),
+    startTime: (pickFirstDate(event, ["startTime", "gameStartTime", "eventStartTime", "eventDate", "startDate"]) ?? parseDate(selected.startTime))?.toISOString() ?? selected.startTime,
+    endTime: null,
+    status: classifyMarketStatus({ startTime: pick(event, ["startTime", "gameStartTime", "eventStartTime", "eventDate", "startDate"], selected.startTime) }),
+    yesPrice: Math.max(0.01, Math.min(0.99, first.price)),
+    noPrice: Math.max(0.01, Math.min(0.99, second.price)),
+    volume,
+    volume24h,
+    volume1wk,
+    liquidity,
+    volumeAcceleration: acceleration,
+    spread,
+    opportunityScore: opportunityScore({
+      liquidity,
+      volume: volume24h,
+      priceMove24h: selected.priceMove24h,
+      recentTrades: selected.recentTradesCount,
+      spread,
+      volumeAcceleration: acceleration,
+    }),
+    outcomes: {
+      yes: first.name,
+      no: second.name,
+    },
+    tokenIds: {
+      yes: first.tokenId,
+      no: second.tokenId,
+    },
+    outcomeOptions,
+    image: asString(pick(event, ["image", "icon"], selected.image), selected.image),
+  };
+}
+
+export function normalizeGammaSportsEvent(event: GammaEvent): TerminalMarket | null {
   const eventVolume = getGammaEventVolume(event);
   const eventTitle = asString(pick(event, ["title", "ticker", "slug"], ""), "");
   const eventSlug = asString(pick(event, ["slug", "ticker"], ""), eventTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
@@ -641,6 +788,9 @@ function normalizeGammaSportsEvent(event: GammaEvent): TerminalMarket | null {
     .map(({ market, score }) => ({ market, normalized: normalizeGammaMarket(market), score }))
     .filter((item): item is { market: GammaMarket; normalized: TerminalMarket; score: number } => item.normalized !== null)
     .sort((a, b) => b.score - a.score);
+
+  const aggregated = aggregateEventMarkets(event, candidates);
+  if (aggregated) return aggregated;
 
   const selected = candidates[0]?.normalized;
   if (!selected) return null;
@@ -782,6 +932,8 @@ export function normalizeGammaMarket(raw: GammaMarket): TerminalMarket | null {
   const volume1wk = asNumber(pick(raw, ["volume1wk", "volume_1wk"], Math.max(volume24h, volume / 4)));
   const liquidity = asNumber(pick(raw, ["liquidity", "liquidityNum", "liquidity_num", "rewards_min_size"], 0));
   const priceMove24h = asNumber(pick(raw, ["oneDayPriceChange", "price_change_24hr", "priceChange24h", "one_day_price_change"], 0));
+  const bestBid = asNumber(pick(raw, ["bestBid", "best_bid"], Number.NaN), Number.NaN);
+  const bestAsk = asNumber(pick(raw, ["bestAsk", "best_ask"], Number.NaN), Number.NaN);
   const spread = asNumber(pick(raw, ["spread"], Math.abs(asNumber(pick(raw, ["bestAsk"], yesPrice)) - asNumber(pick(raw, ["bestBid"], yesPrice)))), 0.04);
   const recentTradesCount = asNumber(pick(raw, ["trades_count", "recent_trades_count"], Math.max(10, volume24h / 5000)));
   const times = resolveMarketTimes(raw);
@@ -810,6 +962,8 @@ export function normalizeGammaMarket(raw: GammaMarket): TerminalMarket | null {
     volume1wk,
     volumeAcceleration: acceleration,
     spread,
+    ...(Number.isFinite(bestBid) ? { bestBid } : {}),
+    ...(Number.isFinite(bestAsk) ? { bestAsk } : {}),
     recentTradesCount,
     opportunityScore: opportunityScore({
       liquidity,
@@ -1049,12 +1203,16 @@ async function discoverSportsMarketDiscovery(): Promise<SportsMarketDiscovery> {
       if (!eligibility.isSports || eligibility.excludedReason) continue;
       const market = normalizeGammaMarket(rawMarket);
       if (!market) continue;
-      debugMarkets.push(market);
       counts.tradableMarkets += 1;
       counts.tradableSportsMarkets += 1;
       if (market.status === "upcoming") counts.upcomingSportsMarkets += 1;
       if (market.status === "live") counts.liveSportsMarkets += 1;
       if (market.status === "stale") counts.staleOrUnknownSportsMarkets += 1;
+    }
+
+    for (const event of allEvents) {
+      const market = normalizeGammaSportsEvent(event);
+      if (market) debugMarkets.push(market);
     }
 
     debugMarkets.sort((a, b) => b.opportunityScore - a.opportunityScore);

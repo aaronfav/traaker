@@ -20,7 +20,7 @@ export type PolymarketClientInput = {
 };
 
 export function getBuilderCode() {
-  return process.env.NEXT_PUBLIC_POLY_BUILDER_CODE || "";
+  return "";
 }
 
 export function createPolymarketClient(input: PolymarketClientInput = {}) {
@@ -45,11 +45,13 @@ export async function createSignerClient(input: {
   signer: WalletClient;
   signatureType?: SignatureTypeV2;
   funderAddress?: string;
+  builderCode?: string;
 }) {
   return createPolymarketClient({
     signer: input.signer,
     signatureType: input.signatureType ?? SignatureTypeV2.POLY_1271,
     funderAddress: input.funderAddress,
+    builderCode: input.builderCode,
   });
 }
 

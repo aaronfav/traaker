@@ -1,0 +1,96 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { MarketTradePanel } from "@/components/MarketTradePanel";
+import type { MarketBubbleNode } from "@/components/MarketBubbleMap";
+
+const mocks = vi.hoisted(() => ({
+  placeLimitOrder: vi.fn(),
+  createSignerClient: vi.fn(),
+  account: { chainId: 137, isConnected: true },
+  walletClient: { account: { address: "0x123" } },
+}));
+
+vi.mock("wagmi", () => ({
+  useAccount: () => mocks.account,
+  useWalletClient: () => ({ data: mocks.walletClient }),
+}));
+
+vi.mock("@/lib/polymarket/client", () => ({
+  createSignerClient: mocks.createSignerClient,
+  SignatureTypeV2: { POLY_1271: 2 },
+}));
+
+vi.mock("@/lib/polymarket/orders", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/polymarket/orders")>("@/lib/polymarket/orders");
+  return {
+    ...actual,
+    placeLimitOrder: mocks.placeLimitOrder,
+  };
+});
+
+const market: MarketBubbleNode = {
+  id: "uefa-champions-league-winner",
+  conditionId: "psg-condition",
+  title: "UEFA Champions League Winner",
+  sport: "UCL",
+  volume: 100000,
+  liquidity: 75000,
+  priceChange: 0,
+  polymarketUrl: "https://polymarket.com/event/uefa-champions-league-winner",
+  primaryColor: "#0ea5e9",
+  secondaryColor: "#67e8f9",
+  glowColor: "rgba(14,165,233,0.5)",
+  favoredOutcome: "PSG",
+  favoredPrice: 0.59,
+  priceCents: 59,
+  outcomes: [
+    { name: "PSG", price: 0.59, priceCents: 59, tokenId: "111111", marketId: "psg-market", conditionId: "psg-condition" },
+    { name: "Arsenal", price: 0.43, priceCents: 43, tokenId: "222221", marketId: "arsenal-market", conditionId: "arsenal-condition" },
+  ],
+  trendScore: 10,
+  isTrending: true,
+  driftPhase: 0,
+  val: 90,
+  targetX: 0,
+  targetY: 0,
+  x: 0,
+  y: 0,
+};
+
+describe("MarketTradePanel orders", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("submits the selected outcome's real CLOB tokenID", async () => {
+    mocks.createSignerClient.mockResolvedValue({ client: "signed" });
+    mocks.placeLimitOrder.mockResolvedValue({ orderID: "order-1" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/polymarket/config"))
+          return new Response(JSON.stringify({ realTradingEnabled: true, builderCode: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }), { status: 200 });
+        if (url.includes("/api/polymarket/account")) return new Response(JSON.stringify({ balance: { balance: "100000000" } }), { status: 200 });
+        return new Response(JSON.stringify({}), { status: 200 });
+      }),
+    );
+
+    render(<MarketTradePanel market={market} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/polymarket/config", { cache: "no-store" }));
+    fireEvent.click(screen.getByRole("button", { name: /arsenal\s+43/i }));
+    fireEvent.click(screen.getByRole("button", { name: /buy arsenal\s+43/i }));
+
+    await waitFor(() => expect(mocks.placeLimitOrder).toHaveBeenCalled());
+    expect(mocks.placeLimitOrder).toHaveBeenCalledWith(
+      { client: "signed" },
+      expect.objectContaining({
+        tokenID: "222221",
+        price: 0.43,
+        size: 10,
+      }),
+    );
+  });
+});

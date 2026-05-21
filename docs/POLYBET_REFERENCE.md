@@ -38,14 +38,14 @@ Supported sports include NBA, NFL, Soccer, UFC/MMA, Tennis, MLB, NHL, and NCAA.
 Traak now follows Polybet’s credential separation:
 
 1. Browser wallet signs the order through CLOB client order creation.
-2. `builderCode` is added before signing from `NEXT_PUBLIC_POLY_BUILDER_CODE`.
+2. `builderCode` is fetched from Traak's server config route before signing.
 3. The signed order is posted to a Traak server route.
 4. The server validates the signed `order.builder` equals configured builder code.
 5. The server posts to CLOB `/order` with L2 HMAC headers built from server-only credentials.
 
 ## Required Env
 
-- `NEXT_PUBLIC_POLY_BUILDER_CODE`
+- `POLYMARKET_BUILDER_CODE`
 - `POLYMARKET_HOST`
 - `POLYMARKET_ADDRESS`
 - `POLYMARKET_API_KEY`

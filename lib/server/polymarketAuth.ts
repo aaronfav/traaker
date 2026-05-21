@@ -3,9 +3,9 @@ import "server-only";
 import { createHmac } from "node:crypto";
 
 export const getServerBuilderCode = () => {
-  const builderCode = process.env.NEXT_PUBLIC_POLY_BUILDER_CODE?.trim();
+  const builderCode = process.env.POLYMARKET_BUILDER_CODE?.trim();
   if (!builderCode || !/^0x[0-9a-fA-F]{64}$/.test(builderCode)) {
-    throw new Error("NEXT_PUBLIC_POLY_BUILDER_CODE must be a bytes32 hex value.");
+    throw new Error("POLYMARKET_BUILDER_CODE must be a bytes32 hex value.");
   }
   return builderCode;
 };

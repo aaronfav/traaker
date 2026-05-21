@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle2, Loader2, ShieldCheck, FlaskConical } from "lucide-react";
 import { useAccount, useWalletClient } from "wagmi";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +37,7 @@ export function TradeTicket({
   const [orderId, setOrderId] = useState("");
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [availableBalance, setAvailableBalance] = useState<number | null>(null);
+  const [builderCode, setBuilderCode] = useState("");
 
   const price = outcome === "yes" ? market.yesPrice : market.noPrice;
   const tradePrice = mode === "limit" ? Number(limitPrice) / 100 : price;
@@ -45,8 +46,22 @@ export function TradeTicket({
   const estimatedFees = usdcAmount * 0.002;
   const tokenID = outcome === "yes" ? market.tokenIds.yes : market.tokenIds.no;
 
-  const builderCode = process.env.NEXT_PUBLIC_POLY_BUILDER_CODE || "";
   const parsedSlippage = Number(slippage);
+
+  useEffect(() => {
+    let active = true;
+
+    fetch("/api/polymarket/config", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { builderCode?: string }) => {
+        if (active && data.builderCode) setBuilderCode(data.builderCode);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const validation = useMemo(
     () =>
@@ -94,6 +109,7 @@ export function TradeTicket({
       const client = await createSignerClient({
         signer: walletClient,
         signatureType: SignatureTypeV2.POLY_1271,
+        builderCode,
       });
       const accountResponse = await fetch("/api/polymarket/account", { cache: "no-store" });
       const accountData = await accountResponse.json();
@@ -128,6 +144,7 @@ export function TradeTicket({
               price: tradePrice,
               size: estimatedShares,
               side: Side.BUY,
+              builderCode,
             })
           : await placeMarketOrder(client, {
               tokenID,
@@ -136,6 +153,7 @@ export function TradeTicket({
               maxSlippageBps: Number(slippage),
               orderType: OrderType.FOK,
               side: Side.BUY,
+              builderCode,
             });
 
       const nextOrderId = extractOrderId(response);

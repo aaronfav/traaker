@@ -8,7 +8,6 @@ Next.js + TypeScript MVP for browsing and trading Polymarket sports markets thro
 - Market detail pages at `/markets/[id]` with prices, implied probability, chart, orderbook depth, recent trades, and analytics scores.
 - Trading page at `/trade/[id]` with buy YES/NO, amount, limit price, slippage protection, review modal, and CLOB order submission.
 - Portfolio page at `/portfolio` with connected wallet, deposit wallet placeholder, USDC/pUSD balance, open positions, open orders, trade history, and PnL placeholder.
-- Settings page at `/settings` with builder code, CLOB host, Polygon chain status, and wallet notes.
 - Mock fallback data when Polymarket public or authenticated API calls fail.
 
 ## Stack
@@ -27,7 +26,7 @@ Next.js + TypeScript MVP for browsing and trading Polymarket sports markets thro
 Create `.env` from `.env.example` and set:
 
 ```bash
-NEXT_PUBLIC_POLY_BUILDER_CODE="0xYOUR_BYTES32_BUILDER_CODE"
+POLYMARKET_BUILDER_CODE="0xYOUR_BYTES32_BUILDER_CODE"
 POLYMARKET_HOST="https://clob.polymarket.com"
 POLYMARKET_ADDRESS="0xYOUR_POLYMARKET_AUTH_ADDRESS"
 POLYMARKET_API_KEY="your-server-l2-api-key"
@@ -38,7 +37,7 @@ ENABLE_REAL_TRADING="false"
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=""
 ```
 
-`NEXT_PUBLIC_POLY_BUILDER_CODE` must be the bytes32 builder code issued for your Polymarket builder integration. The order helpers pass it as `builderCode` on every limit and marketable order.
+`POLYMARKET_BUILDER_CODE` must be the bytes32 builder code issued for your Polymarket builder integration. The browser fetches it from `/api/polymarket/config`; it is not exposed through a `NEXT_PUBLIC_*` environment variable.
 
 `POLYMARKET_ADDRESS`, `POLYMARKET_API_KEY`, `POLYMARKET_SECRET`, and `POLYMARKET_PASSPHRASE` are server-only CLOB L2 auth values used to post signed orders and read account state. They are never exposed to browser code.
 
@@ -87,13 +86,13 @@ Fallback:
 - Orders include:
 
 ```ts
-builderCode: process.env.NEXT_PUBLIC_POLY_BUILDER_CODE
+builderCode: await fetch("/api/polymarket/config").then((response) => response.json()).then((config) => config.builderCode)
 ```
 
 - Limit orders are signed in the browser with `createOrder`, then posted by the server route with L2 credentials.
 - Marketable orders are signed in the browser with `createMarketOrder`, then posted by the server route with slippage-derived protected price and `OrderType.FOK` by default.
 - Funds are never custodied by this app. Orders are signed by the connected wallet and posted to Polymarket.
-- Server-side CLOB L2 credentials post signed orders and read account state. The browser signs orders with the connected wallet and public builder code only.
+- Server-side CLOB L2 credentials post signed orders and read account state. The browser signs orders with the connected wallet and the builder code fetched from Traak's server config route.
 - Server routes validate public market/order-validation inputs with Zod. Server-side private credential storage is intentionally not added.
 - Simulation mode is displayed but disabled in production so users cannot mistake a dry run for a submitted CLOB order.
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { POLYMARKET_HOST } from "@/lib/polymarket/client";
+import { normalizeSignedOrder } from "@/lib/polymarket/normalizeSignedOrder";
 import { buildL2Headers, getPolymarketServerCreds, getServerBuilderCode, redactCredential } from "@/lib/server/polymarketAuth";
 import { logError, logInfo } from "@/lib/server/logger";
 import { isRealTradingEnabled } from "@/lib/server/tradingConfig";
@@ -28,7 +29,13 @@ const signedOrderSchema = z.object({
 });
 const payloadSchema = z.object({
   order: signedOrderSchema,
-  orderType: orderTypeSchema,
+  orderType: orderTypeSchema.optional(),
+  execution: orderTypeSchema.optional(),
+  tradeMode: z.enum(["limit", "market"]).optional(),
+  signatureType: z.number().optional(),
+  funderAddress: z.string().optional(),
+  authAddress: z.string().optional(),
+  clientMeta: z.record(z.string(), z.unknown()).optional(),
 });
 
 const normalizeSide = (value: string | number) => {
@@ -58,41 +65,35 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Invalid signed order payload." }, { status: 400 });
   }
 
+  let normalizedOrder: ReturnType<typeof normalizeSignedOrder>;
+  try {
+    normalizedOrder = normalizeSignedOrder(parsed.order);
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: "Invalid signed order payload.", details: { message: error instanceof Error ? error.message : "Invalid signed order." } },
+      { status: 400, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   const builderCode = getServerBuilderCode();
-  if (parsed.order.builder.toLowerCase() !== builderCode.toLowerCase()) {
+  if (normalizedOrder.builder.toLowerCase() !== builderCode.toLowerCase()) {
     return NextResponse.json({ ok: false, error: "Order builder code mismatch." }, { status: 400 });
   }
 
-  const tokenId = parsed.order.tokenId ?? parsed.order.tokenID;
-  if (tokenId == null) {
-    return NextResponse.json({ ok: false, error: "Signed order is missing tokenId." }, { status: 400 });
-  }
-
-  const salt = Number.parseInt(String(parsed.order.salt), 10);
-  if (!Number.isFinite(salt)) {
-    return NextResponse.json({ ok: false, error: "Signed order salt is invalid." }, { status: 400 });
+  if (parsed.signatureType != null && normalizedOrder.signatureType !== parsed.signatureType) {
+    return NextResponse.json({ ok: false, error: "Signature type mismatch." }, { status: 400 });
   }
 
   const creds = getPolymarketServerCreds();
+  const execution = parsed.execution ?? parsed.orderType ?? "GTC";
   const orderPayload = {
     order: {
-      salt,
-      maker: parsed.order.maker,
-      signer: parsed.order.signer,
-      taker: parsed.order.taker ?? "0x0000000000000000000000000000000000000000",
-      tokenId: String(tokenId),
-      makerAmount: String(parsed.order.makerAmount),
-      takerAmount: String(parsed.order.takerAmount),
-      side: normalizeSide(parsed.order.side),
-      signatureType: Number(parsed.order.signatureType),
-      timestamp: String(parsed.order.timestamp),
-      expiration: String(parsed.order.expiration),
-      metadata: parsed.order.metadata,
-      builder: parsed.order.builder,
-      signature: parsed.order.signature,
+      ...normalizedOrder,
+      salt: Number.parseInt(normalizedOrder.salt, 10),
+      side: normalizeSide(normalizedOrder.side),
     },
     owner: creds.key,
-    orderType: parsed.orderType,
+    orderType: execution,
   };
   const body = JSON.stringify(orderPayload);
   const requestPath = "/order";
@@ -102,10 +103,12 @@ export async function POST(request: Request) {
   };
 
   logInfo("api.polymarket.order", "order_submission_started", {
-    orderType: parsed.orderType,
-    tokenIdPrefix: String(tokenId).slice(0, 12),
+    orderType: execution,
+    tokenIdPrefix: normalizedOrder.tokenId.slice(0, 12),
     builderCode,
     apiKey: redactCredential(creds.key),
+    tradeMode: parsed.tradeMode ?? null,
+    signatureType: normalizedOrder.signatureType,
   });
 
   try {
@@ -115,9 +118,24 @@ export async function POST(request: Request) {
       body,
     });
     const text = await response.text();
-    const data = text ? JSON.parse(text) : null;
+    let data: Record<string, unknown> | null = null;
+    try {
+      data = text ? (JSON.parse(text) as Record<string, unknown>) : null;
+    } catch {
+      return NextResponse.json(
+        { ok: false, error: "CLOB error", details: { status: response.status, snippet: text.trim().slice(0, 120) || null } },
+        { status: 502, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     if (!response.ok || data?.success === false) {
       logError("api.polymarket.order", { status: response.status, data });
+      const serialized = JSON.stringify(data ?? {}).toLowerCase();
+      if (response.status === 401 && serialized.includes("invalid authorization")) {
+        return NextResponse.json(
+          { ok: false, code: "AUTH_INVALID_SESSION", error: "Polymarket authorization expired. Refresh credentials and retry.", details: data },
+          { status: 401, headers: { "Cache-Control": "no-store" } },
+        );
+      }
       return NextResponse.json(
         { ok: false, error: data?.errorMsg ?? data?.error ?? "CLOB rejected the order.", details: data },
         { status: response.ok ? 400 : 502 },

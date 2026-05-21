@@ -36,6 +36,8 @@ export type TerminalMarket = {
     name: string;
     price: number;
     tokenId: string;
+    marketId?: string;
+    conditionId?: string;
     bestBid?: number;
     bestAsk?: number;
   }>;

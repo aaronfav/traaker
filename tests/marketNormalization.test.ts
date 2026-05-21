@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { normalizeGammaMarket } from "@/lib/polymarket/markets";
+import { normalizeGammaMarket, normalizeGammaSportsEvent } from "@/lib/polymarket/markets";
 
 const validSportsMarket = {
   id: "123",
@@ -66,9 +66,31 @@ describe("normalizeGammaMarket", () => {
     expect(market?.tokenIds.yes).toBe("psg-token");
     expect(market?.tokenIds.no).toBe("arsenal-token");
     expect(market?.outcomeOptions).toEqual([
-      { name: "PSG", price: 0.59, tokenId: "psg-token" },
-      { name: "Arsenal", price: 0.43, tokenId: "arsenal-token" },
+      { name: "PSG", price: 0.59, tokenId: "psg-token", marketId: "ucl-winner", conditionId: "0xucl" },
+      { name: "Arsenal", price: 0.43, tokenId: "arsenal-token", marketId: "ucl-winner", conditionId: "0xucl" },
     ]);
+  });
+
+  it("preserves binary sports matchup labels from JSON-encoded Gamma fields", () => {
+    const market = normalizeGammaMarket({
+      ...validSportsMarket,
+      id: "gt-csk",
+      conditionId: "0xipl",
+      question: "Gujarat Titans vs Chennai Super Kings",
+      slug: "gujarat-titans-vs-chennai-super-kings",
+      outcomes: JSON.stringify(["Gujarat Titans", "Chennai Super Kings"]),
+      outcomePrices: JSON.stringify(["0.57", "0.45"]),
+      clobTokenIds: JSON.stringify(["101", "202"]),
+      tags: JSON.stringify([{ label: "Cricket" }, { label: "Sports" }]),
+    });
+
+    expect(market).not.toBeNull();
+    expect(market?.outcomeOptions).toEqual([
+      { name: "Gujarat Titans", price: 0.57, tokenId: "101", marketId: "gt-csk", conditionId: "0xipl" },
+      { name: "Chennai Super Kings", price: 0.45, tokenId: "202", marketId: "gt-csk", conditionId: "0xipl" },
+    ]);
+    expect(market?.outcomes.yes).toBe("Gujarat Titans");
+    expect(market?.outcomes.no).toBe("Chennai Super Kings");
   });
 
   it("uses tokens outcome names when the outcomes array is missing", () => {
@@ -111,6 +133,67 @@ describe("normalizeGammaMarket", () => {
     expect(market?.outcomeOptions?.map((outcome) => outcome.name)).toEqual(["PSG", "Arsenal"]);
     expect(market?.outcomes.yes).toBe("PSG");
     expect(market?.outcomes.no).toBe("Arsenal");
+  });
+
+  it("aggregates multi-market winner events without losing child market token mapping", () => {
+    const market = normalizeGammaSportsEvent({
+      id: "ucl-event",
+      slug: "uefa-champions-league-winner",
+      title: "UEFA Champions League Winner",
+      category: "Soccer",
+      closed: false,
+      active: true,
+      volume: 100000,
+      volume24hr: 25000,
+      liquidity: 75000,
+      startDate: "2026-06-01T00:00:00Z",
+      tags: [{ label: "Sports" }, { label: "Champions League" }],
+      markets: [
+        {
+          id: "psg-market",
+          conditionId: "psg-condition",
+          question: "Will PSG win the UEFA Champions League?",
+          slug: "psg-ucl-winner",
+          groupItemTitle: "PSG",
+          active: true,
+          acceptingOrders: true,
+          enableOrderBook: true,
+          outcomes: JSON.stringify(["Yes", "No"]),
+          outcomePrices: JSON.stringify(["0.59", "0.41"]),
+          clobTokenIds: JSON.stringify(["111111", "111112"]),
+          bestBid: 0.58,
+          bestAsk: 0.6,
+          tags: [{ label: "Soccer" }],
+        },
+        {
+          id: "arsenal-market",
+          conditionId: "arsenal-condition",
+          question: "Will Arsenal win the UEFA Champions League?",
+          slug: "arsenal-ucl-winner",
+          groupItemTitle: "Arsenal",
+          active: true,
+          acceptingOrders: true,
+          enableOrderBook: true,
+          outcomes: JSON.stringify(["Yes", "No"]),
+          outcomePrices: JSON.stringify(["0.43", "0.57"]),
+          clobTokenIds: JSON.stringify(["222221", "222222"]),
+          bestBid: 0.42,
+          bestAsk: 0.44,
+          tags: [{ label: "Soccer" }],
+        },
+      ],
+    });
+
+    expect(market).not.toBeNull();
+    expect(market?.title).toBe("UEFA Champions League Winner");
+    expect(market?.outcomeOptions).toEqual([
+      { name: "PSG", price: 0.59, tokenId: "111111", marketId: "psg-market", conditionId: "psg-condition", bestBid: 0.58, bestAsk: 0.6 },
+      { name: "Arsenal", price: 0.43, tokenId: "222221", marketId: "arsenal-market", conditionId: "arsenal-condition", bestBid: 0.42, bestAsk: 0.44 },
+    ]);
+    expect(market?.outcomes.yes).toBe("PSG");
+    expect(market?.outcomes.no).toBe("Arsenal");
+    expect(market?.tokenIds.yes).toBe("111111");
+    expect(market?.tokenIds.no).toBe("222221");
   });
 
   it("filters inactive or non-sports markets", () => {

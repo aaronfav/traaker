@@ -85,6 +85,7 @@ export function MarketTradePanel({
   const [selectedOutcomeName, setSelectedOutcomeName] = useState(() => selectedOutcomeFromMarket(market)?.name ?? "");
   const [shares, setShares] = useState(DEFAULT_SHARES);
   const [realTradingEnabled, setRealTradingEnabled] = useState(false);
+  const [builderCode, setBuilderCode] = useState("");
   const [submittingSide, setSubmittingSide] = useState<TradeSide | null>(null);
   const [toast, setToast] = useState<TradeToast | null>(null);
   const [orderId, setOrderId] = useState("");
@@ -135,8 +136,9 @@ export function MarketTradePanel({
     let active = true;
     fetch("/api/polymarket/config", { cache: "no-store" })
       .then((response) => response.json())
-      .then((data: { realTradingEnabled?: boolean }) => {
+      .then((data: { realTradingEnabled?: boolean; builderCode?: string }) => {
         if (active && data.realTradingEnabled) setRealTradingEnabled(true);
+        if (active && data.builderCode) setBuilderCode(data.builderCode);
       })
       .catch(() => undefined);
     return () => {
@@ -210,7 +212,7 @@ export function MarketTradePanel({
 
       const tokenID = outcome.tokenId ?? "";
       const orderValue = safeShares * (price as number);
-      const builderCode = process.env.NEXT_PUBLIC_POLY_BUILDER_CODE || "";
+      const activeBuilderCode = builderCode;
 
       try {
         if (!isConnected) {
@@ -245,7 +247,7 @@ export function MarketTradePanel({
           price: price as number,
           slippageBps: 100,
           availableBalance,
-          builderCode,
+          builderCode: activeBuilderCode,
         });
 
         if (!validation.ok) {
@@ -266,6 +268,7 @@ export function MarketTradePanel({
         const client = await createSignerClient({
           signer: walletClient,
           signatureType: SignatureTypeV2.POLY_1271,
+          builderCode: activeBuilderCode,
         });
         const response = await placeLimitOrder(client, {
           tokenID,
@@ -273,6 +276,7 @@ export function MarketTradePanel({
           size: safeShares,
           side: side === "Buy" ? Side.BUY : Side.SELL,
           userUSDCBalance: side === "Buy" ? availableBalance : undefined,
+          builderCode: activeBuilderCode,
         });
         const nextOrderId = extractOrderId(response);
         setOrderId(nextOrderId);
@@ -286,7 +290,7 @@ export function MarketTradePanel({
         setSubmittingSide(null);
       }
     },
-    [buyPrice, chainId, isConnected, realTradingEnabled, safeShares, selectedOutcome, sellPrice, walletClient],
+    [builderCode, buyPrice, chainId, isConnected, realTradingEnabled, safeShares, selectedOutcome, sellPrice, walletClient],
   );
 
   const actionButtons = useMemo(

@@ -48,6 +48,8 @@ export type MarketOutcomeOption = {
   price: number;
   priceCents: number;
   tokenId?: string;
+  marketId?: string;
+  conditionId?: string;
   bestBid?: number;
   bestAsk?: number;
 };
@@ -347,6 +349,8 @@ export function getMarketOutcomes(market: RawOutcomeMarket): MarketOutcomeOption
         price,
         priceCents: Math.round(price * 100),
         tokenId: outcome.tokenId,
+        marketId: outcome.marketId,
+        conditionId: outcome.conditionId,
         bestBid: Number.isFinite(outcome.bestBid) ? outcome.bestBid : undefined,
         bestAsk: Number.isFinite(outcome.bestAsk) ? outcome.bestAsk : undefined,
       };
@@ -590,6 +594,8 @@ function liveOutcomeOptionsForSnapshot(outcomes: MarketOutcomeOption[], market: 
     return {
       ...outcome,
       tokenId: normalized?.tokenId ?? outcome.tokenId,
+      marketId: normalized?.marketId ?? outcome.marketId,
+      conditionId: normalized?.conditionId ?? outcome.conditionId,
       bestBid: normalized?.bestBid ?? outcome.bestBid,
       bestAsk: normalized?.bestAsk ?? outcome.bestAsk,
       price,

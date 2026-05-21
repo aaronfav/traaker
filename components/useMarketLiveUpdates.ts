@@ -44,7 +44,9 @@ export function mergeLiveMarketUpdates(currentMarkets: TerminalMarket[], incomin
 }
 
 function getAssetIds(markets: TerminalMarket[]) {
-  return markets.flatMap((market) => [market.tokenIds.yes, market.tokenIds.no]).filter(Boolean);
+  return markets
+    .flatMap((market) => (market.outcomeOptions?.length ? market.outcomeOptions.map((outcome) => outcome.tokenId) : [market.tokenIds.yes, market.tokenIds.no]))
+    .filter(Boolean);
 }
 
 function backoffDelay(attempt: number) {
@@ -302,4 +304,3 @@ export function useMarketLiveUpdates({
 
   return status;
 }
-
