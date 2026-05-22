@@ -7,8 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cancelOrder } from "@/lib/polymarket/orders";
-import { getDepositWalletStatus } from "@/lib/polymarket/depositWallet";
 import { getPnLPlaceholder, getPositions } from "@/lib/polymarket/portfolio";
+import { ensureTradingSession } from "@/lib/polymarket/tradeService";
+import { resolveTradingWalletContext } from "@/lib/polymarket/tradeSetup";
 import type { PortfolioBalanceState, Position } from "@/lib/polymarket/types";
 import type { OpenOrder } from "@polymarket/clob-client-v2";
 import type { Address } from "viem";
@@ -111,10 +112,29 @@ export default function PortfolioClient() {
           return;
         }
 
-        const walletStatus = await getDepositWalletStatus(address as Address, publicClient);
+        if (!walletClient) {
+          if (!active) return;
+          setPositions(fallbackPositions);
+          setBalance(emptyBalance);
+          setOpenOrders([]);
+          setTrades([]);
+          setDepositWallet(null);
+          setError("");
+          setNotice("Connect a wallet to load Polymarket data.");
+          return;
+        }
+
+        const walletStatus = await resolveTradingWalletContext({
+          walletClient,
+          address: address as Address,
+          publicClient,
+        });
         if (!active) return;
-        setDepositWallet(walletStatus);
-        if (!walletStatus.initialized) {
+        setDepositWallet({
+          depositWallet: walletStatus.depositWalletAddress,
+          initialized: walletStatus.walletMode === "legacy-proxy" ? true : walletStatus.depositWalletInitialized,
+        });
+        if (walletStatus.walletMode === "deposit-wallet" && !walletStatus.depositWalletInitialized) {
           setBalance(emptyBalance);
           setPositions(fallbackPositions);
           setOpenOrders([]);
@@ -149,6 +169,40 @@ export default function PortfolioClient() {
         const accountData = await accountResponse.json().catch(() => null);
         if (!accountResponse.ok || !accountData?.ok) {
           if (accountData?.code === "AUTH_INVALID_SESSION") {
+            setNotice("Polymarket session expired. Reinitializing trading session.");
+            try {
+              await ensureTradingSession(walletClient, 137, {
+                force: true,
+                tradingWalletAddress: walletStatus.tradingWalletAddress,
+                signatureType: walletStatus.signatureType,
+              });
+              const retryResponse = await fetch("/api/polymarket/account", { cache: "no-store" });
+              const retryData = await retryResponse.json().catch(() => null);
+              if (active && retryResponse.ok && retryData?.ok) {
+                setBalance({
+                  usdc: {
+                    balance: Number(retryData.balance?.balance ?? 0) / 1_000_000,
+                    rawBalance: String(retryData.balance?.balance ?? "0"),
+                    allowances: retryData.balance?.allowances ?? {},
+                    exchangeAllowance: (Object.values(retryData.balance?.allowances ?? {})[0] as string | undefined) ?? null,
+                    ctfAllowance: (Object.values(retryData.balance?.allowances ?? {})[1] as string | undefined) ?? null,
+                    hasExchangeAllowance: Boolean(Object.values(retryData.balance?.allowances ?? {})[0]),
+                    hasCtfAllowance: Boolean(Object.values(retryData.balance?.allowances ?? {})[1]),
+                  },
+                  pUsd: null,
+                  conditional: null,
+                  source: "polymarket",
+                });
+                setPositions(fallbackPositions);
+                setOpenOrders(Array.isArray(retryData.openOrders) ? retryData.openOrders : []);
+                setTrades(Array.isArray(retryData.trades) ? retryData.trades : []);
+                setError("");
+                setNotice("");
+                return;
+              }
+            } catch {
+              // fall through to the visible status below
+            }
             setBalance(emptyBalance);
             setPositions(fallbackPositions);
             setOpenOrders([]);
@@ -225,13 +279,25 @@ export default function PortfolioClient() {
 
   async function refreshPortfolio() {
     if (!isConnected || chainId !== 137) return;
+    if (!walletClient) {
+      setError("");
+      setNotice("Connect a wallet to load Polymarket data.");
+      return;
+    }
     setLoading(true);
     setError("");
     setNotice("");
     try {
-      const walletStatus = await getDepositWalletStatus(address as Address, publicClient);
-      setDepositWallet(walletStatus);
-      if (!walletStatus.initialized) {
+      const walletStatus = await resolveTradingWalletContext({
+        walletClient,
+        address: address as Address,
+        publicClient,
+      });
+      setDepositWallet({
+        depositWallet: walletStatus.depositWalletAddress,
+        initialized: walletStatus.walletMode === "legacy-proxy" ? true : walletStatus.depositWalletInitialized,
+      });
+      if (walletStatus.walletMode === "deposit-wallet" && !walletStatus.depositWalletInitialized) {
         setBalance(emptyBalance);
         setOpenOrders([]);
         setTrades([]);
@@ -265,6 +331,40 @@ export default function PortfolioClient() {
       const accountData = await accountResponse.json().catch(() => null);
         if (!accountResponse.ok || !accountData?.ok) {
           if (accountData?.code === "AUTH_INVALID_SESSION") {
+            setNotice("Polymarket session expired. Reinitializing trading session.");
+            try {
+              await ensureTradingSession(walletClient, 137, {
+                force: true,
+                tradingWalletAddress: walletStatus.tradingWalletAddress,
+                signatureType: walletStatus.signatureType,
+              });
+              const retryResponse = await fetch("/api/polymarket/account", { cache: "no-store" });
+              const retryData = await retryResponse.json().catch(() => null);
+              if (retryResponse.ok && retryData?.ok) {
+                setBalance({
+                  usdc: {
+                    balance: Number(retryData.balance?.balance ?? 0) / 1_000_000,
+                    rawBalance: String(retryData.balance?.balance ?? "0"),
+                    allowances: retryData.balance?.allowances ?? {},
+                    exchangeAllowance: (Object.values(retryData.balance?.allowances ?? {})[0] as string | undefined) ?? null,
+                    ctfAllowance: (Object.values(retryData.balance?.allowances ?? {})[1] as string | undefined) ?? null,
+                    hasExchangeAllowance: Boolean(Object.values(retryData.balance?.allowances ?? {})[0]),
+                    hasCtfAllowance: Boolean(Object.values(retryData.balance?.allowances ?? {})[1]),
+                  },
+                  pUsd: null,
+                  conditional: null,
+                  source: "polymarket",
+                });
+                setOpenOrders(Array.isArray(retryData.openOrders) ? retryData.openOrders : []);
+                setTrades(Array.isArray(retryData.trades) ? retryData.trades : []);
+                setPositions(await getPositions());
+                setError("");
+                setNotice("");
+                return;
+              }
+            } catch {
+              // fall through to the visible status below
+            }
             setBalance(emptyBalance);
             setOpenOrders([]);
             setTrades([]);

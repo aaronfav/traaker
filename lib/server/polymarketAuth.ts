@@ -65,6 +65,7 @@ export async function buildL2Headers(args: {
       sessionWallet: creds.tradingWalletAddress ?? creds.address,
       apiKey: redactCredential(creds.key),
       signatureType: creds.signatureType ?? null,
+      walletType: creds.signatureType === 2 ? "legacy-proxy" : creds.signatureType === 3 ? "deposit-wallet" : null,
       funderAddress: creds.tradingWalletAddress ?? null,
     });
   }

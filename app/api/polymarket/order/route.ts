@@ -148,6 +148,7 @@ export async function POST(request: Request) {
     apiKey: redactCredential(creds.key),
     tradeMode: parsed.tradeMode ?? null,
     signatureType: normalizedOrder.signatureType,
+    walletType: normalizedOrder.signatureType === 2 ? "legacy-proxy" : normalizedOrder.signatureType === 3 ? "deposit-wallet" : null,
   });
 
   try {

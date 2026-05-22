@@ -7,13 +7,26 @@ const mocks = vi.hoisted(() => ({
   placeLimitOrder: vi.fn(),
   createSignerClient: vi.fn(),
   ensureTradingReady: vi.fn(),
+  resolveTradingWalletContext: vi.fn(),
   publicClient: {},
   account: { chainId: 137, isConnected: true },
   walletClient: { account: { address: "0x123" } },
-  depositWalletStatus: { initialized: true, depositWallet: "0xdeadbeef" },
+  walletContext: {
+    depositWalletAddress: "0xdeadbeef",
+    depositWalletInitialized: true,
+    proxyWalletAddress: "0xsafe",
+    proxyDeployed: true,
+    tradingWalletAddress: "0xdeadbeef",
+    signatureType: 3,
+    walletMode: "deposit-wallet",
+  },
   tradingSetup: {
     depositWalletAddress: "0xdeadbeef",
     depositWalletInitialized: true,
+    proxyWalletAddress: "0xsafe",
+    tradingWalletAddress: "0xdeadbeef",
+    signatureType: 3,
+    walletMode: "deposit-wallet",
     balance: {
       usdc: {
         balance: 100,
@@ -38,12 +51,9 @@ vi.mock("wagmi", () => ({
   usePublicClient: () => mocks.publicClient,
 }));
 
-vi.mock("@/lib/polymarket/depositWallet", () => ({
-  getDepositWalletStatus: vi.fn(async () => mocks.depositWalletStatus),
-}));
-
 vi.mock("@/lib/polymarket/tradeSetup", () => ({
   ensureTradingReady: mocks.ensureTradingReady,
+  resolveTradingWalletContext: mocks.resolveTradingWalletContext,
 }));
 
 vi.mock("@/lib/polymarket/client", () => ({
@@ -95,6 +105,7 @@ describe("MarketTradePanel orders", () => {
   });
 
   it("submits the selected outcome's real CLOB tokenID", async () => {
+    mocks.resolveTradingWalletContext.mockResolvedValue(mocks.walletContext);
     mocks.ensureTradingReady.mockResolvedValue(mocks.tradingSetup);
     mocks.createSignerClient.mockResolvedValue({ client: "signed" });
     mocks.placeLimitOrder.mockResolvedValue({ orderID: "order-1" });
@@ -144,7 +155,11 @@ describe("MarketTradePanel orders", () => {
   });
 
   it("runs the trading setup flow when the deposit wallet is missing", async () => {
-    mocks.depositWalletStatus = { initialized: false, depositWallet: "0xdeadbeef" };
+    mocks.resolveTradingWalletContext.mockResolvedValue({
+      ...mocks.walletContext,
+      depositWalletInitialized: false,
+      walletMode: "deposit-wallet",
+    });
     mocks.ensureTradingReady.mockResolvedValue(mocks.tradingSetup);
     vi.stubGlobal(
       "fetch",
@@ -173,6 +188,7 @@ describe("MarketTradePanel orders", () => {
   });
 
   it("auto-refreshes a stale quote before buying and submits with the refreshed price", async () => {
+    mocks.resolveTradingWalletContext.mockResolvedValue(mocks.walletContext);
     mocks.ensureTradingReady.mockResolvedValue(mocks.tradingSetup);
     mocks.createSignerClient.mockResolvedValue({ client: "signed" });
     mocks.placeLimitOrder.mockResolvedValue({ orderID: "order-2" });
@@ -220,6 +236,7 @@ describe("MarketTradePanel orders", () => {
   });
 
   it("retries quote refresh once before buying and still submits if the retry succeeds", async () => {
+    mocks.resolveTradingWalletContext.mockResolvedValue(mocks.walletContext);
     mocks.ensureTradingReady.mockResolvedValue(mocks.tradingSetup);
     mocks.createSignerClient.mockResolvedValue({ client: "signed" });
     mocks.placeLimitOrder.mockResolvedValue({ orderID: "order-3" });

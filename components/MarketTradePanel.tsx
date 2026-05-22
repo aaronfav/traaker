@@ -5,11 +5,10 @@ import { AlertCircle, CheckCircle2, ExternalLink, Loader2, RefreshCw, X } from "
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getDepositWalletStatus } from "@/lib/polymarket/depositWallet";
 import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
 import { getTradeDisabledReason } from "@/lib/polymarket/readiness";
 import { placeLimitOrder, Side, validateTrade } from "@/lib/polymarket/orders";
-import { ensureTradingReady, type TradeProgress } from "@/lib/polymarket/tradeSetup";
+import { ensureTradingReady, resolveTradingWalletContext, type TradeProgress } from "@/lib/polymarket/tradeSetup";
 import { ensureTradingSession } from "@/lib/polymarket/tradeService";
 import type { PortfolioBalanceState } from "@/lib/polymarket/types";
 import type { MarketBubbleNode } from "@/components/MarketBubbleMap";
@@ -119,7 +118,6 @@ export function MarketTradePanel({
     missingSetupReason: null,
   });
   const [depositWalletInitialized, setDepositWalletInitialized] = useState<boolean | null>(null);
-  const [depositWalletAddress, setDepositWalletAddress] = useState<string | null>(null);
   const [accountBalance, setAccountBalance] = useState<PortfolioBalanceState | null>(null);
   const [accountError, setAccountError] = useState<string | null>(null);
   const [submittingSide, setSubmittingSide] = useState<TradeSide | null>(null);
@@ -226,7 +224,6 @@ export function MarketTradePanel({
 
     if (!isConnected || chainId !== 137 || !walletClient || !publicClient) {
       setDepositWalletInitialized(null);
-      setDepositWalletAddress(null);
       setAccountBalance(null);
       setAccountError(null);
       return () => {
@@ -237,7 +234,6 @@ export function MarketTradePanel({
     const address = walletClient.account?.address;
     if (!address) {
       setDepositWalletInitialized(null);
-      setDepositWalletAddress(null);
       setAccountBalance(null);
       setAccountError(null);
       return () => {
@@ -245,12 +241,11 @@ export function MarketTradePanel({
       };
     }
 
-    void getDepositWalletStatus(address, publicClient)
-      .then(async (status) => {
+    void resolveTradingWalletContext({ walletClient, address: address as `0x${string}`, publicClient })
+      .then(async (context) => {
         if (!active) return;
-        setDepositWalletAddress(status.depositWallet);
-        setDepositWalletInitialized(status.initialized);
-        if (!status.initialized) {
+        setDepositWalletInitialized(context.walletMode === "legacy-proxy" ? true : context.depositWalletInitialized);
+        if (context.walletMode === "deposit-wallet" && !context.depositWalletInitialized) {
           setAccountBalance(null);
           setAccountError(null);
           return;
@@ -270,8 +265,8 @@ export function MarketTradePanel({
               try {
                 await ensureTradingSession(walletClient, 137, {
                   force: true,
-                  tradingWalletAddress: status.depositWallet,
-                  signatureType: 3,
+                  tradingWalletAddress: context.tradingWalletAddress,
+                  signatureType: context.signatureType,
                 });
                 const retryResponse = await fetch("/api/polymarket/account", { cache: "no-store" });
                 const retryData = await retryResponse.json().catch(() => null);
@@ -325,6 +320,7 @@ export function MarketTradePanel({
       .catch(() => {
         if (!active) return;
         setDepositWalletInitialized(null);
+        setAccountError("Trading wallet could not be resolved.");
       });
 
     return () => {
@@ -399,6 +395,7 @@ export function MarketTradePanel({
   const createOrder = useCallback(
     async (side: TradeSide) => {
       let tradeMarket = displayMarket;
+      let setup: Awaited<ReturnType<typeof ensureTradingReady>> | null = null;
       const outcome = selectedOutcomeFromMarket(tradeMarket, selectedOutcomeName);
       const price = side === "Buy" ? outcomePriceForSide(tradeMarket, outcome?.name ?? "", "Buy") : outcomePriceForSide(tradeMarket, outcome?.name ?? "", "Sell");
       if (!outcome || !Number.isFinite(price)) return;
@@ -459,7 +456,7 @@ export function MarketTradePanel({
             setToast({ tone: "error", message: "Connect a wallet before trading." });
             return;
           }
-          const setup = await ensureTradingReady({
+          setup = await ensureTradingReady({
             walletClient,
             address: walletAddress as `0x${string}`,
             publicClient,
@@ -469,7 +466,6 @@ export function MarketTradePanel({
             price: finalPrice as number,
             onProgress: setTradeProgress,
           });
-          setDepositWalletAddress(setup.depositWalletAddress);
           setDepositWalletInitialized(setup.depositWalletInitialized);
           setAccountBalance(setup.balance);
           setAccountError(null);
@@ -505,10 +501,13 @@ export function MarketTradePanel({
         }
 
         setTradeProgress("submitting-order");
+        if (!setup) {
+          throw new Error("Trading setup is unavailable.");
+        }
         const client = await createSignerClient({
           signer: walletClient,
-          signatureType: SignatureTypeV2.POLY_1271,
-          funderAddress: depositWalletAddress ?? undefined,
+          signatureType: setup.signatureType === 2 ? SignatureTypeV2.POLY_GNOSIS_SAFE : SignatureTypeV2.POLY_1271,
+          funderAddress: setup.tradingWalletAddress,
         });
         const response = await placeLimitOrder(client, {
           tokenID,
@@ -530,7 +529,7 @@ export function MarketTradePanel({
         setTradeProgress("idle");
       }
     },
-    [chainId, depositWalletAddress, displayMarket, isConnected, onUpdatePrices, publicClient, quoteIsStale, refreshQuoteWithRetry, runtimeConfig.realTradingEnabled, safeShares, selectedOutcomeName, walletClient],
+    [chainId, displayMarket, isConnected, onUpdatePrices, publicClient, quoteIsStale, refreshQuoteWithRetry, runtimeConfig.realTradingEnabled, safeShares, selectedOutcomeName, walletClient],
   );
 
   const actionButtons = useMemo(

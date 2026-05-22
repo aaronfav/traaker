@@ -148,10 +148,12 @@ export async function POST(request: NextRequest) {
     console.info("[polymarket]", {
       event: "l2_creds_reused",
       component: "auth_init",
+      route: "auth/init",
       connectedEoa: l1Headers.POLY_ADDRESS,
       sessionInitialized: true,
       tradingWalletAddress: session.tradingWalletAddress ?? null,
       signatureType: session.signatureType ?? null,
+      walletType: session.signatureType === 2 ? "legacy-proxy" : session.signatureType === 3 ? "deposit-wallet" : null,
       hasApiCreds: Boolean(session.l2.apiKey && session.l2.secret && session.l2.passphrase),
       apiKey: redact(session.l2.apiKey),
     });
@@ -200,10 +202,12 @@ export async function POST(request: NextRequest) {
     console.info("[polymarket]", {
       event: "l2_creds_init_failed",
       component: "auth_init",
+      route: "auth/init",
       connectedEoa: l1Headers.POLY_ADDRESS,
       sessionInitialized: false,
       tradingWalletAddress,
       signatureType,
+      walletType: signatureType === 2 ? "legacy-proxy" : signatureType === 3 ? "deposit-wallet" : null,
       hasApiCreds: false,
       source,
       forceRefresh,
@@ -228,10 +232,12 @@ export async function POST(request: NextRequest) {
   console.info("[polymarket]", {
     event: "l2_creds_initialized",
     component: "auth_init",
+    route: "auth/init",
     connectedEoa: l1Headers.POLY_ADDRESS,
     sessionInitialized: true,
     tradingWalletAddress: session.tradingWalletAddress ?? null,
     signatureType: session.signatureType ?? null,
+    walletType: session.signatureType === 2 ? "legacy-proxy" : session.signatureType === 3 ? "deposit-wallet" : null,
     hasApiCreds: Boolean(creds.apiKey && creds.secret && creds.passphrase),
     source,
     forceRefresh,

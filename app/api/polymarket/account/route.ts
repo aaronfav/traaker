@@ -14,7 +14,18 @@ async function signedGet(path: string) {
     headers,
   });
   const data = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(data?.error ?? `CLOB request failed (${response.status})`);
+  if (!response.ok) {
+    const error = new Error(
+      (data && typeof data === "object" && "error" in data && typeof (data as { error?: unknown }).error === "string"
+        ? (data as { error: string }).error
+        : data && typeof data === "object" && "message" in data && typeof (data as { message?: unknown }).message === "string"
+          ? (data as { message: string }).message
+          : `CLOB request failed (${response.status})`),
+    ) as Error & { status?: number; details?: unknown };
+    error.status = response.status;
+    error.details = data;
+    throw error;
+  }
   return data;
 }
 
@@ -29,6 +40,7 @@ export async function GET() {
         sessionWallet: creds.tradingWalletAddress ?? creds.address,
         apiKey: creds.key.slice(0, 6),
         signatureType: creds.signatureType ?? null,
+        walletType: creds.signatureType === 2 ? "legacy-proxy" : creds.signatureType === 3 ? "deposit-wallet" : null,
         funderAddress: creds.tradingWalletAddress ?? null,
       });
     }
@@ -40,8 +52,11 @@ export async function GET() {
     return NextResponse.json({ ok: true, balance, openOrders, trades }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     logError("api.polymarket.account", error);
+    const details = error instanceof Error ? (error as Error & { status?: number; details?: unknown }).details : null;
+    const status = error instanceof Error ? (error as Error & { status?: number }).status ?? 0 : 0;
     const message = error instanceof Error ? error.message : "Unable to load Polymarket account data.";
-    if (isInvalidPolymarketAuthError(message)) {
+    const authHaystack = `${message} ${details ? JSON.stringify(details) : ""}`;
+    if (isInvalidPolymarketAuthError(authHaystack) || (status === 401 && /unauthorized|invalid api key/i.test(authHaystack))) {
       try {
         const session = await getSession();
         clearSession(session);

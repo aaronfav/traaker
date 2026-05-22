@@ -71,8 +71,8 @@ export async function POST(request: NextRequest) {
   if (!ASSET_TYPES.has(assetType)) {
     return NextResponse.json({ ok: false, error: "assetType must be COLLATERAL or CONDITIONAL." }, { status: 400, headers: { "Cache-Control": "no-store" } });
   }
-  if (!Number.isInteger(signatureType) || signatureType !== 3) {
-    return NextResponse.json({ ok: false, error: "signatureType must be 3 for deposit wallet trading." }, { status: 400, headers: { "Cache-Control": "no-store" } });
+  if (!Number.isInteger(signatureType) || (signatureType !== 2 && signatureType !== 3)) {
+    return NextResponse.json({ ok: false, error: "signatureType must be 2 for proxy/Safe or 3 for deposit wallet trading." }, { status: 400, headers: { "Cache-Control": "no-store" } });
   }
   if (!tradingWalletAddress) {
     return NextResponse.json({ ok: false, error: "tradingWalletAddress is required." }, { status: 400, headers: { "Cache-Control": "no-store" } });
@@ -110,8 +110,10 @@ export async function POST(request: NextRequest) {
   };
 
   logInfo("api.polymarket.balance_allowance", "balance_allowance_update_requested", {
+    route: "balance-allowance/update",
     connectedEoa: connectedEoa ?? session.walletAddress ?? null,
     signatureType,
+    walletType: signatureType === 2 ? "legacy-proxy" : "deposit-wallet",
     tradingWalletAddress,
     assetType,
     tokenIdPrefix: tokenId?.slice(0, 12) ?? null,
@@ -127,6 +129,17 @@ export async function POST(request: NextRequest) {
     });
     const update = await clobClient.updateBalanceAllowance(allowanceParams);
     const balanceAllowance = await clobClient.getBalanceAllowance(allowanceParams);
+    logInfo("api.polymarket.balance_allowance", "balance_allowance_sync_completed", {
+      route: "balance-allowance/update",
+      connectedEoa: connectedEoa ?? session.walletAddress ?? null,
+      signatureType,
+      walletType: signatureType === 2 ? "legacy-proxy" : "deposit-wallet",
+      tradingWalletAddress,
+      assetType,
+      tokenIdPrefix: tokenId?.slice(0, 12) ?? null,
+      updateRan: true,
+      balanceAllowanceLoaded: true,
+    });
     if (connectedEoa && !sameAddress(connectedEoa, session.walletAddress)) {
       logInfo("api.polymarket.balance_allowance", "connected_eoa_mismatch", {
         connectedEoa,

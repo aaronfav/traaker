@@ -3,12 +3,19 @@ import { getDepositWalletStatus } from "./depositWallet";
 import { ensureTradingSession } from "./tradeService";
 import {
   createRelayClient,
+  deploySafeIfNeeded,
   ensureDepositWalletApprovals,
   ensureDepositWalletConditionalApproval,
   ensureDepositWalletDeployed,
+  ensureApprovals,
+  ensureOperatorApproval,
   getPolymarketExchangeConfig,
+  loadStoredProxyAddress,
+  storeProxyAddress,
 } from "./relayer";
 import type { PortfolioBalanceState } from "./types";
+
+export type TradingWalletMode = "legacy-proxy" | "deposit-wallet";
 
 export type TradeProgress =
   | "idle"
@@ -22,8 +29,22 @@ export type TradeProgress =
 export type TradeSetupResult = {
   depositWalletAddress: string;
   depositWalletInitialized: boolean;
+  proxyWalletAddress: string | null;
+  tradingWalletAddress: string;
+  signatureType: 2 | 3;
+  walletMode: TradingWalletMode;
   balance: PortfolioBalanceState;
   accountResponse: unknown;
+};
+
+export type TradingWalletContext = {
+  depositWalletAddress: string;
+  depositWalletInitialized: boolean;
+  proxyWalletAddress: string;
+  proxyDeployed: boolean | null;
+  walletMode: TradingWalletMode;
+  tradingWalletAddress: string;
+  signatureType: 2 | 3;
 };
 
 type PolymarketAccountLoadOptions = {
@@ -65,6 +86,69 @@ const normalizeBalance = (raw: { balance?: string; allowances?: Record<string, s
   };
 };
 
+export async function resolveTradingWalletContext(input: {
+  walletClient?: WalletClient | null;
+  address?: Address | null;
+  publicClient?: PublicClient | null;
+}) {
+  if (!input.walletClient || !input.address || !input.publicClient) {
+    throw new Error("Trading wallet address unavailable.");
+  }
+  const relayClient = createRelayClient(input.walletClient);
+  const depositWalletStatus = await getDepositWalletStatus(input.address as Address, input.publicClient);
+  const cachedProxy = loadStoredProxyAddress(input.address);
+  const expectedProxyAddress = await (relayClient as unknown as { getExpectedSafe: () => Promise<string> }).getExpectedSafe();
+  let proxyWalletAddress = cachedProxy ?? expectedProxyAddress;
+
+  let proxyDeployed: boolean | null = null;
+  try {
+    proxyDeployed = await relayClient.getDeployed(proxyWalletAddress);
+    if (!proxyDeployed && cachedProxy && proxyWalletAddress !== expectedProxyAddress) {
+      const expectedDeployed = await relayClient.getDeployed(expectedProxyAddress);
+      if (expectedDeployed) {
+        proxyWalletAddress = expectedProxyAddress;
+        proxyDeployed = true;
+      }
+    }
+    if (proxyDeployed) {
+      storeProxyAddress(input.address, proxyWalletAddress);
+    }
+  } catch {
+    proxyDeployed = null;
+  }
+
+  let walletMode: TradingWalletMode | null = null;
+  if (proxyDeployed === true) {
+    walletMode = "legacy-proxy";
+  } else if (depositWalletStatus.initialized === true) {
+    walletMode = "deposit-wallet";
+  } else if (proxyDeployed === false) {
+    walletMode = "deposit-wallet";
+  }
+
+  if (!walletMode) {
+    throw new Error("Trading wallet address unavailable.");
+  }
+
+  const tradingWalletAddress = walletMode === "legacy-proxy" ? proxyWalletAddress : depositWalletStatus.depositWallet;
+  const signatureType: 2 | 3 = walletMode === "legacy-proxy" ? 2 : 3;
+
+  if (!tradingWalletAddress) {
+    throw new Error("Trading wallet address unavailable.");
+  }
+
+  return {
+    relayClient,
+    depositWalletAddress: depositWalletStatus.depositWallet,
+    depositWalletInitialized: depositWalletStatus.initialized,
+    proxyWalletAddress,
+    proxyDeployed,
+    walletMode,
+    tradingWalletAddress,
+    signatureType,
+  } satisfies TradingWalletContext & { relayClient: ReturnType<typeof createRelayClient> };
+}
+
 export async function loadPolymarketAccount(options?: PolymarketAccountLoadOptions) {
   const response = await fetch("/api/polymarket/account", { cache: "no-store" });
   const data = await safeJson<{
@@ -76,7 +160,10 @@ export async function loadPolymarketAccount(options?: PolymarketAccountLoadOptio
   if (!response.ok || !data?.ok) {
     if (
       options?.retryOnAuthInvalid !== false &&
-      data?.code === "AUTH_INVALID_SESSION" &&
+      (data?.code === "AUTH_INVALID_SESSION" ||
+        /unauthorized\/invalid api key|invalid authorization|authorization expired/i.test(
+          `${data?.error ?? ""} ${data?.code ?? ""}`,
+        )) &&
       options?.walletClient &&
       options?.address &&
       options?.tradingWalletAddress &&
@@ -121,7 +208,7 @@ export async function loadTradingConfig() {
 }
 
 export async function syncBalanceAllowance(input: {
-  signatureType: 3;
+  signatureType: 2 | 3;
   tradingWalletAddress: string;
   assetType?: "COLLATERAL" | "CONDITIONAL";
   tokenId?: string;
@@ -174,96 +261,153 @@ export async function ensureTradingReady(input: {
   if (!config.builderReady || !config.clobReady) {
     throw new Error(config.missingSetupReason ?? "Trading configuration is unavailable.");
   }
-  const status = await getDepositWalletStatus(input.address as Address, input.publicClient as PublicClient);
-  let depositWalletAddress: string = status.depositWallet;
-  if (!status.initialized) {
+  const context = await resolveTradingWalletContext({
+    walletClient: input.walletClient as WalletClient,
+    address: input.address,
+    publicClient: input.publicClient as PublicClient,
+  });
+
+  if (context.walletMode === "deposit-wallet" && !context.depositWalletInitialized) {
     if (!config.gaslessReady) {
       throw new Error(config.missingSetupReason ?? "Gasless trading is not configured on server.");
     }
     input.onProgress?.("initializing-trading-wallet");
-    const relayClient = createRelayClient(input.walletClient as WalletClient);
-    depositWalletAddress = await ensureDepositWalletDeployed(relayClient);
+    context.tradingWalletAddress = await ensureDepositWalletDeployed(context.relayClient);
+    context.depositWalletInitialized = true;
+  } else if (context.walletMode === "legacy-proxy" && context.proxyDeployed !== true) {
+    if (!config.gaslessReady) {
+      throw new Error(config.missingSetupReason ?? "Gasless trading is not configured on server.");
+    }
+    input.onProgress?.("initializing-trading-wallet");
+    context.tradingWalletAddress = await deploySafeIfNeeded(context.relayClient, input.address);
+    context.proxyDeployed = true;
   }
 
   await ensureTradingSession(input.walletClient as WalletClient, 137, {
-    tradingWalletAddress: depositWalletAddress,
-    signatureType: 3,
+    tradingWalletAddress: context.tradingWalletAddress,
+    signatureType: context.signatureType,
   });
 
   input.onProgress?.("checking-balance");
   let account = await loadPolymarketAccount({
     walletClient: input.walletClient as WalletClient,
     address: input.address,
-    tradingWalletAddress: depositWalletAddress,
-    signatureType: 3,
+    tradingWalletAddress: context.tradingWalletAddress,
+    signatureType: context.signatureType,
   });
   const balance = account.balance;
 
   if (input.side === "Buy" && balance.usdc.balance <= 0) {
     throw new Error("Polymarket deposit wallet has no USDC balance. Fund the wallet before trading.");
   }
-  if (status.initialized && (!balance.usdc.hasExchangeAllowance || !balance.usdc.hasCtfAllowance) && !config.gaslessReady) {
+  if (context.depositWalletInitialized && (!balance.usdc.hasExchangeAllowance || !balance.usdc.hasCtfAllowance) && !config.gaslessReady) {
     throw new Error(config.missingSetupReason ?? "Gasless trading is not configured on server.");
   }
 
   const { exchange, conditionalTokens, collateral } = getPolymarketExchangeConfig(Boolean(input.negRisk));
-  const relayClient = createRelayClient(input.walletClient as WalletClient);
   const required = BigInt(Math.ceil(Math.max(0, input.amount * input.price) * 1_000_000));
+  if (context.walletMode === "legacy-proxy") {
+    if (input.side === "Buy" && !balance.usdc.hasExchangeAllowance) {
+      input.onProgress?.("approving-trading");
+      await ensureApprovals({
+        client: context.relayClient,
+        publicClient: input.publicClient as PublicClient,
+        ownerAddress: input.address as `0x${string}`,
+        token: collateral,
+        spender: exchange,
+        amount: required > BigInt(0) ? required : BigInt(1),
+      });
+    }
 
-  if (input.side === "Buy" && !balance.usdc.hasExchangeAllowance) {
-    input.onProgress?.("approving-trading");
-    await ensureDepositWalletApprovals({
-      client: relayClient,
-      walletClient: input.walletClient as WalletClient,
-      publicClient: input.publicClient as PublicClient,
-      ownerAddress: input.address as `0x${string}`,
-      token: collateral,
-      spender: exchange,
-      amount: required > BigInt(0) ? required : BigInt(1),
-    });
-  }
+    if (!balance.usdc.hasCtfAllowance) {
+      input.onProgress?.("approving-trading");
+      await ensureOperatorApproval({
+        client: context.relayClient,
+        publicClient: input.publicClient as PublicClient,
+        ownerAddress: input.address as `0x${string}`,
+        token: conditionalTokens,
+        operator: exchange,
+      });
+    }
 
-  if (!balance.usdc.hasCtfAllowance) {
-    input.onProgress?.("approving-trading");
-    await ensureDepositWalletConditionalApproval({
-      client: relayClient,
-      walletClient: input.walletClient as WalletClient,
-      publicClient: input.publicClient as PublicClient,
-      ownerAddress: input.address as `0x${string}`,
-      token: conditionalTokens,
-      operator: exchange,
-    });
-  }
+    if (input.side === "Sell" && !balance.usdc.hasExchangeAllowance) {
+      input.onProgress?.("approving-trading");
+      await ensureApprovals({
+        client: context.relayClient,
+        publicClient: input.publicClient as PublicClient,
+        ownerAddress: input.address as `0x${string}`,
+        token: collateral,
+        spender: exchange,
+        amount: required > BigInt(0) ? required : BigInt(1),
+      });
+    }
 
-  if (input.side === "Sell" && !balance.usdc.hasExchangeAllowance) {
-    input.onProgress?.("approving-trading");
-    await ensureDepositWalletApprovals({
-      client: relayClient,
-      walletClient: input.walletClient as WalletClient,
-      publicClient: input.publicClient as PublicClient,
-      ownerAddress: input.address as `0x${string}`,
-      token: collateral,
-      spender: exchange,
-      amount: required > BigInt(0) ? required : BigInt(1),
-    });
-  }
+    if (input.side === "Sell" && !balance.usdc.hasCtfAllowance) {
+      input.onProgress?.("approving-trading");
+      await ensureOperatorApproval({
+        client: context.relayClient,
+        publicClient: input.publicClient as PublicClient,
+        ownerAddress: input.address as `0x${string}`,
+        token: conditionalTokens,
+        operator: exchange,
+      });
+    }
+  } else {
+    if (input.side === "Buy" && !balance.usdc.hasExchangeAllowance) {
+      input.onProgress?.("approving-trading");
+      await ensureDepositWalletApprovals({
+        client: context.relayClient,
+        walletClient: input.walletClient as WalletClient,
+        publicClient: input.publicClient as PublicClient,
+        ownerAddress: input.address as `0x${string}`,
+        token: collateral,
+        spender: exchange,
+        amount: required > BigInt(0) ? required : BigInt(1),
+      });
+    }
 
-  if (input.side === "Sell" && !balance.usdc.hasCtfAllowance) {
-    input.onProgress?.("approving-trading");
-    await ensureDepositWalletConditionalApproval({
-      client: relayClient,
-      walletClient: input.walletClient as WalletClient,
-      publicClient: input.publicClient as PublicClient,
-      ownerAddress: input.address as `0x${string}`,
-      token: conditionalTokens,
-      operator: exchange,
-    });
+    if (!balance.usdc.hasCtfAllowance) {
+      input.onProgress?.("approving-trading");
+      await ensureDepositWalletConditionalApproval({
+        client: context.relayClient,
+        walletClient: input.walletClient as WalletClient,
+        publicClient: input.publicClient as PublicClient,
+        ownerAddress: input.address as `0x${string}`,
+        token: conditionalTokens,
+        operator: exchange,
+      });
+    }
+
+    if (input.side === "Sell" && !balance.usdc.hasExchangeAllowance) {
+      input.onProgress?.("approving-trading");
+      await ensureDepositWalletApprovals({
+        client: context.relayClient,
+        walletClient: input.walletClient as WalletClient,
+        publicClient: input.publicClient as PublicClient,
+        ownerAddress: input.address as `0x${string}`,
+        token: collateral,
+        spender: exchange,
+        amount: required > BigInt(0) ? required : BigInt(1),
+      });
+    }
+
+    if (input.side === "Sell" && !balance.usdc.hasCtfAllowance) {
+      input.onProgress?.("approving-trading");
+      await ensureDepositWalletConditionalApproval({
+        client: context.relayClient,
+        walletClient: input.walletClient as WalletClient,
+        publicClient: input.publicClient as PublicClient,
+        ownerAddress: input.address as `0x${string}`,
+        token: conditionalTokens,
+        operator: exchange,
+      });
+    }
   }
 
   if (!balance.usdc.hasExchangeAllowance) {
     await syncBalanceAllowance({
-      signatureType: 3,
-      tradingWalletAddress: depositWalletAddress as `0x${string}`,
+      signatureType: context.signatureType,
+      tradingWalletAddress: context.tradingWalletAddress as `0x${string}`,
       assetType: "COLLATERAL",
       tokenId: input.tokenId,
       walletClient: input.walletClient as WalletClient,
@@ -273,8 +417,8 @@ export async function ensureTradingReady(input: {
   }
   if (!balance.usdc.hasCtfAllowance) {
     await syncBalanceAllowance({
-      signatureType: 3,
-      tradingWalletAddress: depositWalletAddress as `0x${string}`,
+      signatureType: context.signatureType,
+      tradingWalletAddress: context.tradingWalletAddress as `0x${string}`,
       assetType: "CONDITIONAL",
       tokenId: input.tokenId,
       walletClient: input.walletClient as WalletClient,
@@ -286,14 +430,18 @@ export async function ensureTradingReady(input: {
     account = await loadPolymarketAccount({
       walletClient: input.walletClient as WalletClient,
       address: input.address,
-      tradingWalletAddress: depositWalletAddress,
-      signatureType: 3,
+      tradingWalletAddress: context.tradingWalletAddress,
+      signatureType: context.signatureType,
     });
   }
 
   return {
-    depositWalletAddress,
-    depositWalletInitialized: true,
+    depositWalletAddress: context.depositWalletAddress,
+    depositWalletInitialized: context.depositWalletInitialized,
+    proxyWalletAddress: context.proxyWalletAddress,
+    tradingWalletAddress: context.tradingWalletAddress,
+    signatureType: context.signatureType,
+    walletMode: context.walletMode,
     balance: account.balance,
     accountResponse: account.response,
   } satisfies TradeSetupResult;

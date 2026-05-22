@@ -4,9 +4,13 @@ import { ensureTradingReady } from "@/lib/polymarket/tradeSetup";
 const mocks = vi.hoisted(() => ({
   getDepositWalletStatus: vi.fn(),
   createRelayClient: vi.fn(),
+  loadStoredProxyAddress: vi.fn(),
+  storeProxyAddress: vi.fn(),
   ensureDepositWalletDeployed: vi.fn(),
   ensureDepositWalletApprovals: vi.fn(),
   ensureDepositWalletConditionalApproval: vi.fn(),
+  ensureApprovals: vi.fn(),
+  ensureOperatorApproval: vi.fn(),
   getPolymarketExchangeConfig: vi.fn(),
   ensureTradingSession: vi.fn(),
 }));
@@ -17,9 +21,13 @@ vi.mock("@/lib/polymarket/depositWallet", () => ({
 
 vi.mock("@/lib/polymarket/relayer", () => ({
   createRelayClient: mocks.createRelayClient,
+  loadStoredProxyAddress: mocks.loadStoredProxyAddress,
+  storeProxyAddress: mocks.storeProxyAddress,
   ensureDepositWalletDeployed: mocks.ensureDepositWalletDeployed,
   ensureDepositWalletApprovals: mocks.ensureDepositWalletApprovals,
   ensureDepositWalletConditionalApproval: mocks.ensureDepositWalletConditionalApproval,
+  ensureApprovals: mocks.ensureApprovals,
+  ensureOperatorApproval: mocks.ensureOperatorApproval,
   getPolymarketExchangeConfig: mocks.getPolymarketExchangeConfig,
 }));
 
@@ -32,6 +40,9 @@ describe("gasless trade setup", () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     vi.clearAllMocks();
+    if (typeof window !== "undefined") {
+      window.localStorage.clear();
+    }
   });
 
   const walletClient = { account: { address: "0x1234567890abcdef1234567890abcdef12345678" } };
@@ -79,6 +90,22 @@ describe("gasless trade setup", () => {
     );
   }
 
+  function stubRelayClient(overrides: Partial<{ expectedSafe: string; proxyDeployed: boolean; depositWalletAddress: string; depositWalletDeployed: boolean }> = {}) {
+    const relayClient = {
+      getExpectedSafe: vi.fn(async () => overrides.expectedSafe ?? "0xsafe"),
+      getDeployed: vi.fn(async (address: string, type?: string) => {
+        if (type === "WALLET") return overrides.depositWalletDeployed ?? false;
+        if (address.toLowerCase() === (overrides.expectedSafe ?? "0xsafe").toLowerCase()) {
+          return overrides.proxyDeployed ?? false;
+        }
+        return false;
+      }),
+      deriveDepositWalletAddress: vi.fn(async () => overrides.depositWalletAddress ?? "0xdead"),
+    };
+    mocks.createRelayClient.mockReturnValue(relayClient as never);
+    return relayClient;
+  }
+
   it("blocks gasless setup when relayer credentials are missing", async () => {
     stubConfig({
       builderReady: true,
@@ -86,6 +113,7 @@ describe("gasless trade setup", () => {
       clobReady: true,
       missingSetupReason: "Gasless trading is not configured on server.",
     });
+    stubRelayClient({ expectedSafe: "0xsafe", proxyDeployed: false, depositWalletAddress: "0xdead", depositWalletDeployed: false });
     mocks.getDepositWalletStatus.mockResolvedValue({ depositWallet: "0xdead", initialized: false });
 
     await expect(
@@ -105,9 +133,9 @@ describe("gasless trade setup", () => {
 
   it("deploys the deposit wallet when it is missing", async () => {
     stubConfig();
+    stubRelayClient({ expectedSafe: "0xsafe", proxyDeployed: false, depositWalletAddress: "0xdead", depositWalletDeployed: false });
     mocks.ensureTradingSession.mockResolvedValue(true);
     mocks.getDepositWalletStatus.mockResolvedValue({ depositWallet: "0xdead", initialized: false });
-    mocks.createRelayClient.mockReturnValue({ relay: true });
     mocks.ensureDepositWalletDeployed.mockResolvedValue("0xdead");
     mocks.getPolymarketExchangeConfig.mockReturnValue({
       exchange: "0xexchange",
@@ -127,18 +155,20 @@ describe("gasless trade setup", () => {
 
     expect(mocks.ensureDepositWalletDeployed).toHaveBeenCalledTimes(1);
     expect(result.depositWalletAddress).toBe("0xdead");
+    expect(result.signatureType).toBe(3);
   });
 
   it("syncs CLOB balances with signature type 3 when allowances are missing", async () => {
     stubConfig();
+    stubRelayClient({ expectedSafe: "0xsafe", proxyDeployed: false, depositWalletAddress: "0xdead", depositWalletDeployed: false });
     mocks.ensureTradingSession.mockResolvedValue(true);
     mocks.getDepositWalletStatus.mockResolvedValue({ depositWallet: "0xdead", initialized: true });
-    mocks.createRelayClient.mockReturnValue({ relay: true });
     mocks.getPolymarketExchangeConfig.mockReturnValue({
       exchange: "0xexchange",
       conditionalTokens: "0xconditional",
       collateral: "0xcollateral",
     });
+    const assetTypes: string[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -151,6 +181,7 @@ describe("gasless trade setup", () => {
         }
         if (url.includes("/api/polymarket/balance-allowance/update")) {
           const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+          assetTypes.push(String(body.assetType));
           expect(body.signatureType).toBe(3);
           return new Response(JSON.stringify({ ok: true, data: {} }), { status: 200 });
         }
@@ -169,15 +200,68 @@ describe("gasless trade setup", () => {
     });
 
     expect(result.depositWalletInitialized).toBe(true);
+    expect(assetTypes).toEqual(expect.arrayContaining(["COLLATERAL", "CONDITIONAL"]));
     expect(mocks.ensureDepositWalletApprovals).toHaveBeenCalled();
     expect(mocks.ensureDepositWalletConditionalApproval).toHaveBeenCalled();
   });
 
+  it("keeps existing proxy/Safe wallets on signature type 2", async () => {
+    stubConfig();
+    stubRelayClient({ expectedSafe: "0xsafe", proxyDeployed: true, depositWalletAddress: "0xdead", depositWalletDeployed: false });
+    mocks.ensureTradingSession.mockResolvedValue(true);
+    mocks.getDepositWalletStatus.mockResolvedValue({ depositWallet: "0xdead", initialized: false });
+    mocks.getPolymarketExchangeConfig.mockReturnValue({
+      exchange: "0xexchange",
+      conditionalTokens: "0xconditional",
+      collateral: "0xcollateral",
+    });
+    const assetTypes: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/api/polymarket/config")) {
+          return new Response(JSON.stringify({ ok: true, realTradingEnabled: true, builderReady: true, gaslessReady: true, clobReady: true, missingSetupReason: null }), { status: 200 });
+        }
+        if (url.includes("/api/polymarket/account")) {
+          return new Response(JSON.stringify({ ok: true, balance: { balance: "100000000", allowances: { exchange: "0", conditional: "0" } } }), { status: 200 });
+        }
+        if (url.includes("/api/polymarket/balance-allowance/update")) {
+          const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+          assetTypes.push(String(body.assetType));
+          expect(body.signatureType).toBe(2);
+          return new Response(JSON.stringify({ ok: true, data: {} }), { status: 200 });
+        }
+        if (url.includes("/api/polymarket/auth/status") || url.includes("/api/polymarket/auth/init")) {
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }),
+    );
+
+    const result = await ensureTradingReady({
+      walletClient,
+      address: walletClient.account.address as `0x${string}`,
+      publicClient,
+      side: "Buy",
+      tokenId: "111111",
+      amount: 4.3,
+      price: 0.43,
+    });
+
+    expect(result.signatureType).toBe(2);
+    expect(result.walletMode).toBe("legacy-proxy");
+    expect(assetTypes).toEqual(expect.arrayContaining(["COLLATERAL", "CONDITIONAL"]));
+    expect(mocks.ensureApprovals).toHaveBeenCalled();
+    expect(mocks.ensureOperatorApproval).toHaveBeenCalled();
+    expect(mocks.ensureDepositWalletDeployed).not.toHaveBeenCalled();
+  });
+
   it("reinitializes the session and retries the account load when the api key is stale", async () => {
     stubConfig();
+    stubRelayClient({ expectedSafe: "0xsafe", proxyDeployed: false, depositWalletAddress: "0xdead", depositWalletDeployed: true });
     mocks.ensureTradingSession.mockResolvedValue(true);
     mocks.getDepositWalletStatus.mockResolvedValue({ depositWallet: "0xdead", initialized: true });
-    mocks.createRelayClient.mockReturnValue({ relay: true });
     mocks.getPolymarketExchangeConfig.mockReturnValue({
       exchange: "0xexchange",
       conditionalTokens: "0xconditional",

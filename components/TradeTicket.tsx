@@ -144,8 +144,8 @@ export function TradeTicket({
 
       const client = await createSignerClient({
         signer: walletClient,
-        signatureType: SignatureTypeV2.POLY_1271,
-        funderAddress: setup.depositWalletAddress,
+        signatureType: setup.signatureType === 2 ? SignatureTypeV2.POLY_GNOSIS_SAFE : SignatureTypeV2.POLY_1271,
+        funderAddress: setup.tradingWalletAddress,
       });
 
       const response =
