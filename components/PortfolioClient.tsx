@@ -154,7 +154,7 @@ export default function PortfolioClient() {
             setOpenOrders([]);
             setTrades([]);
             setError("");
-            setNotice("Markets can initialize the Polymarket session when you place a trade.");
+            setNotice("Polymarket session expired. Reinitializing trading session.");
             return;
           }
           throw new Error(accountData?.error ?? "Unable to load Polymarket account data.");
@@ -263,16 +263,16 @@ export default function PortfolioClient() {
 
       const accountResponse = await fetch("/api/polymarket/account", { cache: "no-store" });
       const accountData = await accountResponse.json().catch(() => null);
-      if (!accountResponse.ok || !accountData?.ok) {
-        if (accountData?.code === "AUTH_INVALID_SESSION") {
-          setBalance(emptyBalance);
-          setOpenOrders([]);
-          setTrades([]);
-          setPositions(await getPositions());
-          setError("");
-          setNotice("Markets can initialize the Polymarket session when you place a trade.");
-          return;
-        }
+        if (!accountResponse.ok || !accountData?.ok) {
+          if (accountData?.code === "AUTH_INVALID_SESSION") {
+            setBalance(emptyBalance);
+            setOpenOrders([]);
+            setTrades([]);
+            setPositions(await getPositions());
+            setError("");
+            setNotice("Polymarket session expired. Reinitializing trading session.");
+            return;
+          }
         throw new Error(accountData?.error ?? "Unable to load Polymarket account data.");
       }
       setBalance({

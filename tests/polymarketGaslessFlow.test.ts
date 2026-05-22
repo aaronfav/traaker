@@ -172,4 +172,55 @@ describe("gasless trade setup", () => {
     expect(mocks.ensureDepositWalletApprovals).toHaveBeenCalled();
     expect(mocks.ensureDepositWalletConditionalApproval).toHaveBeenCalled();
   });
+
+  it("reinitializes the session and retries the account load when the api key is stale", async () => {
+    stubConfig();
+    mocks.ensureTradingSession.mockResolvedValue(true);
+    mocks.getDepositWalletStatus.mockResolvedValue({ depositWallet: "0xdead", initialized: true });
+    mocks.createRelayClient.mockReturnValue({ relay: true });
+    mocks.getPolymarketExchangeConfig.mockReturnValue({
+      exchange: "0xexchange",
+      conditionalTokens: "0xconditional",
+      collateral: "0xcollateral",
+    });
+
+    let accountCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/polymarket/config")) {
+          return new Response(JSON.stringify({ ok: true, realTradingEnabled: true, builderReady: true, gaslessReady: true, clobReady: true, missingSetupReason: null }), { status: 200 });
+        }
+        if (url.includes("/api/polymarket/account")) {
+          accountCalls += 1;
+          if (accountCalls === 1) {
+            return new Response(JSON.stringify({ ok: false, code: "AUTH_INVALID_SESSION", error: "Polymarket session expired. Reinitializing trading session." }), { status: 401 });
+          }
+          return new Response(JSON.stringify({ ok: true, balance: { balance: "100000000", allowances: { exchange: "1", conditional: "1" } } }), { status: 200 });
+        }
+        if (url.includes("/api/polymarket/auth/status") || url.includes("/api/polymarket/auth/init")) {
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        }
+        if (url.includes("/api/polymarket/balance-allowance/update")) {
+          return new Response(JSON.stringify({ ok: true, data: {} }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }),
+    );
+
+    const result = await ensureTradingReady({
+      walletClient,
+      address: walletClient.account.address as `0x${string}`,
+      publicClient,
+      side: "Buy",
+      tokenId: "111111",
+      amount: 4.3,
+      price: 0.43,
+    });
+
+    expect(accountCalls).toBe(2);
+    expect(mocks.ensureTradingSession).toHaveBeenCalledTimes(2);
+    expect(result.depositWalletAddress).toBe("0xdead");
+  });
 });

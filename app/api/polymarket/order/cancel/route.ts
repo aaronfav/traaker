@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { POLYMARKET_CLOB_URL } from "@/lib/polymarket/client";
-import { buildL2Headers } from "@/lib/server/polymarketAuth";
+import { buildL2Headers, isInvalidPolymarketAuthError } from "@/lib/server/polymarketAuth";
+import { clearSession, getSession } from "@/lib/server/session";
 import { logError } from "@/lib/server/logger";
 import { isRealTradingEnabled } from "@/lib/server/tradingConfig";
 
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
   const body = JSON.stringify({ orderID: parsed.data.orderId });
   const requestPath = "/order";
   try {
-    const headers = await buildL2Headers({ method: "DELETE", requestPath, body });
+    const headers = await buildL2Headers({ method: "DELETE", requestPath, body, route: "order/cancel" });
     const response = await fetch(`${POLYMARKET_CLOB_URL}${requestPath}`, {
       method: "DELETE",
       headers: {
@@ -39,6 +40,22 @@ export async function POST(request: Request) {
   } catch (error) {
     logError("api.polymarket.order.cancel", error);
     const message = error instanceof Error ? error.message : "Unable to cancel order.";
+    if (isInvalidPolymarketAuthError(message)) {
+      try {
+        const session = await getSession();
+        clearSession(session);
+      } catch {
+        // ignore session cleanup failures
+      }
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "AUTH_INVALID_SESSION",
+          error: "Polymarket session expired. Reinitializing trading session.",
+        },
+        { status: 401, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     const sessionInvalid = /Trading session is not initialized|POLYMARKET_SESSION_SECRET/i.test(message);
     return NextResponse.json(
       { ok: false, code: sessionInvalid ? "AUTH_INVALID_SESSION" : undefined, error: message },

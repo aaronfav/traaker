@@ -64,4 +64,19 @@ describe("Polymarket session-backed account route", () => {
     expect(body.ok).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
+
+  it("clears the session and returns AUTH_INVALID_SESSION when Polymarket rejects the api key", async () => {
+    const { clearSession } = await import("@/lib/server/session");
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ error: "Unauthorized/Invalid api key" }), { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { GET } = await import("@/app/api/polymarket/account/route");
+    const response = await GET();
+    const body = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(body.code).toBe("AUTH_INVALID_SESSION");
+    expect(body.error).toMatch(/session expired/i);
+    expect(clearSession).toHaveBeenCalled();
+  });
 });

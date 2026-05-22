@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { POLYMARKET_CLOB_URL } from "@/lib/polymarket/client";
 import { normalizeSignedOrder } from "@/lib/polymarket/normalizeSignedOrder";
-import { buildL2Headers, getPolymarketServerCreds, getServerBuilderCode, redactCredential } from "@/lib/server/polymarketAuth";
+import { buildL2Headers, getPolymarketServerCreds, getServerBuilderCode, isInvalidPolymarketAuthError, redactCredential } from "@/lib/server/polymarketAuth";
+import { clearSession, getSession } from "@/lib/server/session";
 import { logError, logInfo } from "@/lib/server/logger";
 import { isRealTradingEnabled } from "@/lib/server/tradingConfig";
 
@@ -128,7 +129,7 @@ export async function POST(request: Request) {
   try {
     headers = {
       "Content-Type": "application/json",
-      ...(await buildL2Headers({ method: "POST", requestPath, body })),
+      ...(await buildL2Headers({ method: "POST", requestPath, body, route: "order" })),
     };
   } catch (error) {
     return NextResponse.json(
@@ -168,9 +169,15 @@ export async function POST(request: Request) {
     if (!response.ok || data?.success === false) {
       logError("api.polymarket.order", { status: response.status, data });
       const serialized = JSON.stringify(data ?? {}).toLowerCase();
-      if (response.status === 401 && serialized.includes("invalid authorization")) {
+      if (response.status === 401 && isInvalidPolymarketAuthError(serialized)) {
+        try {
+          const session = await getSession();
+          clearSession(session);
+        } catch {
+          // ignore session cleanup failures
+        }
         return NextResponse.json(
-          { ok: false, code: "AUTH_INVALID_SESSION", error: "Polymarket authorization expired. Refresh credentials and retry.", details: data },
+          { ok: false, code: "AUTH_INVALID_SESSION", error: "Polymarket session expired. Reinitializing trading session.", details: data },
           { status: 401, headers: { "Cache-Control": "no-store" } },
         );
       }

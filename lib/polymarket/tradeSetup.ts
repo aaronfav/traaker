@@ -26,6 +26,14 @@ export type TradeSetupResult = {
   accountResponse: unknown;
 };
 
+type PolymarketAccountLoadOptions = {
+  walletClient?: WalletClient;
+  address?: Address;
+  tradingWalletAddress?: string;
+  signatureType?: 2 | 3;
+  retryOnAuthInvalid?: boolean;
+};
+
 const safeJson = async <T,>(response: Response): Promise<T | null> => {
   const text = await response.text().catch(() => "");
   if (!text) return null;
@@ -57,10 +65,38 @@ const normalizeBalance = (raw: { balance?: string; allowances?: Record<string, s
   };
 };
 
-export async function loadPolymarketAccount() {
+export async function loadPolymarketAccount(options?: PolymarketAccountLoadOptions) {
   const response = await fetch("/api/polymarket/account", { cache: "no-store" });
-  const data = await safeJson<{ ok?: boolean; balance?: { balance?: string; allowances?: Record<string, string> }; error?: string }>(response);
+  const data = await safeJson<{
+    ok?: boolean;
+    balance?: { balance?: string; allowances?: Record<string, string> };
+    error?: string;
+    code?: string;
+  }>(response);
   if (!response.ok || !data?.ok) {
+    if (
+      options?.retryOnAuthInvalid !== false &&
+      data?.code === "AUTH_INVALID_SESSION" &&
+      options?.walletClient &&
+      options?.address &&
+      options?.tradingWalletAddress &&
+      options?.signatureType
+    ) {
+      await ensureTradingSession(options.walletClient, 137, {
+        force: true,
+        tradingWalletAddress: options.tradingWalletAddress,
+        signatureType: options.signatureType,
+      });
+      const retryResponse = await fetch("/api/polymarket/account", { cache: "no-store" });
+      const retryData = await safeJson<{ ok?: boolean; balance?: { balance?: string; allowances?: Record<string, string> }; error?: string; code?: string }>(retryResponse);
+      if (retryResponse.ok && retryData?.ok) {
+        return {
+          response: retryResponse,
+          balance: normalizeBalance(retryData.balance ?? null),
+        };
+      }
+      throw new Error(retryData?.error ?? "Polymarket session expired. Reinitializing trading session.");
+    }
     throw new Error(data?.error ?? "Unable to load Polymarket account data.");
   }
   return {
@@ -155,7 +191,12 @@ export async function ensureTradingReady(input: {
   });
 
   input.onProgress?.("checking-balance");
-  let account = await loadPolymarketAccount();
+  let account = await loadPolymarketAccount({
+    walletClient: input.walletClient as WalletClient,
+    address: input.address,
+    tradingWalletAddress: depositWalletAddress,
+    signatureType: 3,
+  });
   const balance = account.balance;
 
   if (input.side === "Buy" && balance.usdc.balance <= 0) {
@@ -242,7 +283,12 @@ export async function ensureTradingReady(input: {
     });
   }
   if (!balance.usdc.hasExchangeAllowance || !balance.usdc.hasCtfAllowance) {
-    account = await loadPolymarketAccount();
+    account = await loadPolymarketAccount({
+      walletClient: input.walletClient as WalletClient,
+      address: input.address,
+      tradingWalletAddress: depositWalletAddress,
+      signatureType: 3,
+    });
   }
 
   return {

@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { AssetType, Chain, ClobClient, type ApiKeyCreds, type BalanceAllowanceParams, type SignatureTypeV2 } from "@polymarket/clob-client-v2";
-import { getSession, isSessionExpired } from "@/lib/server/session";
+import { clearSession, getSession, isSessionExpired } from "@/lib/server/session";
 import { logError, logInfo } from "@/lib/server/logger";
+import { isInvalidPolymarketAuthError } from "@/lib/server/polymarketAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -141,6 +142,21 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     logError("api.polymarket.balance_allowance", error);
+    if (isInvalidPolymarketAuthError(error)) {
+      try {
+        clearSession(session);
+      } catch {
+        // ignore session cleanup failures
+      }
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "AUTH_INVALID_SESSION",
+          error: "Polymarket session expired. Reinitializing trading session.",
+        },
+        { status: 401, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     return NextResponse.json(
       {
         ok: false,

@@ -10,6 +10,7 @@ import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
 import { getTradeDisabledReason } from "@/lib/polymarket/readiness";
 import { placeLimitOrder, Side, validateTrade } from "@/lib/polymarket/orders";
 import { ensureTradingReady, type TradeProgress } from "@/lib/polymarket/tradeSetup";
+import { ensureTradingSession } from "@/lib/polymarket/tradeService";
 import type { PortfolioBalanceState } from "@/lib/polymarket/types";
 import type { MarketBubbleNode } from "@/components/MarketBubbleMap";
 
@@ -264,8 +265,40 @@ export function MarketTradePanel({
           const data = await response.json().catch(() => null);
           if (!active) return;
           if (!response.ok || !data?.ok) {
+            if (data?.code === "AUTH_INVALID_SESSION" && walletClient?.account?.address) {
+              setAccountError("Polymarket session expired. Reinitializing trading session.");
+              try {
+                await ensureTradingSession(walletClient, 137, {
+                  force: true,
+                  tradingWalletAddress: status.depositWallet,
+                  signatureType: 3,
+                });
+                const retryResponse = await fetch("/api/polymarket/account", { cache: "no-store" });
+                const retryData = await retryResponse.json().catch(() => null);
+                if (active && retryResponse.ok && retryData?.ok) {
+                  setAccountError(null);
+                  setAccountBalance({
+                    usdc: {
+                      balance: Number(retryData.balance?.balance ?? 0) / 1_000_000,
+                      rawBalance: String(retryData.balance?.balance ?? "0"),
+                      allowances: retryData.balance?.allowances ?? {},
+                      exchangeAllowance: (Object.values(retryData.balance?.allowances ?? {})[0] as string | undefined) ?? null,
+                      ctfAllowance: (Object.values(retryData.balance?.allowances ?? {})[1] as string | undefined) ?? null,
+                      hasExchangeAllowance: Boolean(Object.values(retryData.balance?.allowances ?? {})[0]),
+                      hasCtfAllowance: Boolean(Object.values(retryData.balance?.allowances ?? {})[1]),
+                    },
+                    pUsd: null,
+                    conditional: null,
+                    source: "polymarket",
+                  });
+                  return;
+                }
+              } catch {
+                // fall through to the visible status below
+              }
+            }
             setAccountBalance(null);
-            setAccountError(data?.error ?? "Unable to load Polymarket account data.");
+            setAccountError(data?.error ?? "Polymarket session expired. Reinitializing trading session.");
             return;
           }
           setAccountError(null);
@@ -286,7 +319,7 @@ export function MarketTradePanel({
         } catch {
           if (!active) return;
           setAccountBalance(null);
-          setAccountError("Unable to load Polymarket account data.");
+          setAccountError("Polymarket session expired. Reinitializing trading session.");
         }
       })
       .catch(() => {
