@@ -11,6 +11,7 @@ import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
 import { OrderType, placeLimitOrder, placeMarketOrder, Side, validateTrade } from "@/lib/polymarket/orders";
 import { getPositions } from "@/lib/polymarket/portfolio";
 import { ensureTradingReady, type TradeProgress } from "@/lib/polymarket/tradeSetup";
+import type { PortfolioBalanceState } from "@/lib/polymarket/types";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
 type TradeMode = "limit" | "market";
@@ -118,8 +119,9 @@ export function TradeTicket({
         price: tradePrice,
         onProgress: setTradeProgress,
       });
-      setAvailableBalance(setup.balance.usdc.balance);
-      const liveUsdcBalance = setup.balance.usdc.balance;
+      const liveBalance = setup.balance as PortfolioBalanceState | null;
+      const liveUsdcBalance = liveBalance?.usdc.balance ?? Number.MAX_SAFE_INTEGER;
+      setAvailableBalance(liveBalance?.usdc.balance ?? null);
 
       const liveValidation = validateTrade({
         walletConnected: isConnected,

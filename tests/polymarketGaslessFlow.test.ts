@@ -257,7 +257,7 @@ describe("gasless trade setup", () => {
     expect(mocks.ensureDepositWalletDeployed).not.toHaveBeenCalled();
   });
 
-  it("reinitializes the session and retries the account load when the api key is stale", async () => {
+  it("does not require account success before the trade setup completes", async () => {
     stubConfig();
     stubRelayClient({ expectedSafe: "0xsafe", proxyDeployed: false, depositWalletAddress: "0xdead", depositWalletDeployed: true });
     mocks.ensureTradingSession.mockResolvedValue(true);
@@ -278,10 +278,7 @@ describe("gasless trade setup", () => {
         }
         if (url.includes("/api/polymarket/account")) {
           accountCalls += 1;
-          if (accountCalls === 1) {
-            return new Response(JSON.stringify({ ok: false, code: "AUTH_INVALID_SESSION", error: "Polymarket session expired. Reinitializing trading session." }), { status: 401 });
-          }
-          return new Response(JSON.stringify({ ok: true, balance: { balance: "100000000", allowances: { exchange: "1", conditional: "1" } } }), { status: 200 });
+          return new Response(JSON.stringify({ ok: false, code: "AUTH_INVALID_SESSION", error: "Unauthorized/Invalid api key" }), { status: 401 });
         }
         if (url.includes("/api/polymarket/auth/status") || url.includes("/api/polymarket/auth/init")) {
           return new Response(JSON.stringify({ ok: true }), { status: 200 });
@@ -303,8 +300,8 @@ describe("gasless trade setup", () => {
       price: 0.43,
     });
 
-    expect(accountCalls).toBe(2);
-    expect(mocks.ensureTradingSession).toHaveBeenCalledTimes(2);
+    expect(accountCalls).toBe(0);
+    expect(mocks.ensureTradingSession).toHaveBeenCalled();
     expect(result.depositWalletAddress).toBe("0xdead");
   });
 });

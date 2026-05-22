@@ -9,8 +9,6 @@ import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
 import { getTradeDisabledReason } from "@/lib/polymarket/readiness";
 import { placeLimitOrder, Side, validateTrade } from "@/lib/polymarket/orders";
 import { ensureTradingReady, resolveTradingWalletContext, type TradeProgress } from "@/lib/polymarket/tradeSetup";
-import { ensureTradingSession } from "@/lib/polymarket/tradeService";
-import type { PortfolioBalanceState } from "@/lib/polymarket/types";
 import type { MarketBubbleNode } from "@/components/MarketBubbleMap";
 
 const QUOTE_REFRESH_MS = 10_000;
@@ -118,8 +116,6 @@ export function MarketTradePanel({
     missingSetupReason: null,
   });
   const [depositWalletInitialized, setDepositWalletInitialized] = useState<boolean | null>(null);
-  const [accountBalance, setAccountBalance] = useState<PortfolioBalanceState | null>(null);
-  const [accountError, setAccountError] = useState<string | null>(null);
   const [submittingSide, setSubmittingSide] = useState<TradeSide | null>(null);
   const [tradeProgress, setTradeProgress] = useState<TradeProgress>("idle");
   const [toast, setToast] = useState<TradeToast | null>(null);
@@ -153,8 +149,7 @@ export function MarketTradePanel({
     isConnected,
     chainId,
     depositWalletInitialized,
-    balance: accountBalance,
-    accountError,
+    balance: null,
     quoteFresh: true,
   });
 
@@ -224,8 +219,6 @@ export function MarketTradePanel({
 
     if (!isConnected || chainId !== 137 || !walletClient || !publicClient) {
       setDepositWalletInitialized(null);
-      setAccountBalance(null);
-      setAccountError(null);
       return () => {
         active = false;
       };
@@ -234,8 +227,6 @@ export function MarketTradePanel({
     const address = walletClient.account?.address;
     if (!address) {
       setDepositWalletInitialized(null);
-      setAccountBalance(null);
-      setAccountError(null);
       return () => {
         active = false;
       };
@@ -245,88 +236,16 @@ export function MarketTradePanel({
       .then(async (context) => {
         if (!active) return;
         setDepositWalletInitialized(context.walletMode === "legacy-proxy" ? true : context.depositWalletInitialized);
-        if (context.walletMode === "deposit-wallet" && !context.depositWalletInitialized) {
-          setAccountBalance(null);
-          setAccountError(null);
-          return;
-        }
-        if (!runtimeConfig.clobReady) {
-          setAccountBalance(null);
-          setAccountError(runtimeConfig.missingSetupReason ?? "Trading configuration is unavailable.");
-          return;
-        }
-        try {
-          const response = await fetch("/api/polymarket/account", { cache: "no-store" });
-          const data = await response.json().catch(() => null);
-          if (!active) return;
-          if (!response.ok || !data?.ok) {
-            if (data?.code === "AUTH_INVALID_SESSION" && walletClient?.account?.address) {
-              setAccountError("Polymarket session expired. Reinitializing trading session.");
-              try {
-                await ensureTradingSession(walletClient, 137, {
-                  force: true,
-                  tradingWalletAddress: context.tradingWalletAddress,
-                  signatureType: context.signatureType,
-                });
-                const retryResponse = await fetch("/api/polymarket/account", { cache: "no-store" });
-                const retryData = await retryResponse.json().catch(() => null);
-                if (active && retryResponse.ok && retryData?.ok) {
-                  setAccountError(null);
-                  setAccountBalance({
-                    usdc: {
-                      balance: Number(retryData.balance?.balance ?? 0) / 1_000_000,
-                      rawBalance: String(retryData.balance?.balance ?? "0"),
-                      allowances: retryData.balance?.allowances ?? {},
-                      exchangeAllowance: (Object.values(retryData.balance?.allowances ?? {})[0] as string | undefined) ?? null,
-                      ctfAllowance: (Object.values(retryData.balance?.allowances ?? {})[1] as string | undefined) ?? null,
-                      hasExchangeAllowance: Boolean(Object.values(retryData.balance?.allowances ?? {})[0]),
-                      hasCtfAllowance: Boolean(Object.values(retryData.balance?.allowances ?? {})[1]),
-                    },
-                    pUsd: null,
-                    conditional: null,
-                    source: "polymarket",
-                  });
-                  return;
-                }
-              } catch {
-                // fall through to the visible status below
-              }
-            }
-            setAccountBalance(null);
-            setAccountError(data?.error ?? "Polymarket session expired. Reinitializing trading session.");
-            return;
-          }
-          setAccountError(null);
-          setAccountBalance({
-            usdc: {
-              balance: Number(data.balance?.balance ?? 0) / 1_000_000,
-              rawBalance: String(data.balance?.balance ?? "0"),
-              allowances: data.balance?.allowances ?? {},
-              exchangeAllowance: (Object.values(data.balance?.allowances ?? {})[0] as string | undefined) ?? null,
-              ctfAllowance: (Object.values(data.balance?.allowances ?? {})[1] as string | undefined) ?? null,
-              hasExchangeAllowance: Boolean(Object.values(data.balance?.allowances ?? {})[0]),
-              hasCtfAllowance: Boolean(Object.values(data.balance?.allowances ?? {})[1]),
-            },
-            pUsd: null,
-            conditional: null,
-            source: "polymarket",
-          });
-        } catch {
-          if (!active) return;
-          setAccountBalance(null);
-          setAccountError("Polymarket session expired. Reinitializing trading session.");
-        }
       })
       .catch(() => {
         if (!active) return;
         setDepositWalletInitialized(null);
-        setAccountError("Trading wallet could not be resolved.");
       });
 
     return () => {
       active = false;
     };
-  }, [chainId, isConnected, publicClient, runtimeConfig.clobReady, runtimeConfig.missingSetupReason, walletClient]);
+  }, [chainId, isConnected, publicClient, walletClient]);
 
   const refreshQuote = useCallback(async (): Promise<MarketBubbleNode | null> => {
     if (!onUpdatePrices || !mountedRef.current) return null;
@@ -467,17 +386,7 @@ export function MarketTradePanel({
             onProgress: setTradeProgress,
           });
           setDepositWalletInitialized(setup.depositWalletInitialized);
-          setAccountBalance(setup.balance);
-          setAccountError(null);
-          availableBalance = side === "Buy" ? setup.balance.usdc.balance : Number.MAX_SAFE_INTEGER;
-          if (side === "Buy" && availableBalance <= 0) {
-            setToast({ tone: "error", message: "Polymarket deposit wallet has no USDC balance. Fund the wallet before trading." });
-            return;
-          }
-        } else {
-          const accountResponse = await fetch("/api/polymarket/account", { cache: "no-store" });
-          const accountData = await accountResponse.json().catch(() => null);
-          availableBalance = Number(accountData?.balance?.balance ?? 0) / 1_000_000;
+          availableBalance = Number.MAX_SAFE_INTEGER;
         }
 
         const validation = validateTrade({
