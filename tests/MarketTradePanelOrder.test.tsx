@@ -4,7 +4,7 @@ import { MarketTradePanel } from "@/components/MarketTradePanel";
 import type { MarketBubbleNode } from "@/components/MarketBubbleMap";
 
 const mocks = vi.hoisted(() => ({
-  placeLimitOrder: vi.fn(),
+  placeMarketOrder: vi.fn(),
   createSignerClient: vi.fn(),
   ensureTradingReady: vi.fn(),
   resolveTradingWalletContext: vi.fn(),
@@ -65,7 +65,7 @@ vi.mock("@/lib/polymarket/orders", async () => {
   const actual = await vi.importActual<typeof import("@/lib/polymarket/orders")>("@/lib/polymarket/orders");
   return {
     ...actual,
-    placeLimitOrder: mocks.placeLimitOrder,
+    placeMarketOrder: mocks.placeMarketOrder,
   };
 });
 
@@ -108,7 +108,7 @@ describe("MarketTradePanel orders", () => {
     mocks.resolveTradingWalletContext.mockResolvedValue(mocks.walletContext);
     mocks.ensureTradingReady.mockResolvedValue(mocks.tradingSetup);
     mocks.createSignerClient.mockResolvedValue({ client: "signed" });
-    mocks.placeLimitOrder.mockResolvedValue({ orderID: "order-1" });
+    mocks.placeMarketOrder.mockResolvedValue({ orderID: "order-1" });
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -143,13 +143,14 @@ describe("MarketTradePanel orders", () => {
         price: 0.43,
       }),
     );
-    await waitFor(() => expect(mocks.placeLimitOrder).toHaveBeenCalled());
-    expect(mocks.placeLimitOrder).toHaveBeenCalledWith(
+    await waitFor(() => expect(mocks.placeMarketOrder).toHaveBeenCalled());
+    expect(mocks.placeMarketOrder).toHaveBeenCalledWith(
       { client: "signed" },
       expect.objectContaining({
         tokenID: "222221",
-        price: 0.43,
-        size: 10,
+        amount: 4.3,
+        currentPrice: 0.43,
+        maxSlippageBps: 1300,
       }),
     );
   });
@@ -184,14 +185,14 @@ describe("MarketTradePanel orders", () => {
     fireEvent.click(buyButton);
 
     await waitFor(() => expect(mocks.ensureTradingReady).toHaveBeenCalled());
-    await waitFor(() => expect(mocks.placeLimitOrder).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.placeMarketOrder).toHaveBeenCalled());
   });
 
   it("auto-refreshes a stale quote before buying and submits with the refreshed price", async () => {
     mocks.resolveTradingWalletContext.mockResolvedValue(mocks.walletContext);
     mocks.ensureTradingReady.mockResolvedValue(mocks.tradingSetup);
     mocks.createSignerClient.mockResolvedValue({ client: "signed" });
-    mocks.placeLimitOrder.mockResolvedValue({ orderID: "order-2" });
+    mocks.placeMarketOrder.mockResolvedValue({ orderID: "order-2" });
     const refreshedMarket = {
       ...market,
       favoredPrice: 0.71,
@@ -225,12 +226,13 @@ describe("MarketTradePanel orders", () => {
     });
 
     expect(onUpdatePrices).toHaveBeenCalledTimes(2);
-    expect(mocks.placeLimitOrder).toHaveBeenCalledWith(
+    expect(mocks.placeMarketOrder).toHaveBeenCalledWith(
       { client: "signed" },
       expect.objectContaining({
         tokenID: "111111",
-        price: 0.71,
-        size: 10,
+        amount: 7.1,
+        currentPrice: 0.71,
+        maxSlippageBps: 1300,
       }),
     );
   });
@@ -239,7 +241,7 @@ describe("MarketTradePanel orders", () => {
     mocks.resolveTradingWalletContext.mockResolvedValue(mocks.walletContext);
     mocks.ensureTradingReady.mockResolvedValue(mocks.tradingSetup);
     mocks.createSignerClient.mockResolvedValue({ client: "signed" });
-    mocks.placeLimitOrder.mockResolvedValue({ orderID: "order-3" });
+    mocks.placeMarketOrder.mockResolvedValue({ orderID: "order-3" });
     const refreshedMarket = {
       ...market,
       favoredPrice: 0.68,
@@ -276,13 +278,16 @@ describe("MarketTradePanel orders", () => {
     });
 
     expect(onUpdatePrices).toHaveBeenCalledTimes(3);
-    expect(mocks.placeLimitOrder).toHaveBeenCalledWith(
+    expect(mocks.placeMarketOrder).toHaveBeenCalledWith(
       { client: "signed" },
       expect.objectContaining({
         tokenID: "111111",
-        price: 0.68,
-        size: 10,
+        currentPrice: 0.68,
+        maxSlippageBps: 1300,
+        side: "BUY",
+        userUSDCBalance: Number.MAX_SAFE_INTEGER,
       }),
     );
+    expect(mocks.placeMarketOrder.mock.calls[0]?.[1].amount).toBeCloseTo(6.8, 5);
   });
 });

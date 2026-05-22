@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
 import { getTradeDisabledReason } from "@/lib/polymarket/readiness";
-import { placeLimitOrder, Side, validateTrade } from "@/lib/polymarket/orders";
+import { placeMarketOrder, Side, validateTrade } from "@/lib/polymarket/orders";
 import { ensureTradingReady, resolveTradingWalletContext, type TradeProgress } from "@/lib/polymarket/tradeSetup";
 import type { MarketBubbleNode } from "@/components/MarketBubbleMap";
 
@@ -15,6 +15,7 @@ const QUOTE_REFRESH_MS = 10_000;
 const QUOTE_TICK_MS = 250;
 const QUOTE_RETRY_MS = 3_000;
 const DEFAULT_SHARES = "10";
+const DEFAULT_SLIPPAGE_BPS = 1_300;
 
 type QuoteStatus = "healthy" | "refreshing" | "stale";
 type TradeSide = "Buy" | "Sell";
@@ -395,7 +396,7 @@ export function MarketTradePanel({
           tokenID,
           amount: finalOrderValue,
           price: finalPrice as number,
-          slippageBps: 100,
+          slippageBps: DEFAULT_SLIPPAGE_BPS,
           availableBalance,
         });
 
@@ -418,10 +419,11 @@ export function MarketTradePanel({
           signatureType: setup.signatureType === 2 ? SignatureTypeV2.POLY_GNOSIS_SAFE : SignatureTypeV2.POLY_1271,
           funderAddress: setup.tradingWalletAddress,
         });
-        const response = await placeLimitOrder(client, {
+        const response = await placeMarketOrder(client, {
           tokenID,
-          price: finalPrice as number,
-          size: safeShares,
+          amount: finalOrderValue,
+          currentPrice: finalPrice as number,
+          maxSlippageBps: DEFAULT_SLIPPAGE_BPS,
           side: side === "Buy" ? Side.BUY : Side.SELL,
           userUSDCBalance: side === "Buy" ? availableBalance : undefined,
         });
@@ -443,12 +445,17 @@ export function MarketTradePanel({
 
   const actionButtons = useMemo(
     () =>
-      ([
+      ([ 
         { side: "Buy" as const, price: buyPrice, className: "bg-emerald-400 text-slate-950 hover:bg-emerald-300" },
         { side: "Sell" as const, price: sellPrice, className: "bg-rose-400 text-slate-950 hover:bg-rose-300" },
       ]).map((action) => {
         const disabled = Boolean(tradeDisabledReason) || !selectedOutcome || !Number.isFinite(action.price) || safeShares <= 0 || submittingSide !== null;
-        const label = Number.isFinite(action.price) && selectedOutcome ? `${action.side} ${selectedOutcome.name}  ${formatCents(action.price as number)}` : `${action.side} unavailable`;
+        const label =
+          Number.isFinite(action.price) && selectedOutcome
+            ? `${action.side} ${selectedOutcome.name}  ${formatCents(action.price as number)}`
+            : selectedOutcome
+              ? "Not enough liquidity"
+              : `${action.side} unavailable`;
         return (
           <Button
             className={`h-12 flex-1 text-sm font-black shadow-lg shadow-black/25 ${Number.isFinite(action.price) ? action.className : ""}`}
@@ -570,6 +577,9 @@ export function MarketTradePanel({
 
       <div className="border-t border-zinc-800/90 bg-[#07080b]/98 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-18px_38px_rgba(0,0,0,0.32)]">
         <div className="flex gap-2">{actionButtons}</div>
+        <p className="mt-2 text-[11px] leading-4 text-zinc-500">
+          Marketable order with up to 13% slippage protection.
+        </p>
         {tradeProgress !== "idle" ? (
           <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-cyan-200">
             {tradeProgress === "checking-wallet"

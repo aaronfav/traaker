@@ -33,7 +33,7 @@ export function TradeTicket({
   const [mode, setMode] = useState<TradeMode>("limit");
   const [amount, setAmount] = useState("25");
   const [limitPrice, setLimitPrice] = useState(String(Math.round(market.yesPrice * 100)));
-  const [slippage, setSlippage] = useState("100");
+  const [slippage, setSlippage] = useState("1300");
   const [reviewing, setReviewing] = useState(false);
   const [status, setStatus] = useState<"idle" | "validating" | "submitting" | "pending" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
@@ -225,7 +225,7 @@ export function TradeTicket({
         ) : (
           <label className="block space-y-2 text-sm">
             <span className="text-slate-300">Slippage protection, bps</span>
-            <Input max="1000" min="10" onChange={(event) => setSlippage(event.target.value)} type="number" value={slippage} />
+            <Input max="1300" min="10" onChange={(event) => setSlippage(event.target.value)} type="number" value={slippage} />
           </label>
         )}
 

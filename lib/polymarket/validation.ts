@@ -9,7 +9,7 @@ export const tradeValidationSchema = z.object({
   tokenID: z.string().regex(/^\d+$/, "Market token id is missing or invalid."),
   amount: z.number().positive("Amount must be greater than 0.").max(25_000, "Amount exceeds the single order safety limit."),
   price: z.number().gt(0, "Price must be greater than 0.").lt(1, "Price must be less than 1."),
-  slippageBps: z.number().int().min(0).max(1_000, "Slippage cannot exceed 10%."),
+  slippageBps: z.number().int().min(0).max(1_300, "Slippage cannot exceed 13%."),
   availableBalance: z.number().min(0),
   builderCode: z
     .string()
