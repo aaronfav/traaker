@@ -2019,7 +2019,7 @@ export function MarketBubbleMap({
   return (
     <div
       aria-label={`${bodyCount} sports market bubble map`}
-      className="relative h-[min(62vh,620px)] min-h-[430px] w-full overflow-hidden rounded-lg border border-slate-800/90 bg-[#01030a] shadow-2xl shadow-black/30 md:h-[calc(100vh-19.5rem)] md:min-h-[500px]"
+      className="relative h-[clamp(430px,62svh,620px)] w-full overflow-hidden rounded-xl border border-slate-800/90 bg-[#01030a] shadow-[0_28px_90px_rgba(0,0,0,0.36),inset_0_1px_0_rgba(255,255,255,0.04)] md:h-[clamp(440px,calc(100svh-19rem),620px)]"
       onClick={handleClick}
       onMouseLeave={handleMouseLeave}
       onMouseMove={handleMouseMove}
@@ -2064,7 +2064,11 @@ export function MarketBubbleMap({
       ) : null}
 
       {bodyCount === 0 && !loadingVisible ? (
-        <div className="absolute inset-0 z-20 grid place-items-center text-sm text-slate-400">No sports markets matched this view.</div>
+        <div className="absolute inset-0 z-20 grid place-items-center px-6 text-center text-sm font-medium text-slate-400">
+          <div className="rounded-xl border border-slate-800/90 bg-slate-950/68 px-5 py-4 shadow-xl shadow-black/20 backdrop-blur-xl">
+            No sports markets matched this view.
+          </div>
+        </div>
       ) : null}
       {selectedMarket ? (
         <>

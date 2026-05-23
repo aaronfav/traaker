@@ -38,3 +38,12 @@ export function categoryIcon(label: string) {
   if (label === "Tennis") return "\u{1F3BE}";
   return "";
 }
+
+export function categoryIconSrc(label: string) {
+  if (label === "NBA") return "/sport-balls/basketball.png";
+  if (label === "NFL") return "/sport-balls/football.png";
+  if (label === "Soccer") return "/sport-balls/soccer-white-black.png";
+  if (label === "UFC") return "/sport-balls/ufc-glove-red.png";
+  if (label === "Tennis") return "/sport-balls/tennis-green.png";
+  return "";
+}

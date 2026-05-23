@@ -20,10 +20,6 @@ export function OrderSummary({ summary }: { summary: ReturnType<typeof calculate
         <span className="text-zinc-500">Estimated payout</span>
         <span className="font-semibold text-zinc-100">{money(summary.estimatedPayout)}</span>
       </div>
-      <div className="flex justify-between py-1">
-        <span className="text-zinc-500">Slippage estimate</span>
-        <span className="font-semibold text-zinc-100">{cents(summary.slippageEstimate)}</span>
-      </div>
     </div>
   );
 }

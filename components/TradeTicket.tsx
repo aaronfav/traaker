@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2, Loader2, ShieldCheck, FlaskConical } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,6 +15,7 @@ import type { TerminalMarket } from "@/lib/polymarket/types";
 
 type TradeMode = "limit" | "market";
 type Outcome = "yes" | "no";
+const DEFAULT_SLIPPAGE_BPS = 300;
 
 export function TradeTicket({
   market,
@@ -33,7 +33,6 @@ export function TradeTicket({
   const [mode, setMode] = useState<TradeMode>("limit");
   const [amount, setAmount] = useState("25");
   const [limitPrice, setLimitPrice] = useState(String(Math.round(market.yesPrice * 100)));
-  const [slippage, setSlippage] = useState("300");
   const [reviewing, setReviewing] = useState(false);
   const [status, setStatus] = useState<"idle" | "validating" | "submitting" | "pending" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
@@ -49,7 +48,7 @@ export function TradeTicket({
   const estimatedFees = usdcAmount * 0.002;
   const tokenID = outcome === "yes" ? market.tokenIds.yes : market.tokenIds.no;
 
-  const parsedSlippage = Number(slippage);
+  const parsedSlippage = DEFAULT_SLIPPAGE_BPS;
 
   const validation = useMemo(
     () =>
@@ -90,7 +89,7 @@ export function TradeTicket({
 
   async function submit() {
     setStatus("validating");
-    setMessage("Checking balance, token, price, slippage, and wallet state.");
+    setMessage("Checking order.");
     setValidationErrors([]);
     setTradeProgress("idle");
 
@@ -141,7 +140,7 @@ export function TradeTicket({
       }
 
       setStatus("submitting");
-      setMessage("Posting signed order to Polymarket CLOB V2.");
+      setMessage("Submitting order.");
       setTradeProgress("submitting-order");
 
       const client = await createSignerClient({
@@ -162,7 +161,7 @@ export function TradeTicket({
               tokenID,
               amount: usdcAmount,
               currentPrice: price,
-              maxSlippageBps: Number(slippage),
+              maxSlippageBps: parsedSlippage,
               orderType: OrderType.FOK,
               side: Side.BUY,
             });
@@ -222,12 +221,7 @@ export function TradeTicket({
             <span className="text-slate-300">Limit price, cents</span>
             <Input max="99" min="1" onChange={(event) => setLimitPrice(event.target.value)} type="number" value={limitPrice} />
           </label>
-        ) : (
-          <label className="block space-y-2 text-sm">
-            <span className="text-slate-300">Slippage protection, bps</span>
-            <Input max="1300" min="10" onChange={(event) => setSlippage(event.target.value)} type="number" value={slippage} />
-          </label>
-        )}
+        ) : null}
 
         <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 text-sm">
           <div className="flex justify-between py-1">
@@ -243,26 +237,6 @@ export function TradeTicket({
             <span>${estimatedFees.toFixed(2)}</span>
           </div>
         </div>
-
-        <div className="flex flex-wrap gap-2">
-          <Badge tone={chainId === 137 ? "green" : "amber"}>Polygon mainnet</Badge>
-          <Badge tone="cyan">
-            <ShieldCheck className="h-3 w-3" />
-            Non-custodial
-          </Badge>
-          <Badge tone="slate">POLY_1271</Badge>
-        </div>
-
-        <label className="flex cursor-not-allowed items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-sm opacity-70">
-          <span className="inline-flex items-center gap-2 text-slate-300">
-            <FlaskConical className="h-4 w-4" />
-            Simulation mode
-          </span>
-          <input checked={false} disabled readOnly type="checkbox" />
-        </label>
-        <p className="-mt-3 text-xs text-slate-500">
-          {realTradingEnabled ? "Real orders require wallet review and live CLOB validation." : "Real order submission is disabled for production safety."}
-        </p>
 
         {!tokenID ? (
           <div className="flex gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-200">
@@ -307,7 +281,7 @@ export function TradeTicket({
             <div className="w-full max-w-md rounded-lg border border-slate-700 bg-slate-950 p-5 shadow-2xl">
               <h2 className="text-lg font-semibold text-slate-50">Review trade</h2>
               <p className="mt-2 text-sm text-slate-400">
-                {realTradingEnabled ? "Buy" : "Dry-run"} {outcome.toUpperCase()} on {market.title} for ${usdcAmount.toFixed(2)} using a {mode} order.
+                {realTradingEnabled ? "Buy" : "Dry-run"} {outcome.toUpperCase()} on {market.title} for ${usdcAmount.toFixed(2)}.
               </p>
               <div className="mt-5 flex gap-2">
                 <Button disabled={status === "submitting"} onClick={submit} type="button">
@@ -328,9 +302,6 @@ export function TradeTicket({
           </div>
         ) : null}
 
-        <p className="text-xs leading-5 text-slate-500">
-          Orders are signed by your wallet and posted to Polymarket CLOB V2. This interface never takes custody of funds.
-        </p>
       </CardContent>
     </Card>
   );

@@ -1,19 +1,20 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Flame, RefreshCw, Search } from "lucide-react";
+import { ChevronDown, Flame, RefreshCw, Search, Sparkles } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { fetchLatestMarketForNode, MarketBubbleMap, marketToBubbleNode, type MarketBubbleNode } from "@/components/MarketBubbleMap";
 import { MarketTradePanel } from "@/components/MarketTradePanel";
 import { marketStore } from "@/app/store/marketStore";
-import { categoryIcon } from "@/lib/markets/category";
+import { categoryIcon, categoryIconSrc } from "@/lib/markets/category";
 import { DEFAULT_MARKET_MIN_VOLUME, hasUsefulFavoredPrice, rankHighValueMarkets } from "@/lib/polymarket/marketDisplay";
 import type { MarketPage, MarketQuerySort, MarketQueryStatus, SportsMarketDiscovery } from "@/lib/polymarket/markets";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
 const sports = ["All", "NBA", "NFL", "Soccer", "UFC", "Tennis"] as const;
-const sportPills = sports.map((label) => ({ label, icon: label === "All" ? "" : categoryIcon(label) }));
+const sportPills = sports.map((label) => ({ label, icon: label === "All" ? "" : categoryIconSrc(label), fallback: label === "All" ? "" : categoryIcon(label) }));
 const rangeOptions = [
   { label: "1-50", start: 0, end: 50 },
   { label: "51-100", start: 50, end: 100 },
@@ -70,6 +71,18 @@ function matchesMarketQuery(market: TerminalMarket, query: string) {
   if (tokens.length === 0) return false;
   const haystack = `${market.title} ${market.sport} ${market.league} ${market.outcomes.yes} ${market.outcomes.no}`.toLowerCase();
   return tokens.every((token) => haystack.includes(token));
+}
+
+function SportIcon({ src, fallback, className = "h-5 w-5" }: { src?: string; fallback?: string; className?: string }) {
+  if (src) {
+    return (
+      <span className={`relative shrink-0 overflow-hidden rounded-full ${className}`}>
+        <Image src={src} alt="" fill sizes="24px" className="object-contain" />
+      </span>
+    );
+  }
+  if (fallback) return <span className="shrink-0 text-base leading-none">{fallback}</span>;
+  return <Sparkles className="h-4 w-4 text-cyan-200" />;
 }
 
 export function MarketsExplorer({
@@ -139,10 +152,11 @@ export function MarketsExplorer({
   const rankedMarkets = useMemo(() => rankHighValueMarkets(markets, minVolume), [markets, minVolume]);
   const visibleMarkets = rankedMarkets.slice(selectedRange.start, selectedRange.end);
   const searchResults = useMemo(() => rankedMarkets.filter((market) => matchesMarketQuery(market, query)).slice(0, 12), [query, rankedMarkets]);
+  const categoryCta = sport === "All" ? "Explore markets" : `View ${sport} markets`;
 
   return (
-    <section className="relative w-full bg-[#05070d]">
-      <div className="border-b border-slate-800/80 bg-[#0a101c]/86 shadow-xl shadow-black/20 backdrop-blur-xl">
+    <section className="relative w-full overflow-hidden bg-[radial-gradient(circle_at_50%_0%,rgba(34,211,238,0.09),transparent_34rem),linear-gradient(180deg,#05070d_0%,#07101a_46%,#04070d_100%)]">
+      <div className="border-b border-slate-800/80 bg-[#0a101c]/82 shadow-xl shadow-black/25 backdrop-blur-2xl">
         <div className="mx-auto flex w-full max-w-[118rem] flex-col gap-4 px-5 py-4 sm:px-7 lg:flex-row lg:items-center lg:px-10">
           <div className="flex flex-wrap items-center gap-3">
             {sportPills.map((item) => {
@@ -150,10 +164,10 @@ export function MarketsExplorer({
               return (
                 <Button
                   aria-label={item.label}
-                  className={`h-11 rounded-lg border px-4 text-sm font-bold shadow-lg shadow-black/10 ${
+                  className={`h-12 rounded-xl border px-4 text-sm font-bold shadow-lg shadow-black/15 transition duration-200 ${
                     active
-                      ? "border-cyan-300/70 bg-cyan-300/10 text-cyan-100 hover:bg-cyan-300/15"
-                      : "border-slate-800 bg-slate-950/35 text-slate-200 hover:border-slate-700 hover:bg-slate-900"
+                      ? "border-cyan-300/70 bg-cyan-300/12 text-cyan-100 shadow-[0_0_26px_rgba(34,211,238,0.12)] hover:bg-cyan-300/16"
+                      : "border-slate-800 bg-slate-950/35 text-slate-200 hover:border-slate-700 hover:bg-slate-900/80"
                   }`}
                   key={item.label}
                   onClick={() => setSport(item.label)}
@@ -161,12 +175,12 @@ export function MarketsExplorer({
                   type="button"
                   variant="ghost"
                 >
-                  {item.icon ? <span aria-hidden="true" className="text-base leading-none">{item.icon}</span> : null}
+                  <SportIcon src={item.icon} fallback={item.fallback} />
                   {item.label}
                 </Button>
               );
             })}
-            <label className="relative inline-flex h-11 items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/35 px-4 text-sm font-bold text-slate-200 shadow-lg shadow-black/10">
+            <label className="relative inline-flex h-12 items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/35 px-4 text-sm font-bold text-slate-200 shadow-lg shadow-black/15 transition hover:border-slate-700 hover:bg-slate-900/80">
               More
               <ChevronDown className="h-4 w-4 text-slate-400" />
               <select
@@ -187,21 +201,21 @@ export function MarketsExplorer({
             <label className="relative block flex-1 lg:max-w-md">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
               <Input
-                className="h-12 rounded-lg border-slate-800 bg-slate-950/70 pl-11 text-sm shadow-inner shadow-black/25 placeholder:text-slate-500"
+                className="h-12 rounded-xl border-slate-800 bg-slate-950/70 pl-11 text-sm shadow-inner shadow-black/25 transition focus:border-cyan-300/60 placeholder:text-slate-500"
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search markets..."
                 value={query}
               />
             </label>
             <span
-              className="inline-flex h-11 items-center rounded-lg border border-cyan-400/20 bg-cyan-400/8 px-4 text-sm font-bold text-cyan-100"
+              className="inline-flex h-12 items-center rounded-xl border border-cyan-400/20 bg-cyan-400/8 px-4 text-sm font-bold text-cyan-100"
               title="Prices are frozen for trading stability. Press Refresh to update."
             >
               Snapshot
             </span>
             <Button
               aria-label="Refresh markets"
-              className="h-11 rounded-lg border border-slate-800 bg-slate-950/35 px-4 text-sm font-semibold text-slate-300 hover:bg-slate-900 hover:text-slate-100"
+              className="h-12 rounded-xl border border-slate-800 bg-slate-950/35 px-4 text-sm font-semibold text-slate-300 transition hover:border-slate-700 hover:bg-slate-900 hover:text-slate-100"
               disabled={isLoading}
               onClick={() => setRefreshNonce((value) => value + 1)}
               size="sm"
@@ -221,7 +235,7 @@ export function MarketsExplorer({
       ) : null}
 
       {query.trim() ? (
-        <div className="absolute right-5 top-24 z-30 w-[min(92vw,420px)] rounded-lg border border-zinc-800 bg-[#090a0d]/98 p-3 text-sm text-zinc-100 shadow-2xl shadow-black/50 backdrop-blur lg:top-20">
+        <div className="absolute right-5 top-24 z-30 w-[min(92vw,420px)] rounded-xl border border-slate-800 bg-[#090d15]/98 p-3 text-sm text-slate-100 shadow-2xl shadow-black/50 backdrop-blur-2xl lg:top-20">
           <div className="mb-2 flex items-center justify-between gap-3">
             <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Snapshot results</p>
             <span className="text-xs text-zinc-500">{searchResults.length}</span>
@@ -232,7 +246,7 @@ export function MarketsExplorer({
                 const favoredPrice = Math.round(Math.max(market.yesPrice, market.noPrice) * 100);
                 return (
                   <button
-                    className="flex w-full items-center justify-between gap-3 rounded border border-zinc-800 bg-black/40 px-3 py-2 text-left transition hover:border-cyan-400/50 hover:bg-cyan-400/10"
+                    className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-800 bg-black/35 px-3 py-2 text-left transition hover:border-cyan-400/50 hover:bg-cyan-400/10"
                     key={market.id}
                     onClick={() => setSelectedSearchMarket(marketToBubbleNode(market, index))}
                     type="button"
@@ -257,27 +271,30 @@ export function MarketsExplorer({
       <div className="mx-auto w-full max-w-[118rem] px-5 py-7 sm:px-7 lg:px-10">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight text-slate-50">Live Markets</h1>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-50 sm:text-4xl">Live Markets</h1>
             <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-300">
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-300 shadow-[0_0_14px_rgba(52,211,153,0.9)]" />
               Live
             </span>
           </div>
           <Button
-            className="h-10 rounded-lg border border-slate-800 bg-slate-950/35 px-4 text-sm font-semibold text-slate-200 hover:border-cyan-400/35 hover:bg-cyan-400/8"
-            onClick={() => setSport("NBA")}
+            className="h-11 rounded-xl border border-slate-800 bg-slate-950/40 px-4 text-sm font-semibold text-slate-200 shadow-lg shadow-black/15 transition hover:border-cyan-400/35 hover:bg-cyan-400/8"
+            onClick={() => {
+              setRangeStart(0);
+              setQuery("");
+            }}
             type="button"
             variant="ghost"
           >
-            View all NBA markets
+            {categoryCta}
           </Button>
         </div>
 
         <MarketBubbleMap activeSport={sport} isLoading={isInitialLoading} isRefreshing={isRefreshing} markets={visibleMarkets} />
 
-        <div className="mt-5 flex items-center gap-3 overflow-x-auto rounded-lg border border-slate-800/90 bg-slate-900/60 p-4 shadow-xl shadow-black/20">
+        <div className="mt-5 flex items-center gap-3 overflow-x-auto rounded-xl border border-slate-800/90 bg-slate-900/58 p-4 shadow-xl shadow-black/25 backdrop-blur-xl">
           <div className="flex min-w-fit items-center gap-3 pr-2">
-            <span className="grid h-11 w-11 place-items-center rounded-full bg-slate-950 text-orange-300">
+            <span className="grid h-11 w-11 place-items-center rounded-full border border-orange-300/20 bg-slate-950 text-orange-300 shadow-[0_0_22px_rgba(251,146,60,0.12)]">
               <Flame className="h-5 w-5" />
             </span>
             <div className="leading-tight">
@@ -286,17 +303,17 @@ export function MarketsExplorer({
             </div>
           </div>
           {[
-            { title: "NBA Playoffs", detail: "124 markets", icon: categoryIcon("NBA") },
-            { title: "Champions League", detail: "88 markets", icon: categoryIcon("Soccer") },
-            { title: "UFC 315", detail: "42 markets", icon: categoryIcon("UFC") },
-            { title: "French Open", detail: "67 markets", icon: categoryIcon("Tennis") },
+            { title: "NBA Playoffs", detail: "124 markets", icon: categoryIconSrc("NBA"), fallback: categoryIcon("NBA") },
+            { title: "Champions League", detail: "88 markets", icon: categoryIconSrc("Soccer"), fallback: categoryIcon("Soccer") },
+            { title: "UFC 315", detail: "42 markets", icon: categoryIconSrc("UFC"), fallback: categoryIcon("UFC") },
+            { title: "French Open", detail: "67 markets", icon: categoryIconSrc("Tennis"), fallback: categoryIcon("Tennis") },
           ].map((item) => (
             <button
-              className="flex min-w-[12rem] items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/35 px-4 py-3 text-left transition hover:border-cyan-400/35 hover:bg-cyan-400/8"
+              className="flex min-w-[12rem] items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/35 px-4 py-3 text-left transition duration-200 hover:-translate-y-0.5 hover:border-cyan-400/35 hover:bg-cyan-400/8 hover:shadow-lg hover:shadow-black/20"
               key={item.title}
               type="button"
             >
-              <span className="text-xl">{item.icon}</span>
+              <SportIcon src={item.icon} fallback={item.fallback} className="h-7 w-7" />
               <span>
                 <span className="block font-bold text-slate-100">{item.title}</span>
                 <span className="block text-sm text-slate-400">{item.detail}</span>
