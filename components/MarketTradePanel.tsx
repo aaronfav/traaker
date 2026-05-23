@@ -5,6 +5,7 @@ import { AlertCircle, CheckCircle2, ExternalLink, Loader2, RefreshCw, X } from "
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { categoryIcon } from "@/lib/markets/category";
 import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
 import { getTradeDisabledReason } from "@/lib/polymarket/readiness";
 import { placeMarketOrder, Side, validateTrade } from "@/lib/polymarket/orders";
@@ -16,8 +17,6 @@ const QUOTE_TICK_MS = 250;
 const QUOTE_RETRY_MS = 3_000;
 const DEFAULT_SHARES = "10";
 const DEFAULT_SLIPPAGE_BPS = 300;
-const MAX_SLIPPAGE_BPS = 1_300;
-const SLIPPAGE_PRESETS = [300, 500, 800, 1_300] as const;
 
 type QuoteStatus = "healthy" | "refreshing" | "stale";
 type TradeSide = "Buy" | "Sell";
@@ -32,6 +31,21 @@ type RuntimeConfig = {
 
 const formatCents = (price: number) => `${Math.round(Math.max(0, Math.min(1, Number.isFinite(price) ? price : 0)) * 100)}\u00a2`;
 const formatSeconds = (value: number | null) => (value === null ? "Live" : `Updated ${value}s ago`);
+
+function formatMarketTitle(title: string) {
+  return title.replace(/\s+vs\.?\s+/i, " vs. ");
+}
+
+function formatMarketTime(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const today = new Date();
+  const isToday = date.toDateString() === today.toDateString();
+  const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date);
+  if (isToday) return `Today ${time}`;
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
+}
 
 function priceForSide(market: MarketBubbleNode, outcomeIndex: number, side: TradeSide) {
   const outcome = market.outcomes[outcomeIndex];
@@ -111,7 +125,7 @@ export function MarketTradePanel({
   const [displayMarket, setDisplayMarket] = useState(market);
   const [selectedOutcomeName, setSelectedOutcomeName] = useState(() => selectedOutcomeFromMarket(market)?.name ?? "");
   const [shares, setShares] = useState(DEFAULT_SHARES);
-  const [slippageBps, setSlippageBps] = useState<number>(DEFAULT_SLIPPAGE_BPS);
+  const slippageBps = DEFAULT_SLIPPAGE_BPS;
   const [runtimeConfig, setRuntimeConfig] = useState<RuntimeConfig>({
     realTradingEnabled: false,
     builderReady: false,
@@ -136,6 +150,11 @@ export function MarketTradePanel({
   const lastMarketIdRef = useRef(market.id);
 
   const selectedOutcome = selectedOutcomeFromMarket(displayMarket, selectedOutcomeName);
+  const category = displayMarket.category && displayMarket.category !== "Market" ? displayMarket.category : "";
+  const categoryMark = categoryIcon(category);
+  const displayTitle = formatMarketTitle(displayMarket.title);
+  const marketTime = formatMarketTime(displayMarket.startTime);
+  const subtitle = [category || displayMarket.league || displayMarket.sport, marketTime].filter(Boolean).join(" · ");
   const selectedOutcomeIndex = Math.max(0, displayMarket.outcomes.findIndex((outcome) => outcome.name === selectedOutcome?.name));
   const buyPrice = priceForSide(displayMarket, selectedOutcomeIndex, "Buy");
   const sellPrice = priceForSide(displayMarket, selectedOutcomeIndex, "Sell");
@@ -462,11 +481,12 @@ export function MarketTradePanel({
           Number.isFinite(action.price) && selectedOutcome
             ? `${action.side} ${selectedOutcome.name}`
             : selectedOutcome
-              ? "Not enough liquidity within slippage"
+              ? "Not enough liquidity"
               : `${action.side} unavailable`;
         return (
           <Button
-            className={`h-12 flex-1 text-sm font-black leading-none shadow-lg shadow-black/25 ${Number.isFinite(action.price) ? action.className : ""}`}
+            aria-label={label}
+            className={`h-14 flex-1 flex-col gap-1 text-sm font-black leading-none shadow-lg shadow-black/25 ${Number.isFinite(action.price) ? action.className : ""}`}
             disabled={disabled}
             key={action.side}
             onClick={() => void createOrder(action.side)}
@@ -476,6 +496,7 @@ export function MarketTradePanel({
           >
             {submittingSide === action.side ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             <span>{label}</span>
+            {Number.isFinite(action.price) ? <span aria-hidden="true" className="text-xs font-semibold opacity-80">{formatCents(action.price as number)}</span> : null}
           </Button>
         );
       }),
@@ -488,16 +509,23 @@ export function MarketTradePanel({
       className="absolute inset-x-0 bottom-0 z-30 flex max-h-[84%] flex-col overflow-hidden border-t border-zinc-800/90 bg-[#07080b]/98 shadow-2xl shadow-black/60 backdrop-blur-xl md:inset-x-auto md:bottom-0 md:right-0 md:top-0 md:h-full md:max-h-none md:w-[420px] md:border-l md:border-t-0"
       onClick={(event) => event.stopPropagation()}
     >
-      <div className="flex items-start justify-between gap-4 border-b border-zinc-800/80 px-4 py-4">
+      <div className="flex items-start justify-between gap-4 border-b border-zinc-800/80 px-5 py-5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.14em] text-emerald-200">
+            {category ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/20 bg-cyan-400/12 px-3 py-1 text-xs font-bold text-cyan-100">
+                {categoryMark ? <span className="text-sm leading-none">{categoryMark}</span> : null}
+                {category}
+              </span>
+            ) : null}
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-bold text-emerald-200">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.9)]" />
               {quoteStatus === "refreshing" ? "Refreshing" : "Live"}
             </span>
             <span className="text-xs text-zinc-500">{quoteLabel}</span>
           </div>
-          <h2 className="mt-2 line-clamp-2 text-lg font-semibold leading-tight tracking-tight text-zinc-50">{displayMarket.title}</h2>
-          {selectedOutcome ? <p className="mt-1 truncate text-sm font-medium text-cyan-100">{selectedOutcome.name}</p> : null}
+          <h2 className="mt-6 line-clamp-2 text-2xl font-semibold leading-tight tracking-tight text-zinc-50">{displayTitle}</h2>
+          {subtitle ? <p className="mt-2 text-sm font-medium text-zinc-400">{subtitle}</p> : null}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button aria-label="Refresh quote now" className="h-8 w-8" disabled={!onUpdatePrices || quoteStatus === "refreshing"} onClick={() => void refreshQuote()} size="icon" type="button" variant="ghost">
@@ -509,14 +537,14 @@ export function MarketTradePanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-5">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 pb-6">
         {displayMarket.activeRangeWarning ? (
           <div className="mb-4 rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm font-medium text-amber-100">
             Market moved outside active range
           </div>
         ) : null}
 
-        <div className="rounded-lg border border-zinc-800/90 bg-zinc-950/70 p-3">
+        <div className="rounded-lg border border-zinc-800/90 bg-zinc-950/70 p-3 shadow-xl shadow-black/15">
           <div className="mb-3 flex items-center justify-between gap-3">
             <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Outcomes</p>
             {polymarketUrl ? (
@@ -537,38 +565,20 @@ export function MarketTradePanel({
               return (
                 <button
                   className={`flex min-h-12 items-center justify-between gap-3 rounded-md border px-3 py-2 text-left transition ${
-                    selected ? "border-cyan-300/60 bg-cyan-300/10 text-white shadow-[0_0_24px_rgba(34,211,238,0.08)]" : "border-zinc-800 bg-black/25 text-zinc-200 hover:border-zinc-600"
+                    selected ? "border-cyan-300/70 bg-cyan-300/10 text-white shadow-[0_0_24px_rgba(34,211,238,0.08)]" : "border-zinc-800 bg-black/25 text-zinc-200 hover:border-zinc-600"
                   }`}
                   key={`${displayMarket.id}-${outcome.name}`}
                   onClick={() => setSelectedOutcomeName(outcome.name)}
                   type="button"
                 >
-                  <span className="min-w-0 truncate text-sm font-semibold">{outcome.name}</span>
-                  <span className="shrink-0 text-lg font-black">{formatCents(outcome.price)}</span>
+                  <span className="min-w-0 truncate text-base font-semibold">{outcome.name}</span>
+                  <span className="flex shrink-0 items-center gap-2 text-lg font-black">
+                    {formatCents(outcome.price)}
+                    {selected ? <CheckCircle2 className="h-4 w-4 text-cyan-300" /> : null}
+                  </span>
                 </button>
             );
           })}
-          </div>
-        </div>
-
-        <div className="mt-4 rounded-lg border border-zinc-800/90 bg-zinc-950/70 p-3 text-sm">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Slippage</p>
-            <div className="flex rounded-md border border-zinc-800 bg-black p-0.5">
-              {SLIPPAGE_PRESETS.map((preset) => (
-                <button
-                  aria-pressed={slippageBps === preset}
-                  className={`h-7 rounded px-3 text-xs font-semibold transition ${
-                    slippageBps === preset ? "bg-zinc-100 text-black" : "text-zinc-400 hover:text-zinc-100"
-                  }`}
-                  key={preset}
-                  onClick={() => setSlippageBps(preset)}
-                  type="button"
-                >
-                  {preset === MAX_SLIPPAGE_BPS ? "13%" : `${preset / 100}%`}
-                </button>
-              ))}
-            </div>
           </div>
         </div>
 

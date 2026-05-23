@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MarketTradePanel } from "@/components/MarketTradePanel";
 import { marketStore, type MarketValueState } from "@/app/store/marketStore";
 import { hasUsefulFavoredPrice, isUsefulFavoredPrice } from "@/lib/polymarket/marketDisplay";
+import { deriveMarketCategory } from "@/lib/markets/category";
 import { findTeamStyleMatch, marketBubbleRadius, momentumGlowColor } from "@/lib/sports/teamStyles";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
@@ -12,6 +13,10 @@ export type MarketBubbleNode = {
   conditionId: string;
   title: string;
   sport: string;
+  category?: string;
+  league?: string;
+  status?: string;
+  startTime?: string;
   volume: number;
   liquidity: number;
   priceChange: number;
@@ -414,6 +419,10 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
     conditionId: market.conditionId,
     title: market.title,
     sport: market.league || market.sport,
+    category: deriveMarketCategory(market),
+    league: market.league,
+    status: market.status,
+    startTime: market.startTime,
     volume,
     liquidity,
     priceChange,
@@ -1772,7 +1781,6 @@ function SportsFieldBackground() {
         }}
       />
       <div className="absolute inset-0" style={{ backgroundImage: "radial-gradient(ellipse at center, transparent 0%, transparent 45%, rgba(0,0,0,0.56) 100%)" }} />
-      <div className="absolute left-1/2 top-[43%] h-[46rem] w-[62rem] max-w-[95vw] -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-400/8 blur-3xl" />
       <svg className="absolute inset-0 h-full w-full opacity-[0.1]" preserveAspectRatio="none" viewBox="0 0 100 60">
         <g fill="none" stroke="rgba(226,232,240,0.9)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="0.18" vectorEffect="non-scaling-stroke">
           <rect height="50" rx="0.7" width="90" x="5" y="5" />
@@ -2011,7 +2019,7 @@ export function MarketBubbleMap({
   return (
     <div
       aria-label={`${bodyCount} sports market bubble map`}
-      className="relative h-[calc(100vh-5.45rem)] min-h-[480px] w-screen overflow-hidden bg-[#01030a] sm:h-[calc(100vh-5.15rem)]"
+      className="relative h-[min(62vh,620px)] min-h-[430px] w-full overflow-hidden rounded-lg border border-slate-800/90 bg-[#01030a] shadow-2xl shadow-black/30 md:h-[calc(100vh-19.5rem)] md:min-h-[500px]"
       onClick={handleClick}
       onMouseLeave={handleMouseLeave}
       onMouseMove={handleMouseMove}
@@ -2058,28 +2066,6 @@ export function MarketBubbleMap({
       {bodyCount === 0 && !loadingVisible ? (
         <div className="absolute inset-0 z-20 grid place-items-center text-sm text-slate-400">No sports markets matched this view.</div>
       ) : null}
-
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex min-h-10 flex-wrap items-center justify-between gap-3 border-t border-zinc-800/80 bg-black/55 px-5 py-2 text-xs font-semibold text-zinc-200 backdrop-blur-sm">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-          {[
-            ["Strong Up", "#16C784"],
-            ["Up", "#4CAF50"],
-            ["Neutral", "#B8C0CC"],
-            ["Down", "#FF3B45"],
-            ["Strong Down", "#B91C1C"],
-          ].map(([label, color]) => (
-            <span className="flex items-center gap-2" key={label}>
-              <span className="h-3 w-3 rounded-full shadow-[0_0_10px_currentColor]" style={{ backgroundColor: color, color }} />
-              {label}
-            </span>
-          ))}
-        </div>
-        <div className="flex items-center gap-2 text-zinc-300">
-          <span>Data from</span>
-          <span className="font-bold text-white">Polymarket</span>
-        </div>
-      </div>
-
       {selectedMarket ? (
         <>
           <div

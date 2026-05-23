@@ -199,8 +199,8 @@ describe("MarketBubbleMap", () => {
     fireEvent.click(screen.getByRole("application"), { clientX: node.x, clientY: node.y });
     expect(screen.getAllByRole("button", { name: /psg\s+59/i }).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /arsenal\s+43/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /buy psg\s+59/i })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /sell psg\s+59/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /buy psg/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /sell psg/i })).toBeEnabled();
     expect(screen.queryByRole("button", { name: /uefa\s+59/i })).not.toBeInTheDocument();
   });
 
@@ -245,12 +245,12 @@ describe("MarketBubbleMap", () => {
 
     fireEvent.click(screen.getByRole("application"), { clientX: node.x, clientY: node.y });
 
-    expect(screen.getByRole("heading", { name: "Los Angeles Lakers vs Boston Celtics" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Los Angeles Lakers vs. Boston Celtics" })).toBeInTheDocument();
     expect(screen.getAllByText("62\u00a2").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Celtics").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: /polymarket/i })).toHaveAttribute("href", "https://polymarket.com/event/lakers-celtics");
-    expect(screen.getByRole("button", { name: /buy lakers\s+54/i })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /sell lakers\s+47/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /buy lakers/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /sell lakers/i })).toBeEnabled();
     expect(screen.queryByText("Volume")).not.toBeInTheDocument();
     expect(screen.queryByText("Liquidity")).not.toBeInTheDocument();
     expect(screen.queryByText("Movement")).not.toBeInTheDocument();
@@ -262,11 +262,11 @@ describe("MarketBubbleMap", () => {
     render(<MarketBubbleMap markets={[market]} />);
 
     fireEvent.click(screen.getByRole("application"), { clientX: node.x, clientY: node.y });
-    expect(screen.getByRole("heading", { name: "Los Angeles Lakers vs Boston Celtics" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Los Angeles Lakers vs. Boston Celtics" })).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "Escape" });
 
-    expect(screen.queryByRole("heading", { name: "Los Angeles Lakers vs Boston Celtics" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Los Angeles Lakers vs. Boston Celtics" })).not.toBeInTheDocument();
   });
 
   it("renders invalid tiny node values without negative canvas radii", () => {
@@ -472,7 +472,7 @@ describe("MarketBubbleMap", () => {
     render(<MarketTradePanel market={panelMarket} onClose={vi.fn()} />);
 
     expect(screen.getByText("Market moved outside active range")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /lakers\s+9/i })).toHaveClass("border-cyan-300/60");
+    expect(screen.getByRole("button", { name: /lakers\s+9/i })).toHaveClass("border-cyan-300/70");
   });
 
   it("trade panel keeps selected outcome and row order across price updates", () => {
@@ -480,7 +480,7 @@ describe("MarketBubbleMap", () => {
     const { rerender } = render(<MarketTradePanel market={panelMarket} onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: /celtics\s+38/i }));
-    expect(screen.getByRole("button", { name: /celtics\s+38/i })).toHaveClass("border-cyan-300/60");
+    expect(screen.getByRole("button", { name: /celtics\s+38/i })).toHaveClass("border-cyan-300/70");
 
     rerender(
       <MarketTradePanel
@@ -498,15 +498,15 @@ describe("MarketBubbleMap", () => {
     const lakers = screen.getByRole("button", { name: /lakers\s+59/i });
     const celtics = screen.getByRole("button", { name: /celtics\s+41/i });
     expect(lakers.compareDocumentPosition(celtics) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(celtics).toHaveClass("border-cyan-300/60");
+    expect(celtics).toHaveClass("border-cyan-300/70");
   });
 
   it("starts the direct trade flow from buy and sell buttons", () => {
     const panelMarket = marketToBubbleNode(market);
     render(<MarketTradePanel market={panelMarket} onClose={vi.fn()} />);
 
-    const buyButton = screen.getByRole("button", { name: /buy lakers\s+54/i });
-    const sellButton = screen.getByRole("button", { name: /sell lakers\s+47/i });
+    const buyButton = screen.getByRole("button", { name: /buy lakers/i });
+    const sellButton = screen.getByRole("button", { name: /sell lakers/i });
     expect(buyButton).toBeEnabled();
     expect(sellButton).toBeEnabled();
   });
@@ -523,7 +523,7 @@ describe("MarketBubbleMap", () => {
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: /celtics\s+38/i }));
       });
-      expect(screen.getByRole("button", { name: /celtics\s+38/i })).toHaveClass("border-cyan-300/60");
+      expect(screen.getByRole("button", { name: /celtics\s+38/i })).toHaveClass("border-cyan-300/70");
 
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: /refresh quote now/i }));
@@ -531,7 +531,7 @@ describe("MarketBubbleMap", () => {
 
       expect(onUpdatePrices).toHaveBeenCalledTimes(1);
       expect(screen.getAllByText("71\u00a2").length).toBeGreaterThan(0);
-      expect(screen.getByRole("button", { name: /celtics\s+29/i })).toHaveClass("border-cyan-300/60");
+      expect(screen.getByRole("button", { name: /celtics\s+29/i })).toHaveClass("border-cyan-300/70");
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(10_000);
@@ -539,7 +539,7 @@ describe("MarketBubbleMap", () => {
 
       expect(onUpdatePrices).toHaveBeenCalledTimes(2);
       expect(screen.getAllByText("71\u00a2").length).toBeGreaterThan(0);
-      expect(screen.getByRole("button", { name: /celtics\s+29/i })).toHaveClass("border-cyan-300/60");
+      expect(screen.getByRole("button", { name: /celtics\s+29/i })).toHaveClass("border-cyan-300/70");
     } finally {
       vi.useRealTimers();
     }

@@ -7,7 +7,7 @@ export default async function DashboardPage() {
   const initialPage = createEmptyMarketPage();
 
   return (
-    <main className="w-screen overflow-hidden bg-[#050505]">
+    <main className="w-full overflow-hidden bg-[#05070d]">
       <MarketsExplorer
         initialPage={initialPage}
         source="polymarket"

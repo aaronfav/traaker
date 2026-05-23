@@ -124,8 +124,8 @@ describe("MarketTradePanel orders", () => {
     render(<MarketTradePanel market={market} onClose={vi.fn()} />);
 
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/polymarket/config", { cache: "no-store" }));
-    expect(screen.getByRole("button", { name: /^3%$/i })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("Slippage")).toBeInTheDocument();
+    expect(screen.queryByText("Slippage")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^3%$/i })).not.toBeInTheDocument();
     expect(screen.getByText("Est. cost")).toBeInTheDocument();
     expect(screen.getByText("Est. proceeds")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /arsenal\s+43/i }));
@@ -184,8 +184,6 @@ describe("MarketTradePanel orders", () => {
     const sellButton = screen.getByRole("button", { name: /sell psg/i });
     expect(buyButton).toBeEnabled();
     expect(sellButton).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: /^13%$/i }));
-    expect(screen.getByRole("button", { name: /^13%$/i })).toHaveAttribute("aria-pressed", "true");
 
     fireEvent.click(screen.getByRole("button", { name: /arsenal\s+43/i }));
     fireEvent.click(buyButton);
@@ -195,7 +193,7 @@ describe("MarketTradePanel orders", () => {
     expect(mocks.createSignerClient).toHaveBeenCalled();
     expect(mocks.placeMarketOrder.mock.calls[0]?.[1]).toEqual(
       expect.objectContaining({
-        maxSlippageBps: 1300,
+        maxSlippageBps: 300,
       }),
     );
   });

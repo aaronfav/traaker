@@ -96,7 +96,7 @@ describe("DashboardPage", () => {
 
   it("renders the bubble map", async () => {
     render(await DashboardPage());
-    expect(screen.getByPlaceholderText("Search snapshot...")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search markets...")).toBeInTheDocument();
     expect(screen.getByText("Snapshot")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /trading terminal/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/polymarket sports/i)).not.toBeInTheDocument();

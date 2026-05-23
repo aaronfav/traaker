@@ -93,7 +93,7 @@ describe("MarketsExplorer", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "NBA" }));
     fireEvent.change(screen.getByLabelText("Market range"), { target: { value: "200" } });
-    fireEvent.change(screen.getByPlaceholderText("Search snapshot..."), { target: { value: "knicks" } });
+    fireEvent.change(screen.getByPlaceholderText("Search markets..."), { target: { value: "knicks" } });
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     await waitFor(
@@ -302,10 +302,10 @@ describe("MarketsExplorer", () => {
 
     render(<MarketsExplorer initialPage={page} source="polymarket" />);
 
-    fireEvent.change(screen.getByPlaceholderText("Search snapshot..."), { target: { value: "arsenal" } });
+    fireEvent.change(screen.getByPlaceholderText("Search markets..."), { target: { value: "arsenal" } });
     expect(screen.getByText("Snapshot results")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /arsenal vs chelsea/i }));
 
-    expect(screen.getByRole("heading", { name: "Arsenal vs Chelsea" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Arsenal vs. Chelsea" })).toBeInTheDocument();
   });
 });

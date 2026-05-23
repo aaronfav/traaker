@@ -1,18 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { RefreshCw, Search } from "lucide-react";
+import { ChevronDown, Flame, RefreshCw, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { fetchLatestMarketForNode, MarketBubbleMap, marketToBubbleNode, type MarketBubbleNode } from "@/components/MarketBubbleMap";
 import { MarketTradePanel } from "@/components/MarketTradePanel";
 import { marketStore } from "@/app/store/marketStore";
+import { categoryIcon } from "@/lib/markets/category";
 import { DEFAULT_MARKET_MIN_VOLUME, hasUsefulFavoredPrice, rankHighValueMarkets } from "@/lib/polymarket/marketDisplay";
 import type { MarketPage, MarketQuerySort, MarketQueryStatus, SportsMarketDiscovery } from "@/lib/polymarket/markets";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
 const sports = ["All", "NBA", "NFL", "Soccer", "UFC", "Tennis"] as const;
-const timeframes = ["1H", "1D", "1W", "1M"] as const;
+const sportPills = sports.map((label) => ({ label, icon: label === "All" ? "" : categoryIcon(label) }));
 const rangeOptions = [
   { label: "1-50", start: 0, end: 50 },
   { label: "51-100", start: 50, end: 100 },
@@ -84,7 +85,6 @@ export function MarketsExplorer({
   const status: MarketQueryStatus = "all";
   const sort: MarketQuerySort = "liquidity";
   const minVolume = DEFAULT_MARKET_MIN_VOLUME;
-  const [timeframe, setTimeframe] = useState<(typeof timeframes)[number]>("1D");
   const [rangeStart, setRangeStart] = useState<(typeof rangeOptions)[number]["start"]>(0);
   const [query, setQuery] = useState("");
   const [markets, setMarkets] = useState<TerminalMarket[]>(initialPage.markets);
@@ -141,71 +141,79 @@ export function MarketsExplorer({
   const searchResults = useMemo(() => rankedMarkets.filter((market) => matchesMarketQuery(market, query)).slice(0, 12), [query, rankedMarkets]);
 
   return (
-    <section className="relative w-screen bg-[#050505]">
-      <div className="flex min-h-9 flex-wrap items-center gap-1 border-b border-zinc-800 bg-[#111113] px-2 py-1 text-sm shadow-lg shadow-black/30">
-        <div className="mr-2 flex items-center gap-2 px-1">
-          <span className="h-3 w-3 rounded-full bg-cyan-400 shadow-[0_0_18px_rgba(34,211,238,0.8)]" />
-          <span className="font-semibold tracking-wide text-zinc-100">Traak</span>
-        </div>
-        <div className="flex rounded-md border border-zinc-800 bg-black p-0.5">
-          {timeframes.map((item) => (
-            <button
-              className={`h-6 rounded px-2 text-xs font-semibold transition ${timeframe === item ? "bg-zinc-100 text-black" : "text-zinc-400 hover:text-zinc-100"}`}
-              key={item}
-              onClick={() => setTimeframe(item)}
-              type="button"
+    <section className="relative w-full bg-[#05070d]">
+      <div className="border-b border-slate-800/80 bg-[#0a101c]/86 shadow-xl shadow-black/20 backdrop-blur-xl">
+        <div className="mx-auto flex w-full max-w-[118rem] flex-col gap-4 px-5 py-4 sm:px-7 lg:flex-row lg:items-center lg:px-10">
+          <div className="flex flex-wrap items-center gap-3">
+            {sportPills.map((item) => {
+              const active = sport === item.label;
+              return (
+                <Button
+                  aria-label={item.label}
+                  className={`h-11 rounded-lg border px-4 text-sm font-bold shadow-lg shadow-black/10 ${
+                    active
+                      ? "border-cyan-300/70 bg-cyan-300/10 text-cyan-100 hover:bg-cyan-300/15"
+                      : "border-slate-800 bg-slate-950/35 text-slate-200 hover:border-slate-700 hover:bg-slate-900"
+                  }`}
+                  key={item.label}
+                  onClick={() => setSport(item.label)}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  {item.icon ? <span aria-hidden="true" className="text-base leading-none">{item.icon}</span> : null}
+                  {item.label}
+                </Button>
+              );
+            })}
+            <label className="relative inline-flex h-11 items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/35 px-4 text-sm font-bold text-slate-200 shadow-lg shadow-black/10">
+              More
+              <ChevronDown className="h-4 w-4 text-slate-400" />
+              <select
+                aria-label="Market range"
+                className="absolute inset-0 cursor-pointer opacity-0"
+                onChange={(event) => setRangeStart(Number(event.target.value) as typeof rangeStart)}
+                value={rangeStart}
+              >
+                {rangeOptions.map((option) => (
+                  <option key={option.start} value={option.start}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="flex flex-1 flex-wrap items-center gap-3 lg:justify-end">
+            <label className="relative block flex-1 lg:max-w-md">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+              <Input
+                className="h-12 rounded-lg border-slate-800 bg-slate-950/70 pl-11 text-sm shadow-inner shadow-black/25 placeholder:text-slate-500"
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search markets..."
+                value={query}
+              />
+            </label>
+            <span
+              className="inline-flex h-11 items-center rounded-lg border border-cyan-400/20 bg-cyan-400/8 px-4 text-sm font-bold text-cyan-100"
+              title="Prices are frozen for trading stability. Press Refresh to update."
             >
-              {item}
-            </button>
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {sports.map((item) => (
-            <Button className="h-6 px-2 text-xs" key={item} onClick={() => setSport(item)} size="sm" type="button" variant={sport === item ? "default" : "ghost"}>
-              {item}
+              Snapshot
+            </span>
+            <Button
+              aria-label="Refresh markets"
+              className="h-11 rounded-lg border border-slate-800 bg-slate-950/35 px-4 text-sm font-semibold text-slate-300 hover:bg-slate-900 hover:text-slate-100"
+              disabled={isLoading}
+              onClick={() => setRefreshNonce((value) => value + 1)}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+              Refresh
             </Button>
-          ))}
+            {latestSource === "mock" ? <span className="rounded-lg border border-amber-500/40 px-3 py-2 text-xs font-semibold text-amber-200">Mock</span> : null}
+          </div>
         </div>
-        <select
-          aria-label="Market range"
-          className="h-6 rounded-md border border-zinc-800 bg-black px-2 text-xs font-semibold text-zinc-100"
-          onChange={(event) => setRangeStart(Number(event.target.value) as typeof rangeStart)}
-          value={rangeStart}
-        >
-          {rangeOptions.map((option) => (
-            <option key={option.start} value={option.start}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <label className="relative ml-auto block">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
-          <Input
-            className="h-6 w-[min(52vw,280px)] border-zinc-800 bg-black pl-8 text-xs"
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search snapshot..."
-            value={query}
-          />
-        </label>
-        <span
-          className="rounded-full border border-cyan-400/40 px-2 py-0.5 text-xs font-semibold text-cyan-200"
-          title="Prices are frozen for trading stability. Press Refresh to update."
-        >
-          Snapshot
-        </span>
-        <Button
-          aria-label="Refresh markets"
-          className="h-6 gap-1 px-2 text-xs"
-          disabled={isLoading}
-          onClick={() => setRefreshNonce((value) => value + 1)}
-          size="sm"
-          type="button"
-          variant="ghost"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
-        {latestSource === "mock" ? <span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-xs text-amber-200">Mock</span> : null}
       </div>
 
       {error ? (
@@ -213,7 +221,7 @@ export function MarketsExplorer({
       ) : null}
 
       {query.trim() ? (
-        <div className="absolute right-3 top-11 z-30 w-[min(92vw,420px)] rounded-md border border-zinc-800 bg-[#090a0d]/98 p-3 text-sm text-zinc-100 shadow-2xl shadow-black/50 backdrop-blur">
+        <div className="absolute right-5 top-24 z-30 w-[min(92vw,420px)] rounded-lg border border-zinc-800 bg-[#090a0d]/98 p-3 text-sm text-zinc-100 shadow-2xl shadow-black/50 backdrop-blur lg:top-20">
           <div className="mb-2 flex items-center justify-between gap-3">
             <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Snapshot results</p>
             <span className="text-xs text-zinc-500">{searchResults.length}</span>
@@ -246,7 +254,57 @@ export function MarketsExplorer({
         </div>
       ) : null}
 
-      <MarketBubbleMap activeSport={sport} isLoading={isInitialLoading} isRefreshing={isRefreshing} markets={visibleMarkets} />
+      <div className="mx-auto w-full max-w-[118rem] px-5 py-7 sm:px-7 lg:px-10">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold tracking-tight text-slate-50">Live Markets</h1>
+            <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-300">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-300 shadow-[0_0_14px_rgba(52,211,153,0.9)]" />
+              Live
+            </span>
+          </div>
+          <Button
+            className="h-10 rounded-lg border border-slate-800 bg-slate-950/35 px-4 text-sm font-semibold text-slate-200 hover:border-cyan-400/35 hover:bg-cyan-400/8"
+            onClick={() => setSport("NBA")}
+            type="button"
+            variant="ghost"
+          >
+            View all NBA markets
+          </Button>
+        </div>
+
+        <MarketBubbleMap activeSport={sport} isLoading={isInitialLoading} isRefreshing={isRefreshing} markets={visibleMarkets} />
+
+        <div className="mt-5 flex items-center gap-3 overflow-x-auto rounded-lg border border-slate-800/90 bg-slate-900/60 p-4 shadow-xl shadow-black/20">
+          <div className="flex min-w-fit items-center gap-3 pr-2">
+            <span className="grid h-11 w-11 place-items-center rounded-full bg-slate-950 text-orange-300">
+              <Flame className="h-5 w-5" />
+            </span>
+            <div className="leading-tight">
+              <p className="text-lg font-bold text-slate-50">Trending</p>
+              <p className="text-lg font-bold text-slate-50">Now</p>
+            </div>
+          </div>
+          {[
+            { title: "NBA Playoffs", detail: "124 markets", icon: categoryIcon("NBA") },
+            { title: "Champions League", detail: "88 markets", icon: categoryIcon("Soccer") },
+            { title: "UFC 315", detail: "42 markets", icon: categoryIcon("UFC") },
+            { title: "French Open", detail: "67 markets", icon: categoryIcon("Tennis") },
+          ].map((item) => (
+            <button
+              className="flex min-w-[12rem] items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/35 px-4 py-3 text-left transition hover:border-cyan-400/35 hover:bg-cyan-400/8"
+              key={item.title}
+              type="button"
+            >
+              <span className="text-xl">{item.icon}</span>
+              <span>
+                <span className="block font-bold text-slate-100">{item.title}</span>
+                <span className="block text-sm text-slate-400">{item.detail}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
 
       {selectedSearchMarket ? (
         <div className="fixed inset-0 z-40 bg-black/10" onClick={() => setSelectedSearchMarket(null)}>
