@@ -125,11 +125,11 @@ describe("MarketTradePanel orders", () => {
 
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/polymarket/config", { cache: "no-store" }));
     expect(screen.getByRole("button", { name: /^3%$/i })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText(/default 3% marketable limit/i)).toBeInTheDocument();
-    expect(screen.getByText("61¢")).toBeInTheDocument();
-    expect(screen.getByText("57¢")).toBeInTheDocument();
+    expect(screen.getByText("Slippage")).toBeInTheDocument();
+    expect(screen.getByText("Est. cost")).toBeInTheDocument();
+    expect(screen.getByText("Est. proceeds")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /arsenal\s+43/i }));
-    fireEvent.click(screen.getByRole("button", { name: /buy arsenal\s+43/i }));
+    fireEvent.click(screen.getByRole("button", { name: /buy arsenal/i }));
 
     await waitFor(() => expect(mocks.createSignerClient).toHaveBeenCalled());
     expect(mocks.createSignerClient).toHaveBeenCalledWith(
@@ -180,8 +180,8 @@ describe("MarketTradePanel orders", () => {
     render(<MarketTradePanel market={market} onClose={vi.fn()} />);
 
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/polymarket/config", { cache: "no-store" }));
-    const buyButton = screen.getByRole("button", { name: /buy psg\s+59/i });
-    const sellButton = screen.getByRole("button", { name: /sell psg\s+59/i });
+    const buyButton = screen.getByRole("button", { name: /buy psg/i });
+    const sellButton = screen.getByRole("button", { name: /sell psg/i });
     expect(buyButton).toBeEnabled();
     expect(sellButton).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: /^13%$/i }));
@@ -234,7 +234,7 @@ describe("MarketTradePanel orders", () => {
       fireEvent.click(screen.getByRole("button", { name: /refresh quote now/i }));
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /buy psg\s+59/i }));
+      fireEvent.click(screen.getByRole("button", { name: /buy psg/i }));
     });
 
     expect(onUpdatePrices).toHaveBeenCalledTimes(2);
@@ -286,7 +286,7 @@ describe("MarketTradePanel orders", () => {
       fireEvent.click(screen.getByRole("button", { name: /refresh quote now/i }));
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /buy psg\s+59/i }));
+      fireEvent.click(screen.getByRole("button", { name: /buy psg/i }));
     });
 
     expect(onUpdatePrices).toHaveBeenCalledTimes(3);

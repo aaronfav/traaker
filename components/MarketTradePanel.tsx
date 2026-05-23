@@ -460,21 +460,13 @@ export function MarketTradePanel({
         const disabled = Boolean(tradeDisabledReason) || !selectedOutcome || !hasLiquidity || safeShares <= 0 || submittingSide !== null;
         const label =
           Number.isFinite(action.price) && selectedOutcome
-            ? `${action.side} ${selectedOutcome.name}  ${formatCents(action.price as number)}`
+            ? `${action.side} ${selectedOutcome.name}`
             : selectedOutcome
               ? "Not enough liquidity within slippage"
               : `${action.side} unavailable`;
-        const helper =
-          action.side === "Buy"
-            ? Number.isFinite(sideExecutionPrice)
-              ? `Max exec ${formatCents(sideExecutionPrice as number)}`
-              : "Not enough liquidity within slippage"
-            : Number.isFinite(sideExecutionPrice)
-              ? `Min exec ${formatCents(sideExecutionPrice as number)}`
-              : "Not enough liquidity within slippage";
         return (
           <Button
-            className={`h-16 flex-1 flex-col gap-0.5 text-sm font-black leading-none shadow-lg shadow-black/25 ${Number.isFinite(action.price) ? action.className : ""}`}
+            className={`h-12 flex-1 text-sm font-black leading-none shadow-lg shadow-black/25 ${Number.isFinite(action.price) ? action.className : ""}`}
             disabled={disabled}
             key={action.side}
             onClick={() => void createOrder(action.side)}
@@ -484,7 +476,6 @@ export function MarketTradePanel({
           >
             {submittingSide === action.side ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             <span>{label}</span>
-            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-80">{helper}</span>
           </Button>
         );
       }),
@@ -562,7 +553,7 @@ export function MarketTradePanel({
 
         <div className="mt-4 rounded-lg border border-zinc-800/90 bg-zinc-950/70 p-3 text-sm">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Slippage tolerance</p>
+            <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Slippage</p>
             <div className="flex rounded-md border border-zinc-800 bg-black p-0.5">
               {SLIPPAGE_PRESETS.map((preset) => (
                 <button
@@ -579,28 +570,23 @@ export function MarketTradePanel({
               ))}
             </div>
           </div>
-          <div className="mt-2 flex items-center justify-between gap-3 text-xs text-zinc-400">
-            <span>Default 3% marketable limit</span>
-            <span>Max 13%</span>
-          </div>
-          <div className="mt-2 flex items-center justify-between gap-3 text-xs text-zinc-400">
-            <span>Buy max exec</span>
-            <span className="font-semibold text-zinc-100">{Number.isFinite(maxBuyExecutionPrice) ? formatCents(maxBuyExecutionPrice as number) : "Not enough liquidity within slippage"}</span>
-          </div>
-          <div className="mt-1 flex items-center justify-between gap-3 text-xs text-zinc-400">
-            <span>Sell min exec</span>
-            <span className="font-semibold text-zinc-100">{Number.isFinite(minSellExecutionPrice) ? formatCents(minSellExecutionPrice as number) : "Not enough liquidity within slippage"}</span>
-          </div>
         </div>
 
         <label className="mt-4 block rounded-lg border border-zinc-800/90 bg-zinc-950/70 p-3 text-sm">
           <span className="text-xs uppercase tracking-[0.16em] text-zinc-500">Shares</span>
           <Input className="mt-2 border-zinc-800 bg-black text-base font-semibold" min="0" onChange={(event) => setShares(event.target.value)} step="1" type="number" value={shares} />
-          <span className="mt-2 block text-xs text-zinc-500">
-            Estimated buy cost {Number.isFinite(buyPrice) ? `$${(safeShares * (buyPrice as number)).toFixed(2)}` : "--"} · estimated sell proceeds{" "}
-            {Number.isFinite(sellPrice) ? `$${(safeShares * (sellPrice as number)).toFixed(2)}` : "--"}
-          </span>
         </label>
+
+        <div className="mt-4 rounded-lg border border-zinc-800/90 bg-zinc-950/70 p-3 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-zinc-400">Est. cost</span>
+            <span className="font-semibold text-zinc-50">{Number.isFinite(buyPrice) ? `$${(safeShares * (buyPrice as number)).toFixed(2)}` : "--"}</span>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <span className="text-zinc-400">Est. proceeds</span>
+            <span className="font-semibold text-zinc-50">{Number.isFinite(sellPrice) ? `$${(safeShares * (sellPrice as number)).toFixed(2)}` : "--"}</span>
+          </div>
+        </div>
 
         {orderId ? (
           <div className="mt-4 rounded-lg border border-zinc-800 bg-black/35 p-3 text-xs text-zinc-400">
@@ -627,9 +613,6 @@ export function MarketTradePanel({
 
       <div className="border-t border-zinc-800/90 bg-[#07080b]/98 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-18px_38px_rgba(0,0,0,0.32)]">
         <div className="flex gap-2">{actionButtons}</div>
-        <p className="mt-2 text-[11px] leading-4 text-zinc-500">
-          Marketable order with the selected slippage tolerance.
-        </p>
         {tradeProgress !== "idle" ? (
           <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-cyan-200">
             {tradeProgress === "checking-wallet"
@@ -646,9 +629,6 @@ export function MarketTradePanel({
           </p>
         ) : null}
         {tradeDisabledReason ? <p className="mt-2 text-[11px] leading-4 text-amber-200">{tradeDisabledReason}</p> : null}
-        <p className="mt-2 text-[11px] leading-4 text-zinc-500">
-          Orders are signed by your wallet and posted to Polymarket CLOB V2. Traak never takes custody of funds.
-        </p>
       </div>
 
       {toast ? (
