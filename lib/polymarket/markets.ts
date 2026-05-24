@@ -3,6 +3,7 @@ import { opportunityScore, volumeAcceleration } from "@/lib/analytics/scoring";
 import { createPolymarketClient } from "./client";
 import { hasSportsSignal } from "./marketFilters";
 import { mockChart, mockMarkets, mockOrderbook, mockTrades } from "./mock";
+import { resolveSportsLogo } from "@/lib/sports/logoResolver";
 import type { MarketChartPoint, MarketStatus, NormalizedOrderbook, RecentTrade, TerminalMarket } from "./types";
 
 const GAMMA_HOST = "https://gamma-api.polymarket.com";
@@ -496,6 +497,37 @@ export function getMarketPage(discovery: SportsMarketDiscovery, params: MarketQu
   };
 }
 
+export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promise<TerminalMarket[]> {
+  return Promise.all(
+    markets.map(async (market) => {
+      if (!market.outcomeOptions?.length) return market;
+
+      const outcomeOptions = await Promise.all(
+        market.outcomeOptions.map(async (outcome) => {
+          if (outcome.outcomeLogoUrl || outcome.logoSource) return outcome;
+          const logo = await resolveSportsLogo({
+            marketTitle: market.title,
+            outcomeName: outcome.name,
+            category: market.league,
+            sport: market.sport,
+          });
+          return {
+            ...outcome,
+            ...(logo.logoUrl ? { outcomeLogoUrl: logo.logoUrl } : {}),
+            ...(logo.teamName ? { teamDisplayName: logo.teamName } : {}),
+            logoSource: logo.source,
+          };
+        }),
+      );
+
+      return {
+        ...market,
+        outcomeOptions,
+      };
+    }),
+  );
+}
+
 type FastMarketPageResult = MarketsApiPayload & {
   rawFetched: number;
   sportsMatched: number;
@@ -879,6 +911,7 @@ export async function getLiveSportsMarketsApiPayload(params: MarketQueryParams =
   counts.displayedMarkets = collectedMarkets.length;
 
   const page = getMarketPage(discovery, { ...params, minVolume });
+  const markets = await enrichMarketOutcomeLogos(page.markets);
   const requestDurationMs = Date.now() - requestStartedAt;
 
   if (process.env.NODE_ENV !== "production") {
@@ -900,6 +933,7 @@ export async function getLiveSportsMarketsApiPayload(params: MarketQueryParams =
     countsLoading: false,
     source: "polymarket",
     ...page,
+    markets,
     rawFetched,
     sportsMatched: sportsEvents.length,
     volumeMatched: volumeMatchedEvents.length,
@@ -1317,7 +1351,7 @@ export function seedMarketSnapshotCache(discovery: SportsMarketDiscovery, expire
 }
 
 export async function fetchSportsMarkets(): Promise<TerminalMarket[]> {
-  return (await fetchSportsMarketDiscovery()).markets;
+  return enrichMarketOutcomeLogos((await fetchSportsMarketDiscovery()).markets);
 }
 
 export async function getMarketById(id: string) {

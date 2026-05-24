@@ -6,7 +6,7 @@ import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EstimateRow, MarketPanelHeader, OutcomeCard } from "@/components/markets/MarketUi";
-import { categoryIcon } from "@/lib/markets/category";
+import { categoryIcon, categoryIconSrc } from "@/lib/markets/category";
 import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
 import { getTradeDisabledReason } from "@/lib/polymarket/readiness";
 import { placeMarketOrder, Side, validateTrade } from "@/lib/polymarket/orders";
@@ -153,6 +153,7 @@ export function MarketTradePanel({
   const selectedOutcome = selectedOutcomeFromMarket(displayMarket, selectedOutcomeName);
   const category = displayMarket.category && displayMarket.category !== "Market" ? displayMarket.category : "";
   const categoryMark = categoryIcon(category);
+  const categoryMarkSrc = categoryIconSrc(category);
   const displayTitle = formatMarketTitle(displayMarket.title);
   const marketTime = formatMarketTime(displayMarket.startTime);
   const subtitle = [category || displayMarket.league || displayMarket.sport, marketTime].filter(Boolean).join(" · ");
@@ -559,6 +560,10 @@ export function MarketTradePanel({
                   key={`${displayMarket.id}-${outcome.name}`}
                   name={outcome.name}
                   price={formatCents(outcome.price)}
+                  logoUrl={outcome.outcomeLogoUrl}
+                  teamDisplayName={outcome.teamDisplayName}
+                  fallbackIcon={categoryMark}
+                  fallbackIconSrc={categoryMarkSrc}
                   selected={selected}
                   onClick={() => setSelectedOutcomeName(outcome.name)}
                 />

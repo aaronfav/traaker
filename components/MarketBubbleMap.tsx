@@ -57,6 +57,9 @@ export type MarketOutcomeOption = {
   conditionId?: string;
   bestBid?: number;
   bestAsk?: number;
+  outcomeLogoUrl?: string;
+  teamDisplayName?: string;
+  logoSource?: string;
 };
 
 type RawOutcomeMarket = TerminalMarket & {
@@ -358,6 +361,9 @@ export function getMarketOutcomes(market: RawOutcomeMarket): MarketOutcomeOption
         conditionId: outcome.conditionId,
         bestBid: Number.isFinite(outcome.bestBid) ? outcome.bestBid : undefined,
         bestAsk: Number.isFinite(outcome.bestAsk) ? outcome.bestAsk : undefined,
+        ...(outcome.outcomeLogoUrl ? { outcomeLogoUrl: outcome.outcomeLogoUrl } : {}),
+        ...(outcome.teamDisplayName ? { teamDisplayName: outcome.teamDisplayName } : {}),
+        ...(outcome.logoSource ? { logoSource: outcome.logoSource } : {}),
       };
     });
   }
@@ -410,6 +416,8 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
   const favored = getFavoredOutcome(market);
   const outcomes = getMarketOutcomes(market);
   const style = marketColors(market, favored.name);
+  const favoredOutcomeLogo = outcomes.find((outcome) => outcome.name === favored.name)?.outcomeLogoUrl;
+  const primaryOutcomeLogo = favoredOutcomeLogo ?? outcomes.find((outcome) => outcome.outcomeLogoUrl)?.outcomeLogoUrl;
   const val = Math.max(8, rankBubbleRadius(marketBubbleRadius(sizeBasis), index));
   const trendScore = trendScoreForMarket(market, volume);
   const position = seededPosition(market.id);
@@ -429,7 +437,7 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
     marketUrl: `/markets/${market.id}`,
     polymarketUrl: market.slug ? `https://polymarket.com/event/${market.slug}` : undefined,
     tradeUrl: `/trade/${market.id}`,
-    logoUrl: style.logoUrl ?? style.logoPath ?? market.image,
+    logoUrl: primaryOutcomeLogo ?? style.logoUrl ?? style.logoPath ?? market.image,
     logoPath: style.logoPath,
     primaryColor: style.primary,
     secondaryColor: style.secondary,
@@ -940,10 +948,12 @@ function drawLogoMark(node: MarketBubbleNode, ctx: CanvasRenderingContext2D, x: 
     ctx.beginPath();
     ctx.arc(logoX, logoY, safeRadius(logoSize * 0.58), 0, Math.PI * 2);
     ctx.fill();
-    ctx.beginPath();
-    ctx.arc(logoX, logoY, safeRadius(logoSize / 2), 0, Math.PI * 2);
-    ctx.clip();
-    ctx.drawImage(drawable, logoX - logoSize / 2, logoY - logoSize / 2, logoSize, logoSize);
+    const sourceWidth = bitmap?.width ?? image?.naturalWidth ?? logoSize;
+    const sourceHeight = bitmap?.height ?? image?.naturalHeight ?? logoSize;
+    const scale = Math.min(logoSize / Math.max(1, sourceWidth), logoSize / Math.max(1, sourceHeight));
+    const drawWidth = sourceWidth * scale;
+    const drawHeight = sourceHeight * scale;
+    ctx.drawImage(drawable, logoX - drawWidth / 2, logoY - drawHeight / 2, drawWidth, drawHeight);
   } else {
     const initials = initialsForName(node.favoredOutcome);
     ctx.fillStyle = "rgba(255,255,255,0.08)";

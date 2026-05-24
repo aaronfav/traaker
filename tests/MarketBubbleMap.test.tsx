@@ -475,6 +475,79 @@ describe("MarketBubbleMap", () => {
     expect(screen.getByRole("button", { name: /lakers\s+9/i })).toHaveClass("border-cyan-300/70");
   });
 
+  it("renders outcome logos in the trade panel", () => {
+    const panelMarket = {
+      ...marketToBubbleNode(market),
+      category: "NBA",
+      outcomes: [
+        {
+          name: "Knicks",
+          price: 0.57,
+          priceCents: 57,
+          outcomeLogoUrl: "https://r2.thesportsdb.com/images/media/team/badge/knicks.png",
+          teamDisplayName: "New York Knicks",
+          logoSource: "thesportsdb",
+        },
+        {
+          name: "Cavaliers",
+          price: 0.43,
+          priceCents: 43,
+          outcomeLogoUrl: "https://r2.thesportsdb.com/images/media/team/badge/cavaliers.png",
+          teamDisplayName: "Cleveland Cavaliers",
+          logoSource: "thesportsdb",
+        },
+      ],
+    };
+
+    render(<MarketTradePanel market={panelMarket} onClose={vi.fn()} />);
+
+    expect(screen.getByTestId("outcome-logo-knicks")).toHaveAttribute("data-logo-url", "https://r2.thesportsdb.com/images/media/team/badge/knicks.png");
+    expect(screen.getByTestId("outcome-logo-cavaliers")).toHaveAttribute("data-logo-url", "https://r2.thesportsdb.com/images/media/team/badge/cavaliers.png");
+    expect(screen.getByRole("button", { name: /new york knicks\s+57/i })).toBeInTheDocument();
+  });
+
+  it("uses outcome logos as bubble logo assets", () => {
+    const assignedSources: string[] = [];
+    const logoUrl = "https://r2.thesportsdb.com/images/media/team/badge/knicks.png";
+    class TestImage {
+      crossOrigin = "";
+      decoding = "";
+      loading = "";
+      complete = true;
+      naturalWidth = 64;
+      naturalHeight = 64;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      private currentSrc = "";
+
+      set src(value: string) {
+        this.currentSrc = value;
+        assignedSources.push(value);
+        this.onload?.();
+      }
+
+      get src() {
+        return this.currentSrc;
+      }
+    }
+    vi.stubGlobal("Image", TestImage);
+    const logoMarket: TerminalMarket = {
+      ...market,
+      id: "knicks-cavaliers",
+      title: "New York Knicks vs Cleveland Cavaliers",
+      outcomeOptions: [
+        { name: "Knicks", price: 0.57, tokenId: "knicks-token", outcomeLogoUrl: logoUrl, teamDisplayName: "New York Knicks", logoSource: "thesportsdb" },
+        { name: "Cavaliers", price: 0.43, tokenId: "cavaliers-token" },
+      ],
+    };
+
+    expect(marketToBubbleNode(logoMarket).logoUrl).toBe(logoUrl);
+
+    render(<MarketBubbleMap markets={[logoMarket]} />);
+
+    expect(assignedSources).toContain(logoUrl);
+  });
+
   it("trade panel keeps selected outcome and row order across price updates", () => {
     const panelMarket = marketToBubbleNode(market);
     const { rerender } = render(<MarketTradePanel market={panelMarket} onClose={vi.fn()} />);

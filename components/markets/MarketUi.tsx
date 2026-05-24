@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Image from "next/image";
 import { CheckCircle2 } from "lucide-react";
 
 type TagPillTone = "cyan" | "emerald" | "slate";
@@ -72,17 +73,27 @@ export function MarketPanelHeader({
 export function OutcomeCard({
   name,
   price,
+  logoUrl,
+  teamDisplayName,
+  fallbackIcon,
+  fallbackIconSrc,
   selected,
   onClick,
 }: {
   name: string;
   price: string;
+  logoUrl?: string;
+  teamDisplayName?: string;
+  fallbackIcon?: string;
+  fallbackIconSrc?: string;
   selected: boolean;
   onClick: () => void;
 }) {
+  const testId = `outcome-logo-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "option"}`;
+
   return (
     <button
-      className={`grid min-h-[64px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border px-4 py-3 text-left transition duration-200 ${
+      className={`grid min-h-[64px] w-full grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border px-3 py-3 text-left transition duration-200 ${
         selected
           ? "border-cyan-300/70 bg-cyan-300/10 text-white shadow-[0_0_24px_rgba(34,211,238,0.12),inset_0_1px_0_rgba(255,255,255,0.05)]"
           : "border-slate-800/90 bg-slate-950/45 text-slate-200 hover:border-slate-700 hover:bg-slate-900/70"
@@ -90,8 +101,19 @@ export function OutcomeCard({
       onClick={onClick}
       type="button"
     >
+      <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full border border-slate-700/70 bg-slate-950/80 shadow-inner shadow-black/30">
+        {logoUrl ? (
+          <Image data-testid={testId} data-logo-url={logoUrl} src={logoUrl} alt="" width={32} height={32} className="h-8 w-8 object-contain" />
+        ) : fallbackIconSrc ? (
+          <Image data-testid={testId} data-logo-url={fallbackIconSrc} src={fallbackIconSrc} alt="" width={28} height={28} className="h-7 w-7 object-contain opacity-85" />
+        ) : (
+          <span data-testid={testId} className="text-base leading-none text-slate-300">
+            {fallbackIcon || (teamDisplayName ?? name).slice(0, 1).toUpperCase()}
+          </span>
+        )}
+      </span>
       <span className="min-w-0 overflow-hidden">
-        <span className="line-clamp-2 break-words text-base font-semibold leading-snug">{name}</span>
+        <span className="line-clamp-2 break-words text-base font-semibold leading-snug">{teamDisplayName || name}</span>
       </span>
       <span className="flex shrink-0 items-center gap-2 pl-2 text-right text-lg font-black tabular-nums">
         {price}

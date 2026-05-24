@@ -40,6 +40,9 @@ export type TerminalMarket = {
     conditionId?: string;
     bestBid?: number;
     bestAsk?: number;
+    outcomeLogoUrl?: string;
+    teamDisplayName?: string;
+    logoSource?: string;
   }>;
   image?: string;
   source: "polymarket" | "mock";
