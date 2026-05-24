@@ -81,6 +81,14 @@ function selectedOutcomeFromMarket(market: MarketBubbleNode, preferred?: string 
   return market.outcomes.find((outcome) => outcome.name === preferred) ?? market.outcomes.find((outcome) => outcome.name === market.favoredOutcome) ?? market.outcomes[0];
 }
 
+function confidentOutcomeLogo(outcome: { outcomeLogoUrl?: string; logoConfidence?: string }) {
+  if (!outcome.outcomeLogoUrl) return undefined;
+  if (!outcome.logoConfidence || ["exact_normalized_match", "alias_match", "league_team_match"].includes(outcome.logoConfidence)) {
+    return outcome.outcomeLogoUrl;
+  }
+  return undefined;
+}
+
 function outcomePriceForSide(market: MarketBubbleNode, outcomeName: string, side: TradeSide) {
   const outcome = market.outcomes.find((item) => item.name === outcomeName);
   const outcomeIndex = Math.max(0, market.outcomes.findIndex((item) => item.name === outcome?.name));
@@ -560,7 +568,7 @@ export function MarketTradePanel({
                   key={`${displayMarket.id}-${outcome.name}`}
                   name={outcome.name}
                   price={formatCents(outcome.price)}
-                  logoUrl={outcome.outcomeLogoUrl}
+                  logoUrl={confidentOutcomeLogo(outcome)}
                   teamDisplayName={outcome.teamDisplayName}
                   fallbackIcon={categoryMark}
                   fallbackIconSrc={categoryMarkSrc}

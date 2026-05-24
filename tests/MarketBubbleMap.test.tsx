@@ -147,7 +147,7 @@ describe("MarketBubbleMap", () => {
     const node = marketToBubbleNode(market);
     expect(node.primaryColor).toBe("#552583");
     expect(node.secondaryColor).toBe("#FDB927");
-    expect(node.logoUrl).toBe("/team-logos/lakers.svg");
+    expect(node.logoUrl).toBeUndefined();
     expect(node.favoredOutcome).toBe("Lakers");
     expect(node.favoredPrice).toBe(0.62);
     expect(node.priceCents).toBe(62);
@@ -487,6 +487,7 @@ describe("MarketBubbleMap", () => {
           outcomeLogoUrl: "https://r2.thesportsdb.com/images/media/team/badge/knicks.png",
           teamDisplayName: "New York Knicks",
           logoSource: "thesportsdb",
+          logoConfidence: "alias_match",
         },
         {
           name: "Cavaliers",
@@ -495,6 +496,7 @@ describe("MarketBubbleMap", () => {
           outcomeLogoUrl: "https://r2.thesportsdb.com/images/media/team/badge/cavaliers.png",
           teamDisplayName: "Cleveland Cavaliers",
           logoSource: "thesportsdb",
+          logoConfidence: "alias_match",
         },
       ],
     };
@@ -536,7 +538,7 @@ describe("MarketBubbleMap", () => {
       id: "knicks-cavaliers",
       title: "New York Knicks vs Cleveland Cavaliers",
       outcomeOptions: [
-        { name: "Knicks", price: 0.57, tokenId: "knicks-token", outcomeLogoUrl: logoUrl, teamDisplayName: "New York Knicks", logoSource: "thesportsdb" },
+        { name: "Knicks", price: 0.57, tokenId: "knicks-token", outcomeLogoUrl: logoUrl, teamDisplayName: "New York Knicks", logoSource: "thesportsdb", logoConfidence: "alias_match" },
         { name: "Cavaliers", price: 0.43, tokenId: "cavaliers-token" },
       ],
     };
@@ -546,6 +548,38 @@ describe("MarketBubbleMap", () => {
     render(<MarketBubbleMap markets={[logoMarket]} />);
 
     expect(assignedSources).toContain(logoUrl);
+  });
+
+  it("does not render low-confidence outcome logos in trade panel or bubbles", () => {
+    const wrongLogoUrl = "https://r2.thesportsdb.com/images/media/team/badge/liverpool.png";
+    const panelMarket = {
+      ...marketToBubbleNode({
+        ...market,
+        sport: "Soccer",
+        league: "EPL",
+        title: "Unknown Rovers FC vs Liverpool",
+        outcomeOptions: [
+          {
+            name: "Unknown Rovers FC",
+            price: 0.51,
+            tokenId: "unknown-token",
+            outcomeLogoUrl: wrongLogoUrl,
+            teamDisplayName: "Unknown Rovers",
+            logoSource: "fallback",
+            logoConfidence: "fallback",
+          },
+          { name: "Liverpool FC", price: 0.49, tokenId: "liverpool-token" },
+        ],
+      }),
+      category: "Soccer",
+    };
+
+    expect(panelMarket.logoUrl).toBeUndefined();
+
+    render(<MarketTradePanel market={panelMarket} onClose={vi.fn()} />);
+
+    expect(screen.getByTestId("outcome-logo-unknown-rovers-fc")).toHaveAttribute("data-logo-url", "/sport-balls/soccer-white-black.png");
+    expect(screen.getByTestId("outcome-logo-unknown-rovers-fc")).not.toHaveAttribute("data-logo-url", wrongLogoUrl);
   });
 
   it("trade panel keeps selected outcome and row order across price updates", () => {

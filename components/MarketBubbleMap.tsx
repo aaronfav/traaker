@@ -60,6 +60,7 @@ export type MarketOutcomeOption = {
   outcomeLogoUrl?: string;
   teamDisplayName?: string;
   logoSource?: string;
+  logoConfidence?: string;
 };
 
 type RawOutcomeMarket = TerminalMarket & {
@@ -364,6 +365,7 @@ export function getMarketOutcomes(market: RawOutcomeMarket): MarketOutcomeOption
         ...(outcome.outcomeLogoUrl ? { outcomeLogoUrl: outcome.outcomeLogoUrl } : {}),
         ...(outcome.teamDisplayName ? { teamDisplayName: outcome.teamDisplayName } : {}),
         ...(outcome.logoSource ? { logoSource: outcome.logoSource } : {}),
+        ...(outcome.logoConfidence ? { logoConfidence: outcome.logoConfidence } : {}),
       };
     });
   }
@@ -416,8 +418,12 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
   const favored = getFavoredOutcome(market);
   const outcomes = getMarketOutcomes(market);
   const style = marketColors(market, favored.name);
-  const favoredOutcomeLogo = outcomes.find((outcome) => outcome.name === favored.name)?.outcomeLogoUrl;
-  const primaryOutcomeLogo = favoredOutcomeLogo ?? outcomes.find((outcome) => outcome.outcomeLogoUrl)?.outcomeLogoUrl;
+  const confidentLogo = (outcome?: MarketOutcomeOption) =>
+    outcome?.outcomeLogoUrl && (!outcome.logoConfidence || ["exact_normalized_match", "alias_match", "league_team_match"].includes(outcome.logoConfidence))
+      ? outcome.outcomeLogoUrl
+      : undefined;
+  const favoredOutcomeLogo = confidentLogo(outcomes.find((outcome) => outcome.name === favored.name));
+  const primaryOutcomeLogo = favoredOutcomeLogo ?? confidentLogo(outcomes.find((outcome) => confidentLogo(outcome)));
   const val = Math.max(8, rankBubbleRadius(marketBubbleRadius(sizeBasis), index));
   const trendScore = trendScoreForMarket(market, volume);
   const position = seededPosition(market.id);
@@ -437,7 +443,7 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
     marketUrl: `/markets/${market.id}`,
     polymarketUrl: market.slug ? `https://polymarket.com/event/${market.slug}` : undefined,
     tradeUrl: `/trade/${market.id}`,
-    logoUrl: primaryOutcomeLogo ?? style.logoUrl ?? style.logoPath ?? market.image,
+    logoUrl: primaryOutcomeLogo,
     logoPath: style.logoPath,
     primaryColor: style.primary,
     secondaryColor: style.secondary,

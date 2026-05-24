@@ -36,8 +36,8 @@ describe("/api/sports/logos", () => {
     expect(body).toEqual({
       category: "NBA",
       teams: [
-        { query: "Knicks", logoUrl: "https://r2.thesportsdb.com/knicks.png", teamName: "New York Knicks", source: "thesportsdb" },
-        { query: "Cavaliers", logoUrl: "https://r2.thesportsdb.com/cavaliers.png", teamName: "Cleveland Cavaliers", source: "thesportsdb" },
+        { query: "Knicks", logoUrl: "https://r2.thesportsdb.com/knicks.png", teamName: "New York Knicks", source: "thesportsdb", confidence: "alias_match" },
+        { query: "Cavaliers", logoUrl: "https://r2.thesportsdb.com/cavaliers.png", teamName: "Cleveland Cavaliers", source: "thesportsdb", confidence: "alias_match" },
       ],
     });
   });

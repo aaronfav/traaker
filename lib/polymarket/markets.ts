@@ -511,11 +511,13 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
             category: market.league,
             sport: market.sport,
           });
+          const confidentLogo = ["exact_normalized_match", "alias_match", "league_team_match"].includes(logo.confidence);
           return {
             ...outcome,
-            ...(logo.logoUrl ? { outcomeLogoUrl: logo.logoUrl } : {}),
+            ...(logo.logoUrl && confidentLogo ? { outcomeLogoUrl: logo.logoUrl } : {}),
             ...(logo.teamName ? { teamDisplayName: logo.teamName } : {}),
             logoSource: logo.source,
+            logoConfidence: logo.confidence,
           };
         }),
       );

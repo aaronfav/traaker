@@ -1,7 +1,7 @@
-import { findTeamStyleMatch } from "@/lib/sports/teamStyles";
 import { TEAM_ALIASES, TEAM_SUFFIX_PATTERN } from "@/lib/sports/teamAliases";
 
 export type SportsLogoSource = "thesportsdb" | "local" | "fallback";
+export type SportsLogoConfidence = "exact_normalized_match" | "alias_match" | "league_team_match" | "fallback";
 
 export type SportsLogoInput = {
   marketTitle?: string;
@@ -14,6 +14,7 @@ export type SportsLogoResolution = {
   logoUrl: string | null;
   teamName: string;
   source: SportsLogoSource;
+  confidence: SportsLogoConfidence;
 };
 
 type CacheEntry<T = SportsLogoResolution> = {
@@ -69,6 +70,10 @@ function titleCase(value: string) {
     .join(" ");
 }
 
+function withoutTeamSuffix(value: string) {
+  return compactText(value).replace(TEAM_SUFFIX_PATTERN, " ").replace(/\s+/g, " ").trim();
+}
+
 export function normalizeSportsLogoCategory(category?: string, sport?: string) {
   const value = compactText(`${category ?? ""} ${sport ?? ""}`);
   if (/\bnba|basketball|wnba\b/.test(value)) return "NBA";
@@ -80,6 +85,10 @@ export function normalizeSportsLogoCategory(category?: string, sport?: string) {
 }
 
 export function normalizeTeamName(outcomeName: string, marketTitle = "", category?: string, sport?: string) {
+  return normalizeTeamCandidate(outcomeName, marketTitle, category, sport)?.teamName ?? null;
+}
+
+function normalizeTeamCandidate(outcomeName: string, marketTitle = "", category?: string, sport?: string): { teamName: string; confidence: SportsLogoConfidence } | null {
   const normalizedCategory = normalizeSportsLogoCategory(category, sport);
   if (NON_TEAM_CATEGORIES.has(normalizedCategory)) return null;
 
@@ -91,30 +100,24 @@ export function normalizeTeamName(outcomeName: string, marketTitle = "", categor
   if (!cleaned || /^(yes|no|draw|tie|market|winner|other|field)$/.test(cleaned)) return null;
 
   const directAlias = TEAM_ALIASES[cleaned];
-  if (directAlias) return directAlias;
+  if (directAlias) return { teamName: directAlias, confidence: directAlias.toLowerCase() === titleCase(cleaned).toLowerCase() ? "exact_normalized_match" : "alias_match" };
 
   const aliasKey = Object.keys(TEAM_ALIASES)
     .sort((a, b) => b.length - a.length)
-    .find((alias) => new RegExp(`(^| )${alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( |$)`).test(cleaned));
-  if (aliasKey) return TEAM_ALIASES[aliasKey];
+    .find((alias) => alias === cleaned);
+  if (aliasKey) return { teamName: TEAM_ALIASES[aliasKey], confidence: "alias_match" };
 
   const title = compactText(marketTitle);
   const titleAlias = Object.keys(TEAM_ALIASES)
     .sort((a, b) => b.length - a.length)
-    .find((alias) => cleaned.includes(alias) || (title.includes(alias) && title.includes(cleaned)));
-  if (titleAlias) return TEAM_ALIASES[titleAlias];
+    .find((alias) => cleaned === alias || (title.includes(alias) && cleaned === withoutTeamSuffix(alias)));
+  if (titleAlias) return { teamName: TEAM_ALIASES[titleAlias], confidence: "alias_match" };
 
-  return titleCase(cleaned);
+  return { teamName: titleCase(cleaned), confidence: "exact_normalized_match" };
 }
 
 function sportsDbApiKey() {
   return process.env.THESPORTSDB_API_KEY?.trim() || (process.env.NODE_ENV === "test" ? "" : "123");
-}
-
-function localLogoFallback(teamName: string): SportsLogoResolution | null {
-  const style = findTeamStyleMatch(teamName);
-  const logoUrl = style?.logoUrl ?? style?.logoPath;
-  return logoUrl ? { logoUrl, teamName, source: "local" } : null;
 }
 
 function logoFromTeamRecord(team: Record<string, unknown>) {
@@ -125,7 +128,7 @@ function logoFromTeamRecord(team: Record<string, unknown>) {
   return badge || logo || currentBadge || currentLogo || null;
 }
 
-function teamRecordMatches(team: Record<string, unknown>, teamName: string) {
+function teamRecordMatchConfidence(team: Record<string, unknown>, teamName: string, candidateConfidence: SportsLogoConfidence): SportsLogoConfidence | null {
   const target = compactText(teamName);
   const name = compactText(String(team.strTeam ?? ""));
   const alternates = String(team.strTeamAlternate ?? team.strAlternate ?? "")
@@ -134,7 +137,21 @@ function teamRecordMatches(team: Record<string, unknown>, teamName: string) {
     .filter(Boolean);
   const normalizedAlternates = alternates.map((item) => item.replace(TEAM_SUFFIX_PATTERN, " ").replace(/\s+/g, " ").trim());
   const targetWithoutSuffix = target.replace(TEAM_SUFFIX_PATTERN, " ").replace(/\s+/g, " ").trim();
-  return name === target || name === targetWithoutSuffix || normalizedAlternates.includes(target) || normalizedAlternates.includes(targetWithoutSuffix);
+  if (name === target || name === targetWithoutSuffix) return candidateConfidence === "alias_match" ? "alias_match" : "exact_normalized_match";
+  if (normalizedAlternates.includes(target) || normalizedAlternates.includes(targetWithoutSuffix)) return "alias_match";
+  return null;
+}
+
+function logRejectedTeamMatches(teamName: string, teams: Array<Record<string, unknown>>, source: string) {
+  if ((process.env.NODE_ENV !== "development" && process.env.TRAAK_DEBUG_SPORTS_LOGOS !== "1") || teams.length === 0) return;
+  console.debug("[Traak] rejected sports logo matches", {
+    query: teamName,
+    source,
+    candidates: teams.slice(0, 3).map((team) => ({
+      team: team.strTeam,
+      alternate: team.strTeamAlternate ?? team.strAlternate,
+    })),
+  });
 }
 
 function leagueNamesForContext(category: string, rawContext: string) {
@@ -175,26 +192,31 @@ async function fetchLeagueTeams(apiKey: string, leagueName: string) {
   return value;
 }
 
-async function fetchTheSportsDbLeagueTeamLogo(teamName: string, category: string, rawContext: string): Promise<SportsLogoResolution | null> {
+async function fetchTheSportsDbLeagueTeamLogo(teamName: string, category: string, rawContext: string, candidateConfidence: SportsLogoConfidence): Promise<SportsLogoResolution | null> {
   const apiKey = sportsDbApiKey();
   const leagueNames = leagueNamesForContext(category, rawContext);
   if (!apiKey || leagueNames.length === 0) return null;
 
   const teamLists = await Promise.all(leagueNames.map((leagueName) => fetchLeagueTeams(apiKey, leagueName)));
   const teams = teamLists.flat();
-  const team = teams.find((item) => teamRecordMatches(item, teamName));
-  if (!team) return null;
+  const match = teams
+    .map((team) => ({ team, confidence: teamRecordMatchConfidence(team, teamName, candidateConfidence) }))
+    .find((item): item is { team: Record<string, unknown>; confidence: SportsLogoConfidence } => item.confidence !== null);
+  if (!match) {
+    logRejectedTeamMatches(teamName, teams, "league");
+    return null;
+  }
 
-  const logoUrl = logoFromTeamRecord(team);
-  const resolvedTeamName = typeof team.strTeam === "string" && team.strTeam.trim() ? team.strTeam.trim() : teamName;
-  return logoUrl ? { logoUrl, teamName: resolvedTeamName, source: "thesportsdb" } : null;
+  const logoUrl = logoFromTeamRecord(match.team);
+  const resolvedTeamName = typeof match.team.strTeam === "string" && match.team.strTeam.trim() ? match.team.strTeam.trim() : teamName;
+  return logoUrl ? { logoUrl, teamName: resolvedTeamName, source: "thesportsdb", confidence: match.confidence } : null;
 }
 
-async function fetchTheSportsDbTeamLogo(teamName: string, category: string, rawContext: string): Promise<SportsLogoResolution | null> {
+async function fetchTheSportsDbTeamLogo(teamName: string, category: string, rawContext: string, candidateConfidence: SportsLogoConfidence): Promise<SportsLogoResolution | null> {
   const apiKey = sportsDbApiKey();
   if (!apiKey) return null;
 
-  const leagueMatch = await fetchTheSportsDbLeagueTeamLogo(teamName, category, rawContext);
+  const leagueMatch = await fetchTheSportsDbLeagueTeamLogo(teamName, category, rawContext, candidateConfidence);
   if (leagueMatch) return leagueMatch;
 
   const url = `${THE_SPORTS_DB_BASE_URL}/${encodeURIComponent(apiKey)}/searchteams.php?t=${encodeURIComponent(teamName)}`;
@@ -203,20 +225,26 @@ async function fetchTheSportsDbTeamLogo(teamName: string, category: string, rawC
 
   const data = (await response.json()) as { teams?: Array<Record<string, unknown>> | null };
   const teams = Array.isArray(data.teams) ? data.teams : [];
-  const team = teams.find((item) => teamRecordMatches(item, teamName));
-  if (!team) return null;
+  const match = teams
+    .map((team) => ({ team, confidence: teamRecordMatchConfidence(team, teamName, candidateConfidence) }))
+    .find((item): item is { team: Record<string, unknown>; confidence: SportsLogoConfidence } => item.confidence !== null);
+  if (!match) {
+    logRejectedTeamMatches(teamName, teams, "search");
+    return null;
+  }
 
-  const logoUrl = logoFromTeamRecord(team);
-  const resolvedTeamName = typeof team.strTeam === "string" && team.strTeam.trim() ? team.strTeam.trim() : teamName;
-  return logoUrl ? { logoUrl, teamName: resolvedTeamName, source: "thesportsdb" } : null;
+  const logoUrl = logoFromTeamRecord(match.team);
+  const resolvedTeamName = typeof match.team.strTeam === "string" && match.team.strTeam.trim() ? match.team.strTeam.trim() : teamName;
+  return logoUrl ? { logoUrl, teamName: resolvedTeamName, source: "thesportsdb", confidence: match.confidence } : null;
 }
 
 export async function resolveSportsLogo(input: SportsLogoInput): Promise<SportsLogoResolution> {
-  const teamName = normalizeTeamName(input.outcomeName, input.marketTitle, input.category, input.sport) ?? input.outcomeName.trim();
+  const candidate = normalizeTeamCandidate(input.outcomeName, input.marketTitle, input.category, input.sport);
+  const teamName = candidate?.teamName ?? input.outcomeName.trim();
   const category = normalizeSportsLogoCategory(input.category, input.sport);
   const rawContext = `${input.category ?? ""} ${input.sport ?? ""} ${input.marketTitle ?? ""} ${input.outcomeName}`;
   if (!teamName || NON_TEAM_CATEGORIES.has(category)) {
-    return { logoUrl: null, teamName: input.outcomeName.trim(), source: "fallback" };
+    return { logoUrl: null, teamName: input.outcomeName.trim(), source: "fallback", confidence: "fallback" };
   }
 
   const cacheKey = `${category}:${compactText(teamName)}`;
@@ -227,9 +255,9 @@ export async function resolveSportsLogo(input: SportsLogoInput): Promise<SportsL
     if (cached.promise) return cached.promise;
   }
 
-  const promise = fetchTheSportsDbTeamLogo(teamName, category, rawContext)
+  const promise = fetchTheSportsDbTeamLogo(teamName, category, rawContext, candidate?.confidence ?? "exact_normalized_match")
     .catch(() => null)
-    .then((remote) => remote ?? localLogoFallback(teamName) ?? { logoUrl: null, teamName, source: "fallback" as const });
+    .then((remote) => remote ?? { logoUrl: null, teamName, source: "fallback" as const, confidence: "fallback" as const });
 
   cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, promise });
   const value = await promise;

@@ -43,6 +43,7 @@ export type TerminalMarket = {
     outcomeLogoUrl?: string;
     teamDisplayName?: string;
     logoSource?: string;
+    logoConfidence?: string;
   }>;
   image?: string;
   source: "polymarket" | "mock";
