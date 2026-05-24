@@ -28,3 +28,26 @@ body {
 ::selection {
   background: rgba(34, 211, 238, 0.25);
 }
+
+.traak-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(71, 85, 105, 0.78) rgba(2, 6, 23, 0.32);
+}
+
+.traak-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.traak-scrollbar::-webkit-scrollbar-track {
+  background: rgba(2, 6, 23, 0.32);
+  border-radius: 999px;
+}
+
+.traak-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.78);
+  border-radius: 999px;
+}
+
+.traak-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.9);
+}

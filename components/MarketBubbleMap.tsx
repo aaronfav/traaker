@@ -932,21 +932,25 @@ function fitTextLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: num
 function drawLogoMark(node: MarketBubbleNode, ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, opacity: number) {
   const logo = getLogoAsset(node.logoUrl);
   const safeBubbleRadius = safeRadius(radius, 8);
-  const logoSize = safeRadius(Math.min(safeBubbleRadius * 0.34, safeBubbleRadius * 0.3 + safeBubbleRadius * 0.015), 4);
+  const logoSize = safeRadius(Math.max(14, Math.min(safeBubbleRadius * 0.62, 64)), 4);
   const logoX = safeCoordinate(x);
   const logoY = safeCoordinate(y);
 
   ctx.save();
-  ctx.globalAlpha *= Math.max(0.88, Math.min(0.93, opacity));
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   const bitmap = logo?.bitmap;
   const image = logo?.image;
   const drawable = bitmap ?? (image?.complete && image.naturalWidth > 0 ? image : null);
   if (drawable) {
-    ctx.fillStyle = "rgba(2, 6, 23, 0.18)";
+    ctx.globalAlpha *= Math.max(0.34, Math.min(0.58, opacity));
+    const halo = ctx.createRadialGradient(logoX, logoY, safeRadius(logoSize * 0.18), logoX, logoY, safeRadius(logoSize * 0.72));
+    halo.addColorStop(0, "rgba(255,255,255,0.42)");
+    halo.addColorStop(0.62, "rgba(15,23,42,0.2)");
+    halo.addColorStop(1, "rgba(15,23,42,0)");
+    ctx.fillStyle = halo;
     ctx.beginPath();
-    ctx.arc(logoX, logoY, safeRadius(logoSize * 0.58), 0, Math.PI * 2);
+    ctx.arc(logoX, logoY, safeRadius(logoSize * 0.74), 0, Math.PI * 2);
     ctx.fill();
     const sourceWidth = bitmap?.width ?? image?.naturalWidth ?? logoSize;
     const sourceHeight = bitmap?.height ?? image?.naturalHeight ?? logoSize;
@@ -1759,8 +1763,10 @@ function drawBubble(
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
-  if (canRenderLogo) {
-    drawLogoMark(node, ctx, x, y - radius * 0.5, radius, screenRadius > 34 ? 0.93 : 0.88);
+  if (node.logoUrl && screenRadius >= 18) {
+    drawLogoMark(node, ctx, x, y - radius * 0.1, radius, screenRadius > 34 ? 0.5 : 0.42);
+  } else if (canRenderLogo) {
+    drawLogoMark(node, ctx, x, y - radius * 0.5, radius, 0.88);
   }
   drawBubbleLabel(ctx, node, x, y, radius, screenRadius, options.isMobile);
 

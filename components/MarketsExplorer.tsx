@@ -152,7 +152,7 @@ export function MarketsExplorer({
   const rankedMarkets = useMemo(() => rankHighValueMarkets(markets, minVolume), [markets, minVolume]);
   const visibleMarkets = rankedMarkets.slice(selectedRange.start, selectedRange.end);
   const searchResults = useMemo(() => rankedMarkets.filter((market) => matchesMarketQuery(market, query)).slice(0, 12), [query, rankedMarkets]);
-  const categoryCta = sport === "All" ? "Explore markets" : `View ${sport} markets`;
+  const categoryCta = sport === "All" ? "Explore markets" : `Explore ${sport}`;
 
   return (
     <section className="relative w-full overflow-hidden bg-[radial-gradient(circle_at_50%_0%,rgba(34,211,238,0.09),transparent_34rem),linear-gradient(180deg,#05070d_0%,#07101a_46%,#04070d_100%)]">

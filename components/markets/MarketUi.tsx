@@ -46,8 +46,8 @@ export function MarketPanelHeader({
   actions: ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-slate-800/85 px-5 py-5">
-      <div className="min-w-0 flex-1">
+    <div className="flex items-start justify-between gap-3 border-b border-slate-800/85 px-4 py-4 sm:px-5">
+      <div className="min-w-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           {category ? (
             <TagPill tone="cyan" icon={categoryIcon}>
@@ -62,7 +62,9 @@ export function MarketPanelHeader({
           </TagPill>
           <span className="min-w-0 truncate text-xs font-medium text-slate-500">{timestamp}</span>
         </div>
-        <h2 className="mt-5 line-clamp-2 text-2xl font-semibold leading-tight tracking-tight text-slate-50">{title}</h2>
+        <h2 className="mt-4 line-clamp-3 max-w-full overflow-hidden break-words text-xl font-semibold leading-tight text-slate-50 [overflow-wrap:anywhere] sm:line-clamp-2 sm:text-2xl">
+          {title}
+        </h2>
         {subtitle ? <p className="mt-2 truncate text-sm font-medium text-slate-400">{subtitle}</p> : null}
       </div>
       <div className="flex shrink-0 items-center gap-1">{actions}</div>
@@ -93,10 +95,10 @@ export function OutcomeCard({
 
   return (
     <button
-      className={`grid min-h-[64px] w-full grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border px-3 py-3 text-left transition duration-200 ${
+      className={`grid min-h-[66px] w-full grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border px-3 py-3 text-left transition duration-200 ${
         selected
-          ? "border-cyan-300/70 bg-cyan-300/10 text-white shadow-[0_0_24px_rgba(34,211,238,0.12),inset_0_1px_0_rgba(255,255,255,0.05)]"
-          : "border-slate-800/90 bg-slate-950/45 text-slate-200 hover:border-slate-700 hover:bg-slate-900/70"
+          ? "border-cyan-300/70 bg-cyan-300/10 text-white shadow-[0_0_20px_rgba(34,211,238,0.1),inset_0_1px_0_rgba(255,255,255,0.05)]"
+          : "border-slate-800/90 bg-slate-950/48 text-slate-200 hover:border-slate-700 hover:bg-slate-900/72"
       }`}
       onClick={onClick}
       type="button"
@@ -112,10 +114,10 @@ export function OutcomeCard({
           </span>
         )}
       </span>
-      <span className="min-w-0 overflow-hidden">
-        <span className="line-clamp-2 break-words text-base font-semibold leading-snug">{teamDisplayName || name}</span>
+      <span className="min-w-0 overflow-hidden self-center">
+        <span className="line-clamp-2 break-words text-[0.95rem] font-semibold leading-snug [overflow-wrap:anywhere]">{teamDisplayName || name}</span>
       </span>
-      <span className="flex shrink-0 items-center gap-2 pl-2 text-right text-lg font-black tabular-nums">
+      <span className="flex shrink-0 items-center justify-end gap-2 pl-2 text-right text-lg font-black tabular-nums">
         {price}
         {selected ? <CheckCircle2 className="h-4 w-4 text-cyan-300" /> : null}
       </span>

@@ -508,7 +508,7 @@ export function MarketTradePanel({
   return (
     <aside
       aria-label="Market trading panel"
-      className="absolute inset-x-0 bottom-0 z-30 flex max-h-[92svh] max-w-full flex-col overflow-hidden border-t border-slate-800/90 bg-[#070a12]/96 shadow-2xl shadow-black/70 backdrop-blur-2xl md:inset-x-auto md:bottom-0 md:right-0 md:top-0 md:h-full md:max-h-none md:w-[clamp(390px,30vw,460px)] md:border-l md:border-t-0"
+      className="absolute inset-x-0 bottom-0 z-30 flex max-h-[92svh] max-w-full flex-col overflow-hidden border-t border-slate-800/90 bg-[#070a12]/96 shadow-2xl shadow-black/70 backdrop-blur-2xl md:inset-x-auto md:bottom-0 md:right-0 md:top-0 md:h-full md:max-h-none md:w-[clamp(390px,30vw,480px)] md:border-l md:border-t-0"
       onClick={(event) => event.stopPropagation()}
     >
       <MarketPanelHeader
@@ -530,7 +530,7 @@ export function MarketTradePanel({
         }
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 pb-6">
+      <div className="traak-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-6 sm:px-5">
         {displayMarket.activeRangeWarning ? (
           <div className="mb-4 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm font-medium text-amber-100">
             Market moved outside active range
@@ -552,7 +552,7 @@ export function MarketTradePanel({
               </a>
             ) : null}
           </div>
-          <div className="grid gap-2">
+          <div className="traak-scrollbar grid max-h-[min(44svh,460px)] gap-2 overflow-y-auto pr-1">
             {displayMarket.outcomes.map((outcome) => {
               const selected = outcome.name === selectedOutcome?.name;
               return (

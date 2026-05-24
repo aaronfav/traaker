@@ -11,6 +11,10 @@ describe("sports logo resolver", () => {
   it("normalizes common team aliases", () => {
     expect(normalizeTeamName("Cavaliers", "Knicks vs Cavaliers", "NBA")).toBe("Cleveland Cavaliers");
     expect(normalizeTeamName("Knicks", "Knicks vs Cavaliers", "NBA")).toBe("New York Knicks");
+    expect(normalizeTeamName("Brighton & Hove Albion FC", "Premier League winner", "Soccer")).toBe("Brighton and Hove Albion");
+    expect(normalizeTeamName("Manchester United FC", "Premier League winner", "Soccer")).toBe("Manchester United");
+    expect(normalizeTeamName("Tottenham Hotspur FC", "Premier League winner", "Soccer")).toBe("Tottenham Hotspur");
+    expect(normalizeTeamName("Juventus FC", "Serie A winner", "Soccer")).toBe("Juventus");
   });
 
   it("falls back cleanly for non-team sports", async () => {
@@ -52,5 +56,42 @@ describe("sports logo resolver", () => {
       teamName: "Cleveland Cavaliers",
       source: "thesportsdb",
     });
+  });
+
+  it("prefers league-specific Soccer matching before generic fallback", async () => {
+    vi.stubEnv("THESPORTSDB_API_KEY", "test-key");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("search_all_teams.php")) {
+        return new Response(
+          JSON.stringify({
+            teams: [
+              {
+                strTeam: "Brighton and Hove Albion",
+                strTeamAlternate: "Brighton & Hove Albion Football Club, Brighton, BHAFC",
+                strBadge: "https://r2.thesportsdb.com/images/media/team/badge/brighton.png",
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify({ teams: [{ strTeam: "Arsenal", strBadge: "https://r2.thesportsdb.com/arsenal.png" }] }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await resolveSportsLogo({
+      category: "EPL",
+      sport: "Soccer",
+      marketTitle: "English Premier League winner",
+      outcomeName: "Brighton & Hove Albion FC",
+    });
+
+    expect(result).toEqual({
+      logoUrl: "https://r2.thesportsdb.com/images/media/team/badge/brighton.png",
+      teamName: "Brighton and Hove Albion",
+      source: "thesportsdb",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("search_all_teams.php"), { cache: "no-store" });
   });
 });

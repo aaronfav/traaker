@@ -111,6 +111,8 @@ describe("MarketsExplorer", () => {
       },
       { timeout: 1000 },
     );
+    expect(screen.queryByRole("button", { name: /view nba markets/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Explore NBA" })).toBeInTheDocument();
   });
 
   it("filters out extreme favored prices before range display", () => {
