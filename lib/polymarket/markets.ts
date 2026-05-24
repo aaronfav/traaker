@@ -515,8 +515,8 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
           return {
             ...outcome,
             ...(logo.logoUrl && confidentLogo ? { outcomeLogoUrl: logo.logoUrl } : {}),
-            ...(logo.teamName ? { teamDisplayName: logo.teamName } : {}),
-            logoSource: logo.source,
+            ...(logo.teamDisplayName ? { teamDisplayName: logo.teamDisplayName } : {}),
+            logoSource: logo.logoSource,
             logoConfidence: logo.confidence,
           };
         }),

@@ -508,6 +508,37 @@ describe("MarketBubbleMap", () => {
     expect(screen.getByRole("button", { name: /new york knicks\s+57/i })).toBeInTheDocument();
   });
 
+  it("renders high-confidence SportsMonks logos in outcome rows and bubbles", () => {
+    const logoUrl = "https://cdn.sportmonks.com/images/soccer/teams/8/8.png";
+    const panelMarket = {
+      ...marketToBubbleNode({
+        ...market,
+        sport: "Soccer",
+        league: "EPL",
+        title: "Liverpool FC vs Brentford FC",
+        outcomeOptions: [
+          {
+            name: "Liverpool FC",
+            price: 0.61,
+            tokenId: "liverpool-token",
+            outcomeLogoUrl: logoUrl,
+            teamDisplayName: "Liverpool",
+            logoSource: "sportsmonks",
+            logoConfidence: "exact_normalized_match",
+          },
+          { name: "Brentford FC", price: 0.39, tokenId: "brentford-token" },
+        ],
+      }),
+      category: "Soccer",
+    };
+
+    expect(panelMarket.logoUrl).toBe(logoUrl);
+
+    render(<MarketTradePanel market={panelMarket} onClose={vi.fn()} />);
+
+    expect(screen.getByTestId("outcome-logo-liverpool-fc")).toHaveAttribute("data-logo-url", logoUrl);
+  });
+
   it("uses outcome logos as bubble logo assets", () => {
     const assignedSources: string[] = [];
     const logoUrl = "https://r2.thesportsdb.com/images/media/team/badge/knicks.png";

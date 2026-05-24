@@ -27,7 +27,14 @@ describe("sports logo resolver", () => {
       outcomeName: "Fighter A",
     });
 
-    expect(result).toEqual({ logoUrl: null, teamName: "Fighter A", source: "fallback", confidence: "fallback" });
+    expect(result).toEqual({
+      logoUrl: null,
+      teamName: "Fighter A",
+      teamDisplayName: "Fighter A",
+      source: "fallback",
+      logoSource: "fallback",
+      confidence: "fallback",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -54,8 +61,113 @@ describe("sports logo resolver", () => {
     expect(result).toEqual({
       logoUrl: "https://r2.thesportsdb.com/images/media/team/badge/cavaliers.png",
       teamName: "Cleveland Cavaliers",
+      teamDisplayName: "Cleveland Cavaliers",
       source: "thesportsdb",
+      logoSource: "thesportsdb",
       confidence: "alias_match",
+    });
+  });
+
+  it("uses SportsMonks soccer logos on exact normalized matches", async () => {
+    vi.stubEnv("SPORTSMONKS_API_KEY", "sportsmonks-key");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("api.sportmonks.com")) {
+        return new Response(
+          JSON.stringify({
+            data: [{ id: 8, name: "Liverpool", image_path: "https://cdn.sportmonks.com/images/soccer/teams/8/8.png" }],
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify({ teams: [] }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(resolveSportsLogo({ category: "EPL", sport: "Soccer", marketTitle: "Premier League winner", outcomeName: "Liverpool FC" })).resolves.toEqual({
+      logoUrl: "https://cdn.sportmonks.com/images/soccer/teams/8/8.png",
+      teamName: "Liverpool",
+      teamDisplayName: "Liverpool",
+      source: "sportsmonks",
+      logoSource: "sportsmonks",
+      confidence: "exact_normalized_match",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("api.sportmonks.com/v3/football/teams/search/Liverpool"), { cache: "no-store" });
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("thesportsdb.com"), { cache: "no-store" });
+  });
+
+  it("uses SportsMonks soccer logos on explicit alias matches", async () => {
+    vi.stubEnv("SPORTSMONKS_API_KEY", "sportsmonks-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            data: [{ id: 6, name: "Tottenham Hotspur", image_path: "https://cdn.sportmonks.com/images/soccer/teams/6/6.png" }],
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    await expect(resolveSportsLogo({ category: "EPL", sport: "Soccer", marketTitle: "Premier League winner", outcomeName: "Tottenham" })).resolves.toEqual({
+      logoUrl: "https://cdn.sportmonks.com/images/soccer/teams/6/6.png",
+      teamName: "Tottenham Hotspur",
+      teamDisplayName: "Tottenham Hotspur",
+      source: "sportsmonks",
+      logoSource: "sportsmonks",
+      confidence: "alias_match",
+    });
+  });
+
+  it("falls back to TheSportsDB when SportsMonks misses", async () => {
+    vi.stubEnv("SPORTSMONKS_API_KEY", "sportsmonks-key");
+    vi.stubEnv("THESPORTSDB_API_KEY", "sportsdb-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("api.sportmonks.com")) return new Response(JSON.stringify({ data: [] }), { status: 200 });
+        return new Response(
+          JSON.stringify({
+            teams: [{ strTeam: "Arsenal", strTeamAlternate: "Arsenal FC", strBadge: "https://r2.thesportsdb.com/arsenal.png" }],
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(resolveSportsLogo({ category: "EPL", sport: "Soccer", marketTitle: "Premier League winner", outcomeName: "Arsenal FC" })).resolves.toEqual({
+      logoUrl: "https://r2.thesportsdb.com/arsenal.png",
+      teamName: "Arsenal",
+      teamDisplayName: "Arsenal",
+      source: "thesportsdb",
+      logoSource: "thesportsdb",
+      confidence: "exact_normalized_match",
+    });
+  });
+
+  it("rejects wrong SportsMonks search results", async () => {
+    vi.stubEnv("SPORTSMONKS_API_KEY", "sportsmonks-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            data: [{ id: 8, name: "Liverpool", image_path: "https://cdn.sportmonks.com/images/soccer/teams/8/8.png" }],
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    await expect(resolveSportsLogo({ category: "Soccer", sport: "Soccer", marketTitle: "Cup winner", outcomeName: "Unknown Rovers FC" })).resolves.toEqual({
+      logoUrl: null,
+      teamName: "Unknown Rovers",
+      teamDisplayName: "Unknown Rovers",
+      source: "fallback",
+      logoSource: "fallback",
+      confidence: "fallback",
     });
   });
 
@@ -91,7 +203,9 @@ describe("sports logo resolver", () => {
     expect(result).toEqual({
       logoUrl: "https://r2.thesportsdb.com/images/media/team/badge/brighton.png",
       teamName: "Brighton and Hove Albion",
+      teamDisplayName: "Brighton and Hove Albion",
       source: "thesportsdb",
+      logoSource: "thesportsdb",
       confidence: "exact_normalized_match",
     });
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("search_all_teams.php"), { cache: "no-store" });
@@ -121,13 +235,17 @@ describe("sports logo resolver", () => {
     await expect(resolveSportsLogo({ category: "EPL", sport: "Soccer", marketTitle: "Premier League winner", outcomeName: "Liverpool FC" })).resolves.toEqual({
       logoUrl: "https://r2.thesportsdb.com/liverpool.png",
       teamName: "Liverpool",
+      teamDisplayName: "Liverpool",
       source: "thesportsdb",
+      logoSource: "thesportsdb",
       confidence: "exact_normalized_match",
     });
     await expect(resolveSportsLogo({ category: "EPL", sport: "Soccer", marketTitle: "Premier League winner", outcomeName: "Brentford FC" })).resolves.toEqual({
       logoUrl: "https://r2.thesportsdb.com/brentford.png",
       teamName: "Brentford",
+      teamDisplayName: "Brentford",
       source: "thesportsdb",
+      logoSource: "thesportsdb",
       confidence: "exact_normalized_match",
     });
   });
@@ -151,7 +269,9 @@ describe("sports logo resolver", () => {
     await expect(resolveSportsLogo({ category: "EPL", sport: "Soccer", marketTitle: "Premier League winner", outcomeName: "Arsenal FC" })).resolves.toEqual({
       logoUrl: "https://r2.thesportsdb.com/arsenal.png",
       teamName: "Arsenal",
+      teamDisplayName: "Arsenal",
       source: "thesportsdb",
+      logoSource: "thesportsdb",
       confidence: "exact_normalized_match",
     });
 
@@ -168,7 +288,9 @@ describe("sports logo resolver", () => {
     await expect(resolveSportsLogo({ category: "Soccer", sport: "Soccer", marketTitle: "Cup winner", outcomeName: "Unknown Rovers FC" })).resolves.toEqual({
       logoUrl: null,
       teamName: "Unknown Rovers",
+      teamDisplayName: "Unknown Rovers",
       source: "fallback",
+      logoSource: "fallback",
       confidence: "fallback",
     });
   });

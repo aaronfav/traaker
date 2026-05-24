@@ -11,6 +11,10 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "r2.thesportsdb.com",
       },
+      {
+        protocol: "https",
+        hostname: "cdn.sportmonks.com",
+      },
     ],
   },
 };

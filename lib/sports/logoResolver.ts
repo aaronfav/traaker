@@ -1,6 +1,6 @@
 import { TEAM_ALIASES, TEAM_SUFFIX_PATTERN } from "@/lib/sports/teamAliases";
 
-export type SportsLogoSource = "thesportsdb" | "local" | "fallback";
+export type SportsLogoProvider = "sportsmonks" | "thesportsdb" | "local" | "fallback";
 export type SportsLogoConfidence = "exact_normalized_match" | "alias_match" | "league_team_match" | "fallback";
 
 export type SportsLogoInput = {
@@ -8,12 +8,15 @@ export type SportsLogoInput = {
   outcomeName: string;
   sport?: string;
   category?: string;
+  sportsMonksTeamId?: string | number;
 };
 
 export type SportsLogoResolution = {
   logoUrl: string | null;
   teamName: string;
-  source: SportsLogoSource;
+  teamDisplayName: string;
+  source: SportsLogoProvider;
+  logoSource: SportsLogoProvider;
   confidence: SportsLogoConfidence;
 };
 
@@ -25,14 +28,24 @@ type CacheEntry<T = SportsLogoResolution> = {
 
 type LogoCacheStore = Map<string, CacheEntry>;
 type LeagueCacheStore = Map<string, CacheEntry<Array<Record<string, unknown>>>>;
+type SportsMonksTeamCacheStore = Map<string, CacheEntry<Array<SportsMonksTeamRecord>>>;
+
+type SportsMonksTeamRecord = {
+  id?: number | string;
+  name?: string;
+  image_path?: string | null;
+  short_code?: string | null;
+};
 
 declare global {
   var __TRAAK_SPORTS_LOGO_CACHE__: LogoCacheStore | undefined;
   var __TRAAK_SPORTS_LEAGUE_LOGO_CACHE__: LeagueCacheStore | undefined;
+  var __TRAAK_SPORTSMONKS_TEAM_LOGO_CACHE__: SportsMonksTeamCacheStore | undefined;
 }
 
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const THE_SPORTS_DB_BASE_URL = "https://www.thesportsdb.com/api/v1/json";
+const SPORTSMONKS_FOOTBALL_BASE_URL = "https://api.sportmonks.com/v3/football";
 
 const NON_TEAM_CATEGORIES = new Set(["UFC", "Tennis", "Market"]);
 
@@ -48,6 +61,13 @@ function getLeagueCache() {
     globalThis.__TRAAK_SPORTS_LEAGUE_LOGO_CACHE__ = new Map();
   }
   return globalThis.__TRAAK_SPORTS_LEAGUE_LOGO_CACHE__;
+}
+
+function getSportsMonksTeamCache() {
+  if (!globalThis.__TRAAK_SPORTSMONKS_TEAM_LOGO_CACHE__) {
+    globalThis.__TRAAK_SPORTSMONKS_TEAM_LOGO_CACHE__ = new Map();
+  }
+  return globalThis.__TRAAK_SPORTSMONKS_TEAM_LOGO_CACHE__;
 }
 
 function compactText(value: string) {
@@ -120,6 +140,21 @@ function sportsDbApiKey() {
   return process.env.THESPORTSDB_API_KEY?.trim() || (process.env.NODE_ENV === "test" ? "" : "123");
 }
 
+function sportsMonksApiKey() {
+  return process.env.SPORTSMONKS_API_KEY?.trim() || "";
+}
+
+function sportsLogoResolution(input: { logoUrl: string | null; teamName: string; source: SportsLogoProvider; confidence: SportsLogoConfidence }): SportsLogoResolution {
+  return {
+    logoUrl: input.logoUrl,
+    teamName: input.teamName,
+    teamDisplayName: input.teamName,
+    source: input.source,
+    logoSource: input.source,
+    confidence: input.confidence,
+  };
+}
+
 function logoFromTeamRecord(team: Record<string, unknown>) {
   const badge = typeof team.strTeamBadge === "string" ? team.strTeamBadge : "";
   const logo = typeof team.strTeamLogo === "string" ? team.strTeamLogo : "";
@@ -139,6 +174,22 @@ function teamRecordMatchConfidence(team: Record<string, unknown>, teamName: stri
   const targetWithoutSuffix = target.replace(TEAM_SUFFIX_PATTERN, " ").replace(/\s+/g, " ").trim();
   if (name === target || name === targetWithoutSuffix) return candidateConfidence === "alias_match" ? "alias_match" : "exact_normalized_match";
   if (normalizedAlternates.includes(target) || normalizedAlternates.includes(targetWithoutSuffix)) return "alias_match";
+  return null;
+}
+
+function sportsMonksTeamMatchConfidence(team: SportsMonksTeamRecord, teamName: string, candidateConfidence: SportsLogoConfidence, providerTeamId?: string | number): SportsLogoConfidence | null {
+  const teamId = team.id === undefined || team.id === null ? "" : String(team.id);
+  if (providerTeamId !== undefined && providerTeamId !== null && teamId && teamId === String(providerTeamId)) return "league_team_match";
+
+  const target = compactText(teamName);
+  const targetWithoutSuffix = withoutTeamSuffix(teamName);
+  const name = compactText(team.name ?? "");
+  const nameWithoutSuffix = withoutTeamSuffix(team.name ?? "");
+
+  if (name === target || name === targetWithoutSuffix || nameWithoutSuffix === target || nameWithoutSuffix === targetWithoutSuffix) {
+    return candidateConfidence === "alias_match" ? "alias_match" : "exact_normalized_match";
+  }
+
   return null;
 }
 
@@ -192,6 +243,62 @@ async function fetchLeagueTeams(apiKey: string, leagueName: string) {
   return value;
 }
 
+async function searchSportsMonksTeams(apiKey: string, teamName: string) {
+  const cache = getSportsMonksTeamCache();
+  const cacheKey = compactText(teamName);
+  const cached = cache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    if (cached.value) return cached.value;
+    if (cached.promise) return cached.promise;
+  }
+
+  const url = new URL(`${SPORTSMONKS_FOOTBALL_BASE_URL}/teams/search/${encodeURIComponent(teamName)}`);
+  url.searchParams.set("api_token", apiKey);
+  url.searchParams.set("select", "id,name,image_path,short_code");
+
+  const promise = fetch(url.toString(), { cache: "no-store" })
+    .then(async (response) => {
+      if (!response.ok) return [];
+      const data = (await response.json()) as { data?: SportsMonksTeamRecord[] | SportsMonksTeamRecord | null };
+      if (Array.isArray(data.data)) return data.data;
+      return data.data ? [data.data] : [];
+    })
+    .catch(() => []);
+
+  cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, promise });
+  const value = await promise;
+  cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, value });
+  return value;
+}
+
+async function fetchSportsMonksTeamLogo(
+  teamName: string,
+  category: string,
+  candidateConfidence: SportsLogoConfidence,
+  providerTeamId?: string | number,
+): Promise<SportsLogoResolution | null> {
+  const apiKey = sportsMonksApiKey();
+  if (!apiKey || category !== "Soccer") return null;
+
+  const teams = await searchSportsMonksTeams(apiKey, teamName);
+  const match = teams
+    .map((team) => ({ team, confidence: sportsMonksTeamMatchConfidence(team, teamName, candidateConfidence, providerTeamId) }))
+    .find((item): item is { team: SportsMonksTeamRecord; confidence: SportsLogoConfidence } => item.confidence !== null);
+
+  if (!match) {
+    logRejectedTeamMatches(
+      teamName,
+      teams.map((team) => ({ strTeam: team.name, strAlternate: team.short_code })),
+      "sportsmonks",
+    );
+    return null;
+  }
+
+  const logoUrl = typeof match.team.image_path === "string" && match.team.image_path.trim() ? match.team.image_path.trim() : null;
+  const resolvedTeamName = typeof match.team.name === "string" && match.team.name.trim() ? match.team.name.trim() : teamName;
+  return logoUrl ? sportsLogoResolution({ logoUrl, teamName: resolvedTeamName, source: "sportsmonks", confidence: match.confidence }) : null;
+}
+
 async function fetchTheSportsDbLeagueTeamLogo(teamName: string, category: string, rawContext: string, candidateConfidence: SportsLogoConfidence): Promise<SportsLogoResolution | null> {
   const apiKey = sportsDbApiKey();
   const leagueNames = leagueNamesForContext(category, rawContext);
@@ -209,7 +316,7 @@ async function fetchTheSportsDbLeagueTeamLogo(teamName: string, category: string
 
   const logoUrl = logoFromTeamRecord(match.team);
   const resolvedTeamName = typeof match.team.strTeam === "string" && match.team.strTeam.trim() ? match.team.strTeam.trim() : teamName;
-  return logoUrl ? { logoUrl, teamName: resolvedTeamName, source: "thesportsdb", confidence: match.confidence } : null;
+  return logoUrl ? sportsLogoResolution({ logoUrl, teamName: resolvedTeamName, source: "thesportsdb", confidence: match.confidence }) : null;
 }
 
 async function fetchTheSportsDbTeamLogo(teamName: string, category: string, rawContext: string, candidateConfidence: SportsLogoConfidence): Promise<SportsLogoResolution | null> {
@@ -235,7 +342,7 @@ async function fetchTheSportsDbTeamLogo(teamName: string, category: string, rawC
 
   const logoUrl = logoFromTeamRecord(match.team);
   const resolvedTeamName = typeof match.team.strTeam === "string" && match.team.strTeam.trim() ? match.team.strTeam.trim() : teamName;
-  return logoUrl ? { logoUrl, teamName: resolvedTeamName, source: "thesportsdb", confidence: match.confidence } : null;
+  return logoUrl ? sportsLogoResolution({ logoUrl, teamName: resolvedTeamName, source: "thesportsdb", confidence: match.confidence }) : null;
 }
 
 export async function resolveSportsLogo(input: SportsLogoInput): Promise<SportsLogoResolution> {
@@ -244,10 +351,11 @@ export async function resolveSportsLogo(input: SportsLogoInput): Promise<SportsL
   const category = normalizeSportsLogoCategory(input.category, input.sport);
   const rawContext = `${input.category ?? ""} ${input.sport ?? ""} ${input.marketTitle ?? ""} ${input.outcomeName}`;
   if (!teamName || NON_TEAM_CATEGORIES.has(category)) {
-    return { logoUrl: null, teamName: input.outcomeName.trim(), source: "fallback", confidence: "fallback" };
+    return sportsLogoResolution({ logoUrl: null, teamName: input.outcomeName.trim(), source: "fallback", confidence: "fallback" });
   }
 
-  const cacheKey = `${category}:${compactText(teamName)}`;
+  const providerIdCachePart = input.sportsMonksTeamId === undefined || input.sportsMonksTeamId === null ? "" : `:${input.sportsMonksTeamId}`;
+  const cacheKey = `${category}:${compactText(teamName)}${providerIdCachePart}`;
   const cache = getCache();
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
@@ -255,9 +363,11 @@ export async function resolveSportsLogo(input: SportsLogoInput): Promise<SportsL
     if (cached.promise) return cached.promise;
   }
 
-  const promise = fetchTheSportsDbTeamLogo(teamName, category, rawContext, candidate?.confidence ?? "exact_normalized_match")
+  const promise = fetchSportsMonksTeamLogo(teamName, category, candidate?.confidence ?? "exact_normalized_match", input.sportsMonksTeamId)
     .catch(() => null)
-    .then((remote) => remote ?? { logoUrl: null, teamName, source: "fallback" as const, confidence: "fallback" as const });
+    .then((sportsMonks) => sportsMonks ?? fetchTheSportsDbTeamLogo(teamName, category, rawContext, candidate?.confidence ?? "exact_normalized_match"))
+    .catch(() => null)
+    .then((remote) => remote ?? sportsLogoResolution({ logoUrl: null, teamName, source: "fallback", confidence: "fallback" }));
 
   cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, promise });
   const value = await promise;
