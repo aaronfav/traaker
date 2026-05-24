@@ -24,7 +24,14 @@ export function AppNav() {
       <div className="mx-auto flex w-full max-w-[118rem] items-center justify-between gap-4 px-5 py-3.5 sm:px-7 lg:px-10">
         <div className="flex min-w-0 items-center gap-8">
           <Link href="/" className="flex shrink-0 items-center gap-3 text-2xl font-bold tracking-tight text-slate-50" aria-label="Traak home">
-            <Image src="/traak-logo.svg" alt="" width={38} height={38} priority className="h-9 w-9 drop-shadow-[0_0_16px_rgba(0,213,255,0.32)]" />
+            <Image
+              src="/traak-original-logo.jpg"
+              alt=""
+              width={40}
+              height={40}
+              priority
+              className="h-10 w-10 rounded-full bg-white object-contain shadow-[0_0_18px_rgba(37,99,235,0.38)]"
+            />
             <span>Traak</span>
           </Link>
           <nav className="hidden items-center gap-8 md:flex" aria-label="Primary navigation">
