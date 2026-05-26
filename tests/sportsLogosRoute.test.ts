@@ -43,7 +43,7 @@ describe("/api/sports/logos", () => {
           teamDisplayName: "New York Knicks",
           source: "thesportsdb",
           logoSource: "thesportsdb",
-          confidence: "alias_match",
+          confidence: "provider_exact_name",
         },
         {
           query: "Cavaliers",
@@ -52,7 +52,7 @@ describe("/api/sports/logos", () => {
           teamDisplayName: "Cleveland Cavaliers",
           source: "thesportsdb",
           logoSource: "thesportsdb",
-          confidence: "alias_match",
+          confidence: "provider_exact_name",
         },
       ],
     });
@@ -88,7 +88,7 @@ describe("/api/sports/logos", () => {
           teamDisplayName: "Crystal Palace",
           source: "sportsmonks",
           logoSource: "sportsmonks",
-          confidence: "exact_normalized_match",
+          confidence: "provider_exact_name",
         },
       ],
     });

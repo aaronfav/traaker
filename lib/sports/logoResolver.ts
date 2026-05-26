@@ -3,7 +3,14 @@ import { canonicalTeamName, compactTeamText, extractMarketTeams, isNonTeamOutcom
 import { countryFlagUrl, isClubTeamMarket, isNationalTeamMarket, resolveCountryTeam } from "@/lib/sports/countryTeams";
 
 export type SportsLogoProvider = "sportsmonks" | "thesportsdb" | "local" | "fallback";
-export type SportsLogoConfidence = "exact_normalized_match" | "alias_match" | "league_team_match" | "fallback";
+export type SportsLogoConfidence =
+  | "exact_normalized_match"
+  | "alias_match"
+  | "league_team_match"
+  | "provider_exact_name"
+  | "provider_alias_name"
+  | "provider_shortcode"
+  | "fallback";
 export type SportsLogoEntityType = "club_team" | "national_team" | "fallback" | "non_team";
 
 export type SportsLogoInput = {
@@ -24,6 +31,7 @@ export type SportsLogoResolution = {
   entityType: SportsLogoEntityType;
   normalizedInput: string;
   providerUsed: SportsLogoProvider;
+  acceptedReason?: string;
   rejectionReason?: string;
 };
 
@@ -183,6 +191,7 @@ function sportsLogoResolution(input: {
   confidence: SportsLogoConfidence;
   entityType?: SportsLogoEntityType;
   normalizedInput?: string;
+  acceptedReason?: string;
   rejectionReason?: string;
 }): SportsLogoResolution {
   return {
@@ -195,7 +204,8 @@ function sportsLogoResolution(input: {
     entityType: input.entityType ?? (input.source === "fallback" ? "fallback" : "club_team"),
     normalizedInput: input.normalizedInput ?? input.teamName,
     providerUsed: input.source,
-    ...(input.rejectionReason ? { rejectionReason: input.rejectionReason } : {}),
+    ...(input.logoUrl && input.acceptedReason ? { acceptedReason: input.acceptedReason } : {}),
+    ...(!input.logoUrl && input.rejectionReason ? { rejectionReason: input.rejectionReason } : {}),
   };
 }
 
@@ -222,6 +232,25 @@ function aliasMatchesTeamName(candidate: string, teamName: string) {
   const targetWithoutSuffix = withoutTeamSuffix(teamName);
   const aliased = TEAM_ALIASES[candidateKey] ?? TEAM_ALIASES[candidateWithoutSuffix];
   return Boolean(aliased && (compactText(aliased) === target || withoutTeamSuffix(aliased) === targetWithoutSuffix));
+}
+
+function confidenceAcceptedReason(confidence: SportsLogoConfidence) {
+  switch (confidence) {
+    case "provider_exact_name":
+      return "provider_exact_name";
+    case "provider_alias_name":
+      return "provider_alias_name";
+    case "provider_shortcode":
+      return "provider_shortcode";
+    case "league_team_match":
+      return "provider_team_id";
+    case "exact_normalized_match":
+      return "exact_normalized_match";
+    case "alias_match":
+      return "alias_match";
+    default:
+      return undefined;
+  }
 }
 
 function uniqueValues(values: string[]) {
@@ -267,9 +296,11 @@ function classifyLogoEntity(input: SportsLogoInput, normalizedCategory: string) 
 }
 
 function teamRecordMatchConfidence(team: Record<string, unknown>, teamName: string, candidateConfidence: SportsLogoConfidence): SportsLogoConfidence | null {
+  void candidateConfidence;
   const target = compactText(teamName);
   const name = compactText(String(team.strTeam ?? ""));
   const nameWithoutSuffix = name.replace(TEAM_SUFFIX_PATTERN, " ").replace(/\s+/g, " ").trim();
+  const shortCode = compactText(String(team.strTeamShort ?? team.strTeamShortName ?? team.strShortName ?? team.strCode ?? team.short_code ?? ""));
   const alternates = String(team.strTeamAlternate ?? team.strAlternate ?? "")
     .split(",")
     .map(compactText)
@@ -277,15 +308,17 @@ function teamRecordMatchConfidence(team: Record<string, unknown>, teamName: stri
   const normalizedAlternates = alternates.map((item) => item.replace(TEAM_SUFFIX_PATTERN, " ").replace(/\s+/g, " ").trim());
   const targetWithoutSuffix = target.replace(TEAM_SUFFIX_PATTERN, " ").replace(/\s+/g, " ").trim();
   if (name === target || name === targetWithoutSuffix || nameWithoutSuffix === target || nameWithoutSuffix === targetWithoutSuffix) {
-    return candidateConfidence === "alias_match" ? "alias_match" : "exact_normalized_match";
+    return "provider_exact_name";
   }
-  if (normalizedAlternates.includes(target) || normalizedAlternates.includes(targetWithoutSuffix)) return "alias_match";
-  if (aliasMatchesTeamName(String(team.strTeam ?? ""), teamName)) return "alias_match";
-  if (alternates.some((alternate) => aliasMatchesTeamName(alternate, teamName))) return "alias_match";
+  if (normalizedAlternates.includes(target) || normalizedAlternates.includes(targetWithoutSuffix)) return "provider_alias_name";
+  if (aliasMatchesTeamName(String(team.strTeam ?? ""), teamName)) return "provider_alias_name";
+  if (alternates.some((alternate) => aliasMatchesTeamName(alternate, teamName))) return "provider_alias_name";
+  if (shortCode && aliasMatchesTeamName(shortCode, teamName)) return "provider_shortcode";
   return null;
 }
 
 function sportsMonksTeamMatchConfidence(team: SportsMonksTeamRecord, teamName: string, candidateConfidence: SportsLogoConfidence, providerTeamId?: string | number): SportsLogoConfidence | null {
+  void candidateConfidence;
   const teamId = team.id === undefined || team.id === null ? "" : String(team.id);
   if (providerTeamId !== undefined && providerTeamId !== null && teamId && teamId === String(providerTeamId)) return "league_team_match";
 
@@ -295,9 +328,10 @@ function sportsMonksTeamMatchConfidence(team: SportsMonksTeamRecord, teamName: s
   const nameWithoutSuffix = withoutTeamSuffix(team.name ?? "");
 
   if (name === target || name === targetWithoutSuffix || nameWithoutSuffix === target || nameWithoutSuffix === targetWithoutSuffix) {
-    return candidateConfidence === "alias_match" ? "alias_match" : "exact_normalized_match";
+    return "provider_exact_name";
   }
-  if (aliasMatchesTeamName(team.name ?? "", teamName) || aliasMatchesTeamName(team.short_code ?? "", teamName)) return "alias_match";
+  if (aliasMatchesTeamName(team.name ?? "", teamName)) return "provider_alias_name";
+  if (team.short_code && aliasMatchesTeamName(team.short_code, teamName)) return "provider_shortcode";
 
   return null;
 }
@@ -432,7 +466,17 @@ async function fetchSportsMonksTeamLogo(
       ...(logoUrl ? {} : { rejectedReason: "matched provider team has no supported logo field" }),
     });
     logLogoDebug("sportsmonks_match", { teamName, query, matchedTeam: resolvedTeamName, confidence: match.confidence, logoUrl });
-    if (logoUrl) return sportsLogoResolution({ logoUrl, teamName: resolvedTeamName, source: "sportsmonks", confidence: match.confidence, entityType: "club_team", normalizedInput: teamName });
+    if (logoUrl) {
+      return sportsLogoResolution({
+        logoUrl,
+        teamName: resolvedTeamName,
+        source: "sportsmonks",
+        confidence: match.confidence,
+        entityType: "club_team",
+        normalizedInput: teamName,
+        acceptedReason: confidenceAcceptedReason(match.confidence),
+      });
+    }
   }
 
   if (queries.length === 0) {
@@ -497,7 +541,17 @@ async function fetchTheSportsDbLeagueTeamLogo(
     ...(logoUrl ? {} : { rejectedReason: "matched provider team has no supported artwork field" }),
   });
   logLogoDebug("thesportsdb_league_match", { teamName, matchedTeam: resolvedTeamName, confidence: match.confidence, logoUrl });
-  return logoUrl ? sportsLogoResolution({ logoUrl, teamName: resolvedTeamName, source: "thesportsdb", confidence: match.confidence, entityType: "club_team", normalizedInput: teamName }) : null;
+  return logoUrl
+    ? sportsLogoResolution({
+        logoUrl,
+        teamName: resolvedTeamName,
+        source: "thesportsdb",
+        confidence: match.confidence,
+        entityType: "club_team",
+        normalizedInput: teamName,
+        acceptedReason: confidenceAcceptedReason(match.confidence),
+      })
+    : null;
 }
 
 async function fetchTheSportsDbTeamLogo(
@@ -552,7 +606,17 @@ async function fetchTheSportsDbTeamLogo(
       ...(logoUrl ? {} : { rejectedReason: "matched provider team has no supported artwork field" }),
     });
     logLogoDebug("thesportsdb_match", { teamName, query, matchedTeam: resolvedTeamName, confidence: match.confidence, logoUrl });
-    if (logoUrl) return sportsLogoResolution({ logoUrl, teamName: resolvedTeamName, source: "thesportsdb", confidence: match.confidence, entityType: "club_team", normalizedInput: teamName });
+    if (logoUrl) {
+      return sportsLogoResolution({
+        logoUrl,
+        teamName: resolvedTeamName,
+        source: "thesportsdb",
+        confidence: match.confidence,
+        entityType: "club_team",
+        normalizedInput: teamName,
+        acceptedReason: confidenceAcceptedReason(match.confidence),
+      });
+    }
   }
 
   return fetchTheSportsDbLeagueTeamLogo(teamName, category, rawContext, candidateConfidence, debug);
@@ -569,6 +633,7 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
       confidence: "alias_match",
       entityType: "national_team",
       normalizedInput: entity.country.name,
+      acceptedReason: "country_flag",
     });
     debug?.normalizedInput.push(result.normalizedInput);
     debug?.candidateQueries.push(entity.country.name);

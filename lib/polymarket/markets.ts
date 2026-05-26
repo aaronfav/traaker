@@ -533,7 +533,7 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
             category: market.league,
             sport: market.sport,
           });
-          const confidentLogo = ["exact_normalized_match", "alias_match", "league_team_match"].includes(logo.confidence);
+          const confidentLogo = ["exact_normalized_match", "alias_match", "league_team_match", "provider_exact_name", "provider_alias_name", "provider_shortcode"].includes(logo.confidence);
           const isTeamOutcome = logo.entityType === "club_team" || logo.entityType === "national_team";
           return {
             ...outcome,

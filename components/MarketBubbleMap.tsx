@@ -427,7 +427,7 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
   const confidentLogo = (outcome?: MarketOutcomeOption) =>
     outcome?.outcomeLogoUrl &&
     outcome.isTeamOutcome !== false &&
-    (!outcome.logoConfidence || ["exact_normalized_match", "alias_match", "league_team_match"].includes(outcome.logoConfidence))
+    (!outcome.logoConfidence || ["exact_normalized_match", "alias_match", "league_team_match", "provider_exact_name", "provider_alias_name", "provider_shortcode"].includes(outcome.logoConfidence))
       ? outcome.outcomeLogoUrl
       : undefined;
   const favoredOutcomeLogo = confidentLogo(outcomes.find((outcome) => outcome.name === favored.name));

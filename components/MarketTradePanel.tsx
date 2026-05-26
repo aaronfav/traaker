@@ -84,7 +84,7 @@ function selectedOutcomeFromMarket(market: MarketBubbleNode, preferred?: string 
 function confidentOutcomeLogo(outcome: { outcomeLogoUrl?: string; logoConfidence?: string; isTeamOutcome?: boolean }) {
   if (!outcome.outcomeLogoUrl) return undefined;
   if (outcome.isTeamOutcome === false) return undefined;
-  if (!outcome.logoConfidence || ["exact_normalized_match", "alias_match", "league_team_match"].includes(outcome.logoConfidence)) {
+  if (!outcome.logoConfidence || ["exact_normalized_match", "alias_match", "league_team_match", "provider_exact_name", "provider_alias_name", "provider_shortcode"].includes(outcome.logoConfidence)) {
     return outcome.outcomeLogoUrl;
   }
   return undefined;
