@@ -2,7 +2,7 @@ import { TEAM_ALIASES, TEAM_SUFFIX_PATTERN } from "@/lib/sports/teamAliases";
 import { canonicalTeamName, compactTeamText, extractMarketTeams, isNonTeamOutcome, stripTeamSuffix } from "@/lib/sports/marketTeamExtractor";
 import { countryFlagUrl, isClubTeamMarket, isNationalTeamMarket, resolveCountryTeam } from "@/lib/sports/countryTeams";
 
-export type SportsLogoProvider = "sportsmonks" | "thesportsdb" | "local" | "fallback";
+export type SportsLogoProvider = "polymarket" | "sportsmonks" | "thesportsdb" | "local" | "fallback";
 export type SportsLogoConfidence =
   | "exact_normalized_match"
   | "alias_match"
@@ -18,6 +18,7 @@ export type SportsLogoInput = {
   outcomeName: string;
   sport?: string;
   category?: string;
+  polymarketLogoUrl?: string;
   sportsMonksTeamId?: string | number;
 };
 
@@ -209,6 +210,13 @@ function sportsLogoResolution(input: {
   };
 }
 
+function cleanLogoUrl(value?: string | null) {
+  const url = value?.trim();
+  if (!url) return null;
+  if (/^(https?:\/\/|\/)/i.test(url)) return url;
+  return null;
+}
+
 function logoFromTeamRecord(team: Record<string, unknown>) {
   const badge = typeof team.strTeamBadge === "string" ? team.strTeamBadge : "";
   const logo = typeof team.strTeamLogo === "string" ? team.strTeamLogo : "";
@@ -284,11 +292,10 @@ function classifyLogoEntity(input: SportsLogoInput, normalizedCategory: string) 
   }
 
   const country = resolveCountryTeam(input.outcomeName);
-  if (isNationalTeamMarket(input.marketTitle, input.category, input.sport) && country) {
-    return { entityType: "national_team" as const, normalizedName: country.name, country };
+  if (country && isClubTeamMarket(input.marketTitle, input.category, input.sport)) {
+    return { entityType: "non_team" as const, normalizedName: country.name, rejectionReason: "country outcome in club-team market" };
   }
-
-  if (!isClubTeamMarket(input.marketTitle, input.category, input.sport) && country && isNationalTeamMarket(input.marketTitle, input.category, input.sport)) {
+  if (country && (isNationalTeamMarket(input.marketTitle, input.category, input.sport) || normalizedCategory === "Soccer")) {
     return { entityType: "national_team" as const, normalizedName: country.name, country };
   }
 
@@ -417,6 +424,26 @@ async function searchSportsMonksTeams(apiKey: string, teamName: string, debug?: 
   return value;
 }
 
+async function fetchSportsMonksTeamById(apiKey: string, teamId: string | number, debug?: SportsLogoDebugTrace) {
+  const id = String(teamId).trim();
+  if (!id) return null;
+
+  const url = new URL(`${SPORTSMONKS_FOOTBALL_BASE_URL}/teams/${encodeURIComponent(id)}`);
+  url.searchParams.set("api_token", apiKey);
+  url.searchParams.set("select", "id,name,image_path,short_code");
+  debug?.sportsMonksQueries.push({ teamName: id, url: publicProviderUrl(url) });
+  logLogoDebug("sportsmonks_query", { teamName: id, provider: "sportsmonks", url: publicProviderUrl(url) });
+
+  return fetch(url.toString(), { cache: "no-store" })
+    .then(async (response) => {
+      if (!response.ok) return null;
+      const data = (await response.json()) as { data?: SportsMonksTeamRecord | SportsMonksTeamRecord[] | null };
+      if (Array.isArray(data.data)) return data.data[0] ?? null;
+      return data.data ?? null;
+    })
+    .catch(() => null);
+}
+
 async function fetchSportsMonksTeamLogo(
   teamName: string,
   category: string,
@@ -426,6 +453,35 @@ async function fetchSportsMonksTeamLogo(
 ): Promise<SportsLogoResolution | null> {
   const apiKey = sportsMonksApiKey();
   if (!apiKey || category !== "Soccer") return null;
+
+  if (providerTeamId !== undefined && providerTeamId !== null) {
+    const team = await fetchSportsMonksTeamById(apiKey, providerTeamId, debug);
+    if (team) {
+      const confidence = sportsMonksTeamMatchConfidence(team, teamName, candidateConfidence, providerTeamId);
+      const logoUrl = confidence ? logoFromSportsMonksRecord(team) : null;
+      const resolvedTeamName = typeof team.name === "string" && team.name.trim() ? team.name.trim() : teamName;
+      debug?.sportsMonksMatches.push({
+        query: String(providerTeamId),
+        responseTeams: [[team.name, team.short_code].filter(Boolean).join(" / ")],
+        matchedTeam: confidence ? resolvedTeamName : null,
+        confidence,
+        logoUrl,
+        ...(confidence ? (logoUrl ? {} : { rejectedReason: "matched provider team has no supported logo field" }) : { rejectedReason: "provider team id did not match requested team" }),
+      });
+      logLogoDebug("sportsmonks_match", { teamName, provider: "sportsmonks", query: providerTeamId, matchedTeam: confidence ? resolvedTeamName : null, confidence, logoUrl });
+      if (confidence && logoUrl) {
+        return sportsLogoResolution({
+          logoUrl,
+          teamName: resolvedTeamName,
+          source: "sportsmonks",
+          confidence,
+          entityType: "club_team",
+          normalizedInput: teamName,
+          acceptedReason: confidenceAcceptedReason(confidence),
+        });
+      }
+    }
+  }
 
   const queries = clubLogoQueryCandidates(teamName);
   debug?.candidateQueries.push(...queries);
@@ -677,6 +733,23 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
     return fallback;
   }
   debug?.normalizedInput.push(teamName);
+
+  const polymarketLogoUrl = cleanLogoUrl(input.polymarketLogoUrl);
+  if (polymarketLogoUrl) {
+    const result = sportsLogoResolution({
+      logoUrl: polymarketLogoUrl,
+      teamName,
+      source: "polymarket",
+      confidence: candidate.confidence,
+      entityType: "club_team",
+      normalizedInput: teamName,
+      acceptedReason: "polymarket_team_logo",
+    });
+    debug?.finalResults.push(result);
+    logLogoDebug("provider_attempted", { teamName, provider: "polymarket", resolvedLogoUrl: polymarketLogoUrl });
+    logLogoDebug("final_logo_result", { input: { ...input, resolvedTeamName: teamName }, result });
+    return result;
+  }
 
   const providerIdCachePart = input.sportsMonksTeamId === undefined || input.sportsMonksTeamId === null ? "" : `:${input.sportsMonksTeamId}`;
   const cacheKey = `${LOGO_CACHE_VERSION}:${category}:club:${compactText(teamName)}${providerIdCachePart}`;

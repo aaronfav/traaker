@@ -508,6 +508,29 @@ describe("MarketBubbleMap", () => {
     expect(screen.getByRole("button", { name: /new york knicks\s+57/i })).toBeInTheDocument();
   });
 
+  it("falls back to the local sport placeholder when an outcome logo image fails", () => {
+    const panelMarket = {
+      ...marketToBubbleNode(market),
+      category: "NBA",
+      outcomes: [
+        {
+          name: "Knicks",
+          price: 0.57,
+          priceCents: 57,
+          outcomeLogoUrl: "https://r2.thesportsdb.com/images/media/team/badge/knicks.png",
+          teamDisplayName: "New York Knicks",
+          logoSource: "thesportsdb",
+          logoConfidence: "provider_exact_name",
+        },
+      ],
+    };
+
+    render(<MarketTradePanel market={panelMarket} onClose={vi.fn()} />);
+    fireEvent.error(screen.getByTestId("outcome-logo-knicks"));
+
+    expect(screen.getByTestId("outcome-logo-knicks")).toHaveAttribute("data-logo-url", "/sport-balls/basketball.png");
+  });
+
   it("renders high-confidence SportsMonks logos in outcome rows and bubbles", () => {
     const logoUrl = "https://cdn.sportmonks.com/images/soccer/teams/8/8.png";
     const panelMarket = {

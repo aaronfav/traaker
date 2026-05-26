@@ -40,6 +40,8 @@ export type TerminalMarket = {
     conditionId?: string;
     bestBid?: number;
     bestAsk?: number;
+    polymarketTeamLogoUrl?: string;
+    sportsMonksTeamId?: string | number;
     canonicalTeamName?: string;
     isTeamOutcome?: boolean;
     entityType?: "club_team" | "national_team" | "fallback" | "non_team";

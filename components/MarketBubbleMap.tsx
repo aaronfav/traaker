@@ -57,6 +57,8 @@ export type MarketOutcomeOption = {
   conditionId?: string;
   bestBid?: number;
   bestAsk?: number;
+  polymarketTeamLogoUrl?: string;
+  sportsMonksTeamId?: string | number;
   canonicalTeamName?: string;
   isTeamOutcome?: boolean;
   entityType?: "club_team" | "national_team" | "fallback" | "non_team";
@@ -365,6 +367,8 @@ export function getMarketOutcomes(market: RawOutcomeMarket): MarketOutcomeOption
         conditionId: outcome.conditionId,
         bestBid: Number.isFinite(outcome.bestBid) ? outcome.bestBid : undefined,
         bestAsk: Number.isFinite(outcome.bestAsk) ? outcome.bestAsk : undefined,
+        ...(outcome.polymarketTeamLogoUrl ? { polymarketTeamLogoUrl: outcome.polymarketTeamLogoUrl } : {}),
+        ...(outcome.sportsMonksTeamId !== undefined ? { sportsMonksTeamId: outcome.sportsMonksTeamId } : {}),
         ...(outcome.canonicalTeamName ? { canonicalTeamName: outcome.canonicalTeamName } : {}),
         ...(typeof outcome.isTeamOutcome === "boolean" ? { isTeamOutcome: outcome.isTeamOutcome } : {}),
         ...(outcome.entityType ? { entityType: outcome.entityType } : {}),

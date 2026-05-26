@@ -67,6 +67,8 @@ type NormalizedMarketOutcome = {
   conditionId?: string;
   bestBid?: number;
   bestAsk?: number;
+  polymarketTeamLogoUrl?: string;
+  sportsMonksTeamId?: string | number;
   canonicalTeamName?: string;
   isTeamOutcome?: boolean;
   entityType?: "club_team" | "national_team" | "fallback" | "non_team";
@@ -203,9 +205,17 @@ function pick(obj: Record<string, unknown>, keys: string[], fallback: unknown = 
   return fallback;
 }
 
+function nameFromRecord(value: unknown) {
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  const team = record.team && typeof record.team === "object" ? (record.team as Record<string, unknown>) : null;
+  return asString(pick(record, ["outcome", "name", "label", "title", "teamName", "team_name"], team ? pick(team, ["name", "teamName", "team_name"], "") : ""), "");
+}
+
 function parseStringArray(value: unknown): string[] {
   return parseArray(value)
-    .map((item) => String(item ?? "").trim())
+    .map((item) => (item && typeof item === "object" ? nameFromRecord(item) : String(item ?? "")))
+    .map((item) => item.trim())
     .filter(Boolean);
 }
 
@@ -231,12 +241,82 @@ function tokenPrice(token: Record<string, unknown>) {
   return asNumber(pick(token, ["price", "lastPrice", "last_trade_price", "lastTradePrice"], Number.NaN), Number.NaN);
 }
 
+function cleanImageUrl(value: unknown) {
+  const url = typeof value === "string" ? value.trim() : "";
+  if (!url) return "";
+  return /^(https?:\/\/|\/)/i.test(url) ? url : "";
+}
+
+function logoFromRecord(value: unknown): string {
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  const direct = cleanImageUrl(
+    pick(record, [
+      "logo",
+      "logoUrl",
+      "logo_url",
+      "teamLogo",
+      "team_logo",
+      "badge",
+      "badgeUrl",
+      "badge_url",
+      "image",
+      "icon",
+    ]),
+  );
+  if (direct) return direct;
+
+  for (const key of ["team", "participant", "competitor"]) {
+    const nestedLogo = logoFromRecord(record[key]);
+    if (nestedLogo) return nestedLogo;
+  }
+  return "";
+}
+
+function sportsMonksTeamIdFromRecord(value: unknown): string | number | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const direct = pick(record, ["sportsMonksTeamId", "sportsmonksTeamId", "sports_monks_team_id", "sportmonksTeamId", "sportmonks_team_id"]);
+  if (typeof direct === "string" || typeof direct === "number") return direct;
+  for (const key of ["team", "participant", "competitor"]) {
+    const nested = sportsMonksTeamIdFromRecord(record[key]);
+    if (nested !== undefined) return nested;
+  }
+  return undefined;
+}
+
 function fallbackOutcomeName(index: number) {
   return `Outcome ${index + 1}`;
 }
 
 function normalizeOutcomeText(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function matchingRecordFromArray(items: unknown[], outcomeName: string) {
+  const normalizedOutcome = normalizeOutcomeText(outcomeName);
+  if (!normalizedOutcome) return null;
+  return items.find((item) => normalizeOutcomeText(nameFromRecord(item)) === normalizedOutcome) ?? null;
+}
+
+function outcomeTeamMetadata(raw: GammaMarket, index: number, token: Record<string, unknown>, outcomeName: string) {
+  const rawOutcome = parseArray(raw.outcomes)[index];
+  const directRecords = [token, rawOutcome].filter((item) => item && typeof item === "object");
+  const logoArrays = [raw.outcomeLogos, raw.outcome_logos, raw.teamLogos, raw.team_logos, raw.logos].map(parseArray);
+  const matchedTeam = matchingRecordFromArray(parseArray(pick(raw, ["teams", "participants", "competitors"], [])), outcomeName);
+
+  const polymarketTeamLogoUrl =
+    directRecords.map(logoFromRecord).find(Boolean) ??
+    logoArrays.map((items) => cleanImageUrl(items[index])).find(Boolean) ??
+    logoFromRecord(matchedTeam);
+  const sportsMonksTeamId =
+    directRecords.map(sportsMonksTeamIdFromRecord).find((value) => value !== undefined) ??
+    sportsMonksTeamIdFromRecord(matchedTeam);
+
+  return {
+    ...(polymarketTeamLogoUrl ? { polymarketTeamLogoUrl } : {}),
+    ...(sportsMonksTeamId !== undefined ? { sportsMonksTeamId } : {}),
+  };
 }
 
 function isUnhelpfulOutcomeName(name: string, marketTitle: string, index: number) {
@@ -273,6 +353,7 @@ function buildOutcomeOptions(raw: GammaMarket) {
     const tokenId = rawTokenIds[index] || tokenIdFromRecord(token);
     const bestBid = asNumber(pick(token, ["bestBid", "best_bid"], Number.NaN), Number.NaN);
     const bestAsk = asNumber(pick(token, ["bestAsk", "best_ask"], Number.NaN), Number.NaN);
+    const metadata = outcomeTeamMetadata(raw, index, token, name);
     return {
       name: name.trim() || fallbackOutcomeName(index),
       price,
@@ -281,6 +362,7 @@ function buildOutcomeOptions(raw: GammaMarket) {
       ...(conditionId ? { conditionId } : {}),
       ...(Number.isFinite(bestBid) ? { bestBid } : {}),
       ...(Number.isFinite(bestAsk) ? { bestAsk } : {}),
+      ...metadata,
     };
   }).filter((option) => option.name && Number.isFinite(option.price) && option.tokenId);
 
@@ -532,11 +614,24 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
             outcomeName: canonicalTeam ?? outcome.name,
             category: market.league,
             sport: market.sport,
+            polymarketLogoUrl: outcome.polymarketTeamLogoUrl,
+            sportsMonksTeamId: outcome.sportsMonksTeamId,
           });
+          if (process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1") {
+            console.info("[Traak] sports logo debug", {
+              message: "outcome_logo_resolved",
+              marketTitle: market.title,
+              teamName: canonicalTeam ?? outcome.name,
+              providerAttempted: logo.providerUsed,
+              resolvedLogoUrl: logo.logoUrl,
+            });
+          }
           const confidentLogo = ["exact_normalized_match", "alias_match", "league_team_match", "provider_exact_name", "provider_alias_name", "provider_shortcode"].includes(logo.confidence);
           const isTeamOutcome = logo.entityType === "club_team" || logo.entityType === "national_team";
           return {
             ...outcome,
+            ...(outcome.polymarketTeamLogoUrl ? { polymarketTeamLogoUrl: outcome.polymarketTeamLogoUrl } : {}),
+            ...(outcome.sportsMonksTeamId !== undefined ? { sportsMonksTeamId: outcome.sportsMonksTeamId } : {}),
             ...(isTeamOutcome ? { canonicalTeamName: canonicalTeam ?? logo.normalizedInput } : {}),
             isTeamOutcome,
             entityType: logo.entityType,
@@ -765,6 +860,8 @@ function aggregateEventMarkets(event: GammaEvent, candidates: Array<{ market: Ga
       if (!tokenId || !Number.isFinite(price)) return null;
       const bestBid = yesOption?.bestBid ?? normalized.bestBid;
       const bestAsk = yesOption?.bestAsk ?? normalized.bestAsk;
+      const polymarketTeamLogoUrl = logoFromRecord(market) || yesOption?.polymarketTeamLogoUrl;
+      const sportsMonksTeamId = sportsMonksTeamIdFromRecord(market) ?? yesOption?.sportsMonksTeamId;
       return {
         name,
         price,
@@ -773,6 +870,8 @@ function aggregateEventMarkets(event: GammaEvent, candidates: Array<{ market: Ga
         conditionId: yesOption?.conditionId ?? normalized.conditionId,
         ...(Number.isFinite(bestBid) ? { bestBid } : {}),
         ...(Number.isFinite(bestAsk) ? { bestAsk } : {}),
+        ...(polymarketTeamLogoUrl ? { polymarketTeamLogoUrl } : {}),
+        ...(sportsMonksTeamId !== undefined ? { sportsMonksTeamId } : {}),
       };
     })
     .filter((outcome): outcome is NormalizedMarketOutcome => outcome !== null);

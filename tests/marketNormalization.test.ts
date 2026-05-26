@@ -115,6 +115,27 @@ describe("normalizeGammaMarket", () => {
     ]);
   });
 
+  it("preserves Polymarket outcome team logos from token metadata", () => {
+    const market = normalizeGammaMarket({
+      ...validSportsMarket,
+      question: "UEFA Champions League Winner",
+      slug: "uefa-champions-league-winner",
+      outcomes: undefined,
+      outcomePrices: JSON.stringify([0.59, 0.43]),
+      clobTokenIds: undefined,
+      tokens: [
+        { outcome: "PSG", token_id: "psg-token", team: { name: "PSG", logo: "https://polymarket-upload.s3.us-east-2.amazonaws.com/psg.png" } },
+        { outcome: "Arsenal", token_id: "arsenal-token", team: { name: "Arsenal", logo: "https://polymarket-upload.s3.us-east-2.amazonaws.com/arsenal.png" } },
+      ],
+      tags: JSON.stringify([{ label: "Soccer" }, { label: "Champions League" }]),
+    });
+
+    expect(market?.outcomeOptions).toMatchObject([
+      { name: "PSG", polymarketTeamLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/psg.png" },
+      { name: "Arsenal", polymarketTeamLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/arsenal.png" },
+    ]);
+  });
+
   it("prefers token outcome names over title-derived fallback outcomes", () => {
     const market = normalizeGammaMarket({
       ...validSportsMarket,

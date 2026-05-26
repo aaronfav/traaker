@@ -101,6 +101,51 @@ describe("sports logo resolver", () => {
     expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("thesportsdb.com"), { cache: "no-store" });
   });
 
+  it("uses Polymarket team logos before remote providers when available", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      resolveSportsLogo({
+        category: "Soccer",
+        sport: "Soccer",
+        marketTitle: "Champions League Winner",
+        outcomeName: "Arsenal",
+        polymarketLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/arsenal.png",
+      }),
+    ).resolves.toMatchObject({
+      logoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/arsenal.png",
+      teamName: "Arsenal",
+      source: "polymarket",
+      logoSource: "polymarket",
+      entityType: "club_team",
+      acceptedReason: "polymarket_team_logo",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses SportsMonks team id lookups when an id is available", async () => {
+    vi.stubEnv("SPORTSMONKS_API_KEY", "sportsmonks-key");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      void input;
+      return new Response(
+        JSON.stringify({
+          data: { id: 19, name: "Arsenal", short_code: "ARS", image_path: "https://cdn.sportmonks.com/images/soccer/teams/19/19.png" },
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(resolveSportsLogo({ category: "Soccer", sport: "Soccer", marketTitle: "Champions League Winner", outcomeName: "Arsenal", sportsMonksTeamId: 19 })).resolves.toMatchObject({
+      logoUrl: "https://cdn.sportmonks.com/images/soccer/teams/19/19.png",
+      source: "sportsmonks",
+      confidence: "league_team_match",
+      acceptedReason: "provider_team_id",
+    });
+    expect(String(fetchMock.mock.calls[0]?.[0] ?? "")).toContain("/v3/football/teams/19");
+  });
+
   it("resolves PSG from SportsMonks image_path using explicit aliases", async () => {
     vi.stubEnv("SPORTSMONKS_API_KEY", "sportsmonks-key");
     const fetchMock = vi.fn(async () =>
