@@ -96,6 +96,31 @@ describe("sports logo resolver", () => {
     expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("thesportsdb.com"), { cache: "no-store" });
   });
 
+  it("sends SportsMonks a clean team query instead of the full market title", async () => {
+    vi.stubEnv("SPORTSMONKS_API_KEY", "sportsmonks-key");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      void input;
+      return new Response(
+        JSON.stringify({
+          data: [{ id: 8, name: "Liverpool", image_path: "https://cdn.sportmonks.com/images/soccer/teams/8/8.png" }],
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await resolveSportsLogo({
+      category: "EPL",
+      sport: "Soccer",
+      marketTitle: "Liverpool FC vs. Brentford FC - More Markets",
+      outcomeName: "Liverpool",
+    });
+
+    const sportsMonksUrl = String(fetchMock.mock.calls[0]?.[0] ?? "");
+    expect(sportsMonksUrl).toContain("/teams/search/Liverpool");
+    expect(sportsMonksUrl).not.toContain("Liverpool%20FC%20vs");
+  });
+
   it("uses SportsMonks soccer logos on explicit alias matches", async () => {
     vi.stubEnv("SPORTSMONKS_API_KEY", "sportsmonks-key");
     vi.stubGlobal(
@@ -145,6 +170,48 @@ describe("sports logo resolver", () => {
       logoSource: "thesportsdb",
       confidence: "exact_normalized_match",
     });
+  });
+
+  it("sends TheSportsDB a clean team query instead of the full market title", async () => {
+    vi.stubEnv("THESPORTSDB_API_KEY", "sportsdb-key");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      void input;
+      return new Response(
+        JSON.stringify({
+          teams: [{ strTeam: "Arsenal", strTeamBadge: "https://r2.thesportsdb.com/arsenal.png" }],
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await resolveSportsLogo({
+      category: "EPL",
+      sport: "Soccer",
+      marketTitle: "Crystal Palace FC vs. Arsenal FC",
+      outcomeName: "Arsenal",
+    });
+
+    const sportsDbUrl = String(fetchMock.mock.calls[0]?.[0] ?? "");
+    expect(sportsDbUrl).toContain("searchteams.php?t=Arsenal");
+    expect(sportsDbUrl).not.toContain("Crystal%20Palace%20FC%20vs");
+  });
+
+  it("does not query providers for totals or Yes/No outcomes", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(resolveSportsLogo({ category: "Soccer", sport: "Soccer", marketTitle: "Liverpool FC vs. Brentford FC - More Markets", outcomeName: "O/U 4.5" })).resolves.toMatchObject({
+      logoUrl: null,
+      source: "fallback",
+      confidence: "fallback",
+    });
+    await expect(resolveSportsLogo({ category: "Soccer", sport: "Soccer", marketTitle: "Will Arsenal win?", outcomeName: "Yes" })).resolves.toMatchObject({
+      logoUrl: null,
+      source: "fallback",
+      confidence: "fallback",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("rejects wrong SportsMonks search results", async () => {

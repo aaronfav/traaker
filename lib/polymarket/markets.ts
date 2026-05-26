@@ -4,6 +4,7 @@ import { createPolymarketClient } from "./client";
 import { hasSportsSignal } from "./marketFilters";
 import { mockChart, mockMarkets, mockOrderbook, mockTrades } from "./mock";
 import { resolveSportsLogo } from "@/lib/sports/logoResolver";
+import { extractMarketTeams } from "@/lib/sports/marketTeamExtractor";
 import type { MarketChartPoint, MarketStatus, NormalizedOrderbook, RecentTrade, TerminalMarket } from "./types";
 
 const GAMMA_HOST = "https://gamma-api.polymarket.com";
@@ -66,6 +67,8 @@ type NormalizedMarketOutcome = {
   conditionId?: string;
   bestBid?: number;
   bestAsk?: number;
+  canonicalTeamName?: string;
+  isTeamOutcome?: boolean;
 };
 
 type MarketDiscoveryCounts = {
@@ -502,20 +505,39 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
     markets.map(async (market) => {
       if (!market.outcomeOptions?.length) return market;
 
+      const extractedTeams = extractMarketTeams({
+        marketTitle: market.title,
+        category: market.league,
+        sport: market.sport,
+        outcomes: market.outcomeOptions.map((outcome) => outcome.name),
+      });
+
       const outcomeOptions = await Promise.all(
         market.outcomeOptions.map(async (outcome) => {
           if (outcome.outcomeLogoUrl || outcome.logoSource) return outcome;
+          const canonicalTeam = extractedTeams.outcomeTeamMap[outcome.name];
+          if (!canonicalTeam) {
+            return {
+              ...outcome,
+              isTeamOutcome: false,
+              logoSource: "fallback",
+              logoConfidence: "fallback",
+            };
+          }
+
           const logo = await resolveSportsLogo({
             marketTitle: market.title,
-            outcomeName: outcome.name,
+            outcomeName: canonicalTeam,
             category: market.league,
             sport: market.sport,
           });
           const confidentLogo = ["exact_normalized_match", "alias_match", "league_team_match"].includes(logo.confidence);
           return {
             ...outcome,
+            canonicalTeamName: canonicalTeam,
+            isTeamOutcome: true,
             ...(logo.logoUrl && confidentLogo ? { outcomeLogoUrl: logo.logoUrl } : {}),
-            ...(logo.teamDisplayName ? { teamDisplayName: logo.teamDisplayName } : {}),
+            teamDisplayName: logo.teamDisplayName || canonicalTeam,
             logoSource: logo.logoSource,
             logoConfidence: logo.confidence,
           };

@@ -57,6 +57,8 @@ export type MarketOutcomeOption = {
   conditionId?: string;
   bestBid?: number;
   bestAsk?: number;
+  canonicalTeamName?: string;
+  isTeamOutcome?: boolean;
   outcomeLogoUrl?: string;
   teamDisplayName?: string;
   logoSource?: string;
@@ -362,6 +364,8 @@ export function getMarketOutcomes(market: RawOutcomeMarket): MarketOutcomeOption
         conditionId: outcome.conditionId,
         bestBid: Number.isFinite(outcome.bestBid) ? outcome.bestBid : undefined,
         bestAsk: Number.isFinite(outcome.bestAsk) ? outcome.bestAsk : undefined,
+        ...(outcome.canonicalTeamName ? { canonicalTeamName: outcome.canonicalTeamName } : {}),
+        ...(typeof outcome.isTeamOutcome === "boolean" ? { isTeamOutcome: outcome.isTeamOutcome } : {}),
         ...(outcome.outcomeLogoUrl ? { outcomeLogoUrl: outcome.outcomeLogoUrl } : {}),
         ...(outcome.teamDisplayName ? { teamDisplayName: outcome.teamDisplayName } : {}),
         ...(outcome.logoSource ? { logoSource: outcome.logoSource } : {}),
@@ -419,7 +423,9 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
   const outcomes = getMarketOutcomes(market);
   const style = marketColors(market, favored.name);
   const confidentLogo = (outcome?: MarketOutcomeOption) =>
-    outcome?.outcomeLogoUrl && (!outcome.logoConfidence || ["exact_normalized_match", "alias_match", "league_team_match"].includes(outcome.logoConfidence))
+    outcome?.outcomeLogoUrl &&
+    outcome.isTeamOutcome !== false &&
+    (!outcome.logoConfidence || ["exact_normalized_match", "alias_match", "league_team_match"].includes(outcome.logoConfidence))
       ? outcome.outcomeLogoUrl
       : undefined;
   const favoredOutcomeLogo = confidentLogo(outcomes.find((outcome) => outcome.name === favored.name));

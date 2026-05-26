@@ -40,6 +40,8 @@ export type TerminalMarket = {
     conditionId?: string;
     bestBid?: number;
     bestAsk?: number;
+    canonicalTeamName?: string;
+    isTeamOutcome?: boolean;
     outcomeLogoUrl?: string;
     teamDisplayName?: string;
     logoSource?: string;
