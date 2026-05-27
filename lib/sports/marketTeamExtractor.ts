@@ -28,6 +28,9 @@ const NBA_ALIASES: Record<string, string> = {
   spurs: "San Antonio Spurs",
 };
 
+const OUTCOME_LINE_SUFFIX_PATTERN = /(?:\s+\d+){1,4}$/;
+const OUTCOME_LINE_WORD_PATTERN = /\b(?:o\s*\/\s*u|ou|over|under|btts|both teams to score|spread|handicap|total|totals?|moneyline|line)\b.*$/i;
+
 export function compactTeamText(value: string) {
   return value
     .normalize("NFKD")
@@ -52,6 +55,36 @@ export function stripTeamSuffix(value: string) {
   return compactTeamText(value).replace(TEAM_SUFFIX_PATTERN, " ").replace(/\s+/g, " ").trim();
 }
 
+function stripBettingLineSuffix(value: string) {
+  let cleaned = value.replace(/\s+/g, " ").trim();
+  if (!cleaned) return "";
+
+  let next = cleaned
+    .replace(OUTCOME_LINE_WORD_PATTERN, "")
+    .replace(OUTCOME_LINE_SUFFIX_PATTERN, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  while (next && next !== cleaned) {
+    cleaned = next;
+    next = cleaned
+      .replace(OUTCOME_LINE_WORD_PATTERN, "")
+      .replace(OUTCOME_LINE_SUFFIX_PATTERN, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  return cleaned;
+}
+
+export function cleanOutcomeTeamCandidate(value: string) {
+  if (isNonTeamOutcome(value)) return "";
+  const normalized = compactTeamText(value).replace(CHAMPIONSHIP_WORDS, " ").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  const withoutLineSuffix = stripBettingLineSuffix(normalized);
+  return stripTeamSuffix(withoutLineSuffix || normalized);
+}
+
 function contextualAliases(category?: string, sport?: string) {
   const normalizedCategory = normalizeCategory(category, sport);
   if (normalizedCategory === "NBA") return { ...TEAM_ALIASES, ...NBA_ALIASES };
@@ -71,15 +104,15 @@ function normalizeCategory(category?: string, sport?: string) {
 export function canonicalTeamName(value: string, category?: string, sport?: string) {
   const aliases = contextualAliases(category, sport);
   const normalized = compactTeamText(value).replace(CHAMPIONSHIP_WORDS, " ").replace(/\s+/g, " ").trim();
-  const withoutSuffix = stripTeamSuffix(normalized);
+  const withoutSuffix = cleanOutcomeTeamCandidate(value);
   if (!withoutSuffix) return null;
   return aliases[normalized] ?? aliases[withoutSuffix] ?? titleCase(withoutSuffix);
 }
 
 function teamAliasMatches(candidate: string, canonicalTeam: string, category?: string, sport?: string) {
   const aliases = contextualAliases(category, sport);
-  const normalizedCandidate = compactTeamText(candidate).replace(/\b\d+\b$/g, "").replace(/\s+/g, " ").trim();
-  const candidateWithoutSuffix = stripTeamSuffix(normalizedCandidate);
+  const normalizedCandidate = compactTeamText(candidate).replace(CHAMPIONSHIP_WORDS, " ").replace(/\s+/g, " ").trim();
+  const candidateWithoutSuffix = cleanOutcomeTeamCandidate(candidate);
   const normalizedTeam = compactTeamText(canonicalTeam);
   const teamWithoutSuffix = stripTeamSuffix(canonicalTeam);
 
@@ -92,7 +125,7 @@ export function isNonTeamOutcome(value: string) {
   const raw = value.trim();
   const normalized = compactTeamText(raw);
   if (!normalized) return true;
-  if (/^(yes|no|over|under|ou|o u|draw|tie|draw tie|field|other|none|push|market|winner|champion|team)$/.test(normalized)) return true;
+  if (/^(yes|no|over|under|ou|o u|draw|tie|draw tie|field|other|others?|none|push|market|winner|champion|team|btts|both teams to score)$/.test(normalized)) return true;
   if (/^(?:o\s*\/\s*u|ou|o u|over|under)\s*[-+]?\d+(?:\.\d+)?$/i.test(raw)) return true;
   if (/^[-+]?\d+(?:\.\d+)?$/.test(raw)) return true;
   if (/^[-+]?\d+(?:\.\d+)?\s*(?:points?|pts?|goals?|runs?|yards?)$/i.test(raw)) return true;
@@ -137,9 +170,10 @@ function uniqueTeams(teams: string[]) {
 
 function mapOutcomeToTitleTeam(outcome: string, titleTeams: string[], category?: string, sport?: string) {
   if (isNonTeamOutcome(outcome)) return null;
-  const country = resolveCountryTeam(outcome);
+  const cleanedOutcome = cleanOutcomeTeamCandidate(outcome) || outcome;
+  const country = resolveCountryTeam(cleanedOutcome);
   if (country && isNationalTeamMarket("", category, sport)) return country.name;
-  return titleTeams.find((team) => teamAliasMatches(outcome, team, category, sport)) ?? null;
+  return titleTeams.find((team) => teamAliasMatches(cleanedOutcome, team, category, sport)) ?? null;
 }
 
 function hasDuplicateResolvedTeams(mappedTeams: Array<string | null>) {
@@ -158,18 +192,19 @@ export function extractMarketTeams(input: MarketTeamExtractionInput): MarketTeam
   }
 
   outcomes.forEach((outcome, index) => {
+    const cleanedOutcome = cleanOutcomeTeamCandidate(outcome) || outcome;
     if (titleTeams.length > 0) {
-      const country = resolveCountryTeam(outcome);
+      const country = resolveCountryTeam(cleanedOutcome);
       outcomeTeamMap[outcome] = mappedTeams[index] ?? (country && isNationalTeamMarket(input.marketTitle, input.category, input.sport) ? country.name : null);
       return;
     }
 
-    const country = resolveCountryTeam(outcome);
+    const country = resolveCountryTeam(cleanedOutcome);
     outcomeTeamMap[outcome] = isNonTeamOutcome(outcome)
       ? null
       : country && isNationalTeamMarket(input.marketTitle, input.category, input.sport)
         ? country.name
-        : canonicalTeamName(outcome, input.category, input.sport);
+        : canonicalTeamName(cleanedOutcome, input.category, input.sport);
   });
 
   return {

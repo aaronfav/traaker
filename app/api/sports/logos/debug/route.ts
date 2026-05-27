@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { extractMarketTeams } from "@/lib/sports/marketTeamExtractor";
+import { cleanOutcomeTeamCandidate, extractMarketTeams } from "@/lib/sports/marketTeamExtractor";
 import { resolveSportsLogoWithDebug } from "@/lib/sports/logoResolver";
 import { logError } from "@/lib/server/logger";
 
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
           category,
           sport,
           marketTitle,
-          outcomeName: canonicalTeam ?? outcomeName,
+          outcomeName,
         });
         return { outcomeName, canonicalTeam, result, debug };
       }),
@@ -55,8 +55,14 @@ export async function GET(request: Request) {
         theSportsDbQueries: resolved.flatMap((item) => item.debug.theSportsDbQueries),
         theSportsDbMatches: resolved.flatMap((item) => item.debug.theSportsDbMatches),
         finalResults: resolved.map((item) => ({
+          rawOutcomeLabel: item.outcomeName,
           outcomeName: item.outcomeName,
+          matchedMarketTeam: item.canonicalTeam,
           canonicalTeam: item.canonicalTeam,
+          cleanedTeamCandidate: cleanOutcomeTeamCandidate(item.outcomeName) || null,
+          genericLogoChosen: item.result.entityType === "fallback" || item.result.entityType === "non_team" || !item.result.logoUrl,
+          finalLogoUrl: item.result.logoUrl,
+          providerReason: item.result.acceptedReason ?? item.result.rejectionReason ?? null,
           ...item.result,
         })),
       },

@@ -40,6 +40,10 @@ describe("/api/sports/logos/debug", () => {
     expect(body.finalResults[0]).toMatchObject({
       outcomeName: "ARS",
       canonicalTeam: "Arsenal",
+      cleanedTeamCandidate: "ars",
+      genericLogoChosen: false,
+      finalLogoUrl: "https://r2.thesportsdb.com/images/media/team/badge/arsenal.png",
+      providerReason: "provider_exact_name",
       logoUrl: "https://r2.thesportsdb.com/images/media/team/badge/arsenal.png",
       source: "thesportsdb",
       entityType: "club_team",

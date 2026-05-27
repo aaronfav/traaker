@@ -1,5 +1,5 @@
 import { TEAM_ALIASES, TEAM_SUFFIX_PATTERN } from "@/lib/sports/teamAliases";
-import { canonicalTeamName, compactTeamText, extractMarketTeams, isNonTeamOutcome, stripTeamSuffix } from "@/lib/sports/marketTeamExtractor";
+import { canonicalTeamName, cleanOutcomeTeamCandidate, compactTeamText, extractMarketTeams, isNonTeamOutcome, stripTeamSuffix } from "@/lib/sports/marketTeamExtractor";
 import { countryFlagUrl, isClubTeamMarket, isNationalTeamMarket, resolveCountryTeam } from "@/lib/sports/countryTeams";
 
 export type SportsLogoProvider = "polymarket" | "sportsmonks" | "thesportsdb" | "local" | "fallback";
@@ -72,7 +72,7 @@ declare global {
   var __TRAAK_SPORTSMONKS_TEAM_LOGO_CACHE__: SportsMonksTeamCacheStore | undefined;
 }
 
-const LOGO_CACHE_VERSION = "v3";
+const LOGO_CACHE_VERSION = "v4";
 const SUCCESS_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const FALLBACK_CACHE_TTL_MS = 10 * 60 * 1000;
 const THE_SPORTS_DB_BASE_URL = "https://www.thesportsdb.com/api/v1/json";
@@ -156,8 +156,9 @@ function normalizeTeamCandidate(outcomeName: string, marketTitle = "", category?
 
   const extraction = extractMarketTeams({ marketTitle, category, sport, outcomes: [outcomeName] });
   const extractedTeam = extraction.outcomeTeamMap[outcomeName];
+  const cleanedOutcomeName = cleanOutcomeTeamCandidate(outcomeName) || outcomeName;
   if (extractedTeam) {
-    const outcomeNormalized = withoutTeamSuffix(outcomeName);
+    const outcomeNormalized = withoutTeamSuffix(cleanedOutcomeName);
     return {
       teamName: extractedTeam,
       confidence: outcomeNormalized === withoutTeamSuffix(extractedTeam) ? "exact_normalized_match" : "alias_match",
@@ -166,10 +167,10 @@ function normalizeTeamCandidate(outcomeName: string, marketTitle = "", category?
 
   if (isNonTeamOutcome(outcomeName)) return null;
 
-  const teamName = canonicalTeamName(outcomeName, category, sport);
+  const teamName = canonicalTeamName(cleanedOutcomeName, category, sport);
   if (!teamName) return null;
 
-  const normalizedOutcome = withoutTeamSuffix(outcomeName);
+  const normalizedOutcome = withoutTeamSuffix(cleanedOutcomeName);
   const normalizedTeam = withoutTeamSuffix(teamName);
   return {
     teamName,
@@ -291,7 +292,8 @@ function classifyLogoEntity(input: SportsLogoInput, normalizedCategory: string) 
     return { entityType: "non_team" as const, normalizedName: input.outcomeName.trim(), rejectionReason: "non-team outcome or category" };
   }
 
-  const country = resolveCountryTeam(input.outcomeName);
+  const cleanedOutcome = cleanOutcomeTeamCandidate(input.outcomeName) || input.outcomeName;
+  const country = resolveCountryTeam(cleanedOutcome);
   if (country && isClubTeamMarket(input.marketTitle, input.category, input.sport)) {
     return { entityType: "non_team" as const, normalizedName: country.name, rejectionReason: "country outcome in club-team market" };
   }

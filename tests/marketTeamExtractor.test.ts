@@ -61,6 +61,17 @@ describe("market team extractor", () => {
     expect(result.isTeamOutcome).toBe(false);
   });
 
+  it("resolves a team name even when the outcome includes a trailing betting line", () => {
+    const result = extractMarketTeams({
+      marketTitle: "Crystal Palace FC vs. Rayo Vallecano De Madrid",
+      category: "Soccer",
+      outcomes: ["Rayo Vallecano De Madrid 1 5"],
+    });
+
+    expect(result.canonicalTeams).toEqual(["Crystal Palace", "Rayo Vallecano De Madrid"]);
+    expect(result.outcomeTeamMap["Rayo Vallecano De Madrid 1 5"]).toBe("Rayo Vallecano De Madrid");
+  });
+
   it("keeps Yes and No outcomes on the sport fallback", () => {
     const result = extractMarketTeams({
       marketTitle: "Will Arsenal win?",
@@ -69,6 +80,17 @@ describe("market team extractor", () => {
     });
 
     expect(result.outcomeTeamMap).toEqual({ Yes: null, No: null });
+    expect(result.isTeamOutcome).toBe(false);
+  });
+
+  it("treats Both Teams To Score as a non-team outcome", () => {
+    const result = extractMarketTeams({
+      marketTitle: "Liverpool FC vs. Brentford FC - More Markets",
+      category: "Soccer",
+      outcomes: ["Both Teams To Score"],
+    });
+
+    expect(result.outcomeTeamMap["Both Teams To Score"]).toBeNull();
     expect(result.isTeamOutcome).toBe(false);
   });
 

@@ -350,6 +350,37 @@ describe("sports logo resolver", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("resolves a team-specific outcome label with a trailing betting line", async () => {
+    vi.stubEnv("SPORTSMONKS_API_KEY", "sportsmonks-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            data: [{ id: 88, name: "Rayo Vallecano de Madrid", short_code: "RVM", image_path: "https://cdn.sportmonks.com/images/soccer/teams/88/88.png" }],
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    await expect(
+      resolveSportsLogo({
+        category: "Soccer",
+        sport: "Soccer",
+        marketTitle: "Crystal Palace FC vs. Rayo Vallecano De Madrid",
+        outcomeName: "Rayo Vallecano De Madrid 1 5",
+      }),
+    ).resolves.toMatchObject({
+      logoUrl: "https://cdn.sportmonks.com/images/soccer/teams/88/88.png",
+      teamName: "Rayo Vallecano de Madrid",
+      teamDisplayName: "Rayo Vallecano de Madrid",
+      source: "sportsmonks",
+      logoSource: "sportsmonks",
+      confidence: "provider_exact_name",
+    });
+  });
+
   it("resolves France in World Cup winner markets to a national team flag", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -482,6 +513,57 @@ describe("sports logo resolver", () => {
       { name: "Knicks", teamDisplayName: "New York Knicks", outcomeLogoUrl: "https://r2.thesportsdb.com/new-york-knicks.png", entityType: "club_team" },
       { name: "Thunder", teamDisplayName: "Oklahoma City Thunder", outcomeLogoUrl: "https://r2.thesportsdb.com/oklahoma-city-thunder.png", entityType: "club_team" },
     ]);
+  });
+
+  it("preserves Polymarket team logos for MLB team outcomes", async () => {
+    const [market] = await enrichMarketOutcomeLogos([
+      {
+        id: "mlb-matchup",
+        conditionId: "condition",
+        slug: "mlb-matchup",
+        title: "Los Angeles Angels vs. Detroit Tigers",
+        sport: "Baseball",
+        league: "MLB",
+        status: "upcoming",
+        startTime: "2026-06-01T00:00:00.000Z",
+        endTime: null,
+        yesPrice: 0.52,
+        noPrice: 0.48,
+        volume24h: 10000,
+        volume: 10000,
+        liquidity: 5000,
+        priceMove24h: 0,
+        volume1wk: 10000,
+        volumeAcceleration: 0,
+        spread: 0.02,
+        recentTradesCount: 0,
+        opportunityScore: 1,
+        outcomes: { yes: "Los Angeles Angels", no: "Detroit Tigers" },
+        tokenIds: { yes: "angels", no: "tigers" },
+        outcomeOptions: [
+          { name: "Los Angeles Angels", price: 0.52, tokenId: "angels", polymarketTeamLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/angels.png" },
+          { name: "Detroit Tigers", price: 0.48, tokenId: "tigers", polymarketTeamLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/tigers.png" },
+        ],
+        source: "polymarket",
+      } satisfies TerminalMarket,
+    ]);
+
+    expect(market.outcomeOptions).toMatchObject([
+      {
+        name: "Los Angeles Angels",
+        polymarketTeamLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/angels.png",
+        outcomeLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/angels.png",
+        logoSource: "polymarket",
+      },
+      {
+        name: "Detroit Tigers",
+        polymarketTeamLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/tigers.png",
+        outcomeLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/tigers.png",
+        logoSource: "polymarket",
+      },
+    ]);
+    expect(market.outcomeOptions?.[0]?.teamDisplayName).toBe("Los Angeles Angels");
+    expect(market.outcomeOptions?.[1]?.teamDisplayName).toBe("Detroit Tigers");
   });
 
   it("rejects wrong SportsMonks search results", async () => {
