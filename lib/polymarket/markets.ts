@@ -5,7 +5,7 @@ import { hasSportsSignal } from "./marketFilters";
 import { mockChart, mockMarkets, mockOrderbook, mockTrades } from "./mock";
 import { resolveSportsLogo } from "@/lib/sports/logoResolver";
 import { extractMarketTeams } from "@/lib/sports/marketTeamExtractor";
-import { resolvePolymarketTeamLogo } from "@/lib/polymarket/teams";
+import { peekPolymarketTeamLogo, warmPolymarketTeamLogo } from "@/lib/polymarket/teams";
 import type { MarketChartPoint, MarketStatus, NormalizedOrderbook, RecentTrade, TerminalMarket } from "./types";
 
 const GAMMA_HOST = "https://gamma-api.polymarket.com";
@@ -588,7 +588,11 @@ export function getMarketPage(discovery: SportsMarketDiscovery, params: MarketQu
 }
 
 export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promise<TerminalMarket[]> {
-  return Promise.all(
+  const startedAt = Date.now();
+  let logoResolveCount = 0;
+  let backgroundWarmupsQueued = 0;
+
+  const result = await Promise.all(
     markets.map(async (market) => {
       if (!market.outcomeOptions?.length) return market;
 
@@ -607,6 +611,7 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
         });
       }
 
+      const warmupCandidates = new Set<string>();
       const outcomeOptions = await Promise.all(
         market.outcomeOptions.map(async (outcome) => {
           const canonicalTeam = extractedTeams.outcomeTeamMap[outcome.name];
@@ -620,21 +625,22 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
             .filter((value): value is string => Boolean(value))
             .filter((value, index, values) => values.findIndex((item) => item.toLowerCase() === value.toLowerCase()) === index);
 
-          let matchedPolymarketTeamLogoUrl: string | null = null;
-          let matchedPolymarketTeam: Awaited<ReturnType<typeof resolvePolymarketTeamLogo>>["match"] | null = null;
-          let matchedPolymarketDebug: Awaited<ReturnType<typeof resolvePolymarketTeamLogo>>["debug"] | null = null;
-          for (const candidate of teamCandidates) {
-            const match = await resolvePolymarketTeamLogo(candidate, {
-              category: market.league,
-              sport: market.sport,
-              marketTitle: market.title,
-            });
-            if (match.match && match.logoUrl) {
-              matchedPolymarketTeam = match.match;
-              matchedPolymarketTeamLogoUrl = match.logoUrl;
-              matchedPolymarketDebug = match.debug;
-              break;
-            }
+          logoResolveCount += teamCandidates.length;
+          const matchedPolymarket =
+            teamCandidates
+              .map((candidate) =>
+                peekPolymarketTeamLogo(candidate, {
+                  category: market.league,
+                  sport: market.sport,
+                  marketTitle: market.title,
+                }, { includeTeamPageLookup: true }),
+              )
+              .find((match) => match?.match && match.logoUrl) ?? null;
+          const matchedPolymarketTeamLogoUrl = matchedPolymarket?.logoUrl ?? null;
+          const matchedPolymarketTeam = matchedPolymarket?.match ?? null;
+          const matchedPolymarketDebug = matchedPolymarket?.debug ?? null;
+          if (!matchedPolymarketTeamLogoUrl && process.env.NODE_ENV !== "test" && process.env.LOGO_BACKGROUND_WARMUP !== "false") {
+            for (const candidate of teamCandidates) warmupCandidates.add(candidate);
           }
 
           const logo = await resolveSportsLogo({
@@ -682,12 +688,37 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
         }),
       );
 
+      if (warmupCandidates.size > 0 && process.env.NODE_ENV !== "test" && process.env.LOGO_BACKGROUND_WARMUP !== "false") {
+        backgroundWarmupsQueued += warmupCandidates.size;
+        void Promise.all(
+          [...warmupCandidates].map((candidate) =>
+            warmPolymarketTeamLogo(candidate, {
+              category: market.league,
+              sport: market.sport,
+              marketTitle: market.title,
+            }),
+          ),
+        ).catch(() => undefined);
+      }
+
       return {
         ...market,
         outcomeOptions,
       };
     }),
   );
+
+  if (process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1") {
+    console.info("[Traak] sports logo debug", {
+      message: "enrich_market_outcome_logos",
+      marketCount: markets.length,
+      logoResolveCount,
+      backgroundWarmupsQueued,
+      durationMs: Date.now() - startedAt,
+    });
+  }
+
+  return result;
 }
 
 type FastMarketPageResult = MarketsApiPayload & {
@@ -1453,7 +1484,18 @@ async function discoverSportsMarketDiscovery(): Promise<SportsMarketDiscovery> {
 }
 
 export async function fetchSportsMarketDiscovery(): Promise<SportsMarketDiscovery> {
-  return discoverSportsMarketDiscovery();
+  const startedAt = Date.now();
+  const discovery = await discoverSportsMarketDiscovery();
+  if (process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1") {
+    console.info("[Traak] sports logo debug", {
+      message: "market_fetch_time",
+      durationMs: Date.now() - startedAt,
+      source: discovery.source,
+      marketCount: discovery.markets.length,
+      debugMarketCount: discovery.debugMarkets.length,
+    });
+  }
+  return discovery;
 }
 
 export function getCachedMarketCountsSnapshot() {
@@ -1517,7 +1559,17 @@ export function seedMarketSnapshotCache(discovery: SportsMarketDiscovery, expire
 }
 
 export async function fetchSportsMarkets(): Promise<TerminalMarket[]> {
-  return enrichMarketOutcomeLogos((await fetchSportsMarketDiscovery()).markets);
+  const startedAt = Date.now();
+  const discovery = await fetchSportsMarketDiscovery();
+  const markets = await enrichMarketOutcomeLogos(discovery.markets);
+  if (process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1") {
+    console.info("[Traak] sports logo debug", {
+      message: "sports_markets_total_time",
+      durationMs: Date.now() - startedAt,
+      marketCount: markets.length,
+    });
+  }
+  return markets;
 }
 
 export async function getMarketById(id: string) {

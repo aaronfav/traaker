@@ -100,7 +100,10 @@ describe("/api/sports/logos/debug", () => {
       { outcomeName: "USA", teamName: "United States", logoUrl: "https://flagcdn.com/us.svg", entityType: "national_team", providerUsed: "local" },
       { outcomeName: "England", logoUrl: "https://flagcdn.com/gb-eng.svg", entityType: "national_team", providerUsed: "local" },
     ]);
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("gamma-api.polymarket.com/teams"), { cache: "no-store" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("gamma-api.polymarket.com/teams"),
+      expect.objectContaining({ cache: "no-store" }),
+    );
   });
 
   it("uses Polymarket MLB team pages when /teams has no exact record", async () => {

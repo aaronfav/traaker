@@ -1,4 +1,4 @@
-import { cleanOutcomeTeamCandidate, compactTeamText, stripTeamSuffix } from "@/lib/sports/marketTeamExtractor";
+import { cleanOutcomeTeamCandidate, compactTeamText, extractMarketTeams, stripTeamSuffix } from "@/lib/sports/marketTeamExtractor";
 
 export type PolymarketTeamRecord = {
   id?: number | string;
@@ -45,6 +45,12 @@ export type PolymarketTeamLookupContext = {
   marketTitle?: string;
 };
 
+export type PolymarketTeamLookupOptions = {
+  includeTeamPageLookup?: boolean;
+  teamPageTimeoutMs?: number;
+  teamsTimeoutMs?: number;
+};
+
 export type PolymarketTeamLogoResolution = {
   match: PolymarketTeamMatch | null;
   logoUrl: string | null;
@@ -79,6 +85,8 @@ declare global {
 const GAMMA_TEAMS_URL = "https://gamma-api.polymarket.com/teams";
 const POLYMARKET_TEAMS_BASE_URL = "https://polymarket.com/teams";
 const TEAMS_PAGE_LIMIT = 100;
+const TEAMS_FETCH_TIMEOUT_MS = 12_000;
+const TEAM_PAGE_FETCH_TIMEOUT_MS = 700;
 const TEAMS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const TEAMS_FALLBACK_TTL_MS = 10 * 60 * 1000;
 const TEAM_PAGE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -124,6 +132,16 @@ function normalizePolymarketTeamRecord(team: PolymarketTeamRecord): PolymarketTe
 function publicUrl(url: URL) {
   const next = new URL(url.toString());
   return next.toString();
+}
+
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit | undefined, timeoutMs: number) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function getContextText(context?: PolymarketTeamLookupContext) {
@@ -180,19 +198,31 @@ function parsePolymarketTeamPageLogo(html: string, teamName: string) {
   return null;
 }
 
-async function fetchPolymarketTeamPageResolution(query: string, context?: PolymarketTeamLookupContext): Promise<PolymarketTeamLogoResolution | null> {
+async function fetchPolymarketTeamPageResolution(
+  query: string,
+  context?: PolymarketTeamLookupContext,
+  options?: PolymarketTeamLookupOptions,
+): Promise<PolymarketTeamLogoResolution | null> {
   const game = inferPolymarketTeamPageGame(context);
   if (!game) return null;
+  const timeoutMs = Math.max(250, Math.min(1500, options?.teamPageTimeoutMs ?? TEAM_PAGE_FETCH_TIMEOUT_MS));
 
   const cache = getTeamPageCache();
-  const cacheKey = `${game}:${cleanTeamText(query)}`;
+  const cacheKey = `slow:${game}:${cleanTeamText(query)}`;
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     if (cached.value) return cached.value;
     if (cached.promise) return cached.promise;
   }
 
-  const slugCandidates = [...new Set([query, cleanPolymarketTeamQuery(query), stripTeamSuffix(query)]).values()]
+  const extractedTeams = extractMarketTeams({
+    marketTitle: context?.marketTitle,
+    category: context?.category,
+    sport: context?.sport,
+    outcomes: [query],
+  });
+  const slugCandidates = [...new Set([query, cleanPolymarketTeamQuery(query), stripTeamSuffix(query), extractedTeams.outcomeTeamMap[query], ...extractedTeams.canonicalTeams]).values()]
+    .filter((value): value is string => Boolean(value))
     .map((value) => cleanTeamText(value))
     .filter(Boolean)
     .map(slugifyTeamName)
@@ -203,7 +233,7 @@ async function fetchPolymarketTeamPageResolution(query: string, context?: Polyma
   const promise = (async () => {
     for (const slug of pageCandidates) {
       const teamPageUrl = `${POLYMARKET_TEAMS_BASE_URL}/${game}/${slug}`;
-      const response = await fetch(teamPageUrl, { cache: "no-store" });
+      const response = await fetchWithTimeout(teamPageUrl, { cache: "no-store" }, timeoutMs);
       if (!response.ok) {
         attempts.push({
           source: "team_page",
@@ -380,7 +410,7 @@ async function fetchPolymarketTeamsPage(offset: number, limit = TEAMS_PAGE_LIMIT
   const url = new URL(GAMMA_TEAMS_URL);
   url.searchParams.set("limit", String(limit));
   url.searchParams.set("offset", String(offset));
-  const response = await fetch(publicUrl(url), { cache: "no-store" });
+  const response = await fetchWithTimeout(publicUrl(url), { cache: "no-store" }, TEAMS_FETCH_TIMEOUT_MS);
   if (!response.ok) return [];
   const data = (await response.json()) as unknown;
   return Array.isArray(data) ? (data as PolymarketTeamRecord[]) : [];
@@ -452,11 +482,10 @@ export async function getPolymarketTeamsIndex() {
   return fetchAllPolymarketTeams();
 }
 
-export async function matchPolymarketTeam(query: string) {
+function matchPolymarketTeamInIndex(index: PolymarketTeamsIndex, query: string) {
   const normalizedQuery = cleanPolymarketTeamQuery(query);
   if (!normalizedQuery) return null;
 
-  const index = await fetchAllPolymarketTeams();
   const idKeys = [String(query).trim(), normalizedQuery]
     .map((value) => value.trim())
     .filter((value) => /^\d+$/.test(value));
@@ -488,6 +517,45 @@ export async function matchPolymarketTeam(query: string) {
   return best ?? null;
 }
 
+export async function matchPolymarketTeam(query: string) {
+  const index = await fetchAllPolymarketTeams();
+  return matchPolymarketTeamInIndex(index, query);
+}
+
+export function peekPolymarketTeamLogo(
+  query: string,
+  context?: PolymarketTeamLookupContext,
+  options?: Pick<PolymarketTeamLookupOptions, "includeTeamPageLookup">,
+): PolymarketTeamLogoResolution | null {
+  const normalizedQuery = cleanPolymarketTeamQuery(query);
+  if (!normalizedQuery) return null;
+
+  const indexCache = getTeamsCache();
+  const index = indexCache.value && indexCache.expiresAt > Date.now() ? indexCache.value : null;
+
+  if (index) {
+    const directMatch = matchPolymarketTeamInIndex(index, query);
+    const directResolution = directMatch ? buildDirectMatchResolution(query, directMatch) : null;
+    if (directResolution) {
+      return directResolution;
+    }
+  }
+
+  if (options?.includeTeamPageLookup) {
+    const cache = getTeamPageCache();
+    const game = inferPolymarketTeamPageGame(context);
+    if (game) {
+      const cacheKey = `slow:${game}:${cleanTeamText(query)}`;
+      const cached = cache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now() && cached.value?.logoUrl && cached.value.match) {
+        return cached.value;
+      }
+    }
+  }
+
+  return null;
+}
+
 export async function matchPolymarketTeams(queries: string[]) {
   const index = await fetchAllPolymarketTeams();
   const results: Array<PolymarketTeamMatch | null> = [];
@@ -503,15 +571,51 @@ export async function matchPolymarketTeams(queries: string[]) {
   return { index, results };
 }
 
-export async function resolvePolymarketTeamLogo(query: string, context?: PolymarketTeamLookupContext): Promise<PolymarketTeamLogoResolution> {
+function buildDirectMatchResolution(query: string, directMatch: PolymarketTeamMatch): PolymarketTeamLogoResolution | null {
+  const logoUrl = normalizePolymarketLogoUrl(directMatch.record.logo ?? null);
+  if (!logoUrl) return null;
+  return {
+    match: directMatch,
+    logoUrl,
+    source: "teams",
+    acceptedReason: "polymarket-team",
+    debug: {
+      attempts: [
+        {
+          source: "teams",
+          query,
+          normalizedQuery: directMatch.normalizedQuery,
+          candidates: [directMatch.record.name ?? directMatch.record.displayName ?? query],
+          matchedTeam: directMatch.record.name ?? directMatch.record.displayName ?? null,
+          logoUrl,
+          rejectedReason: logoUrl ? undefined : "matched team record has no logo",
+        },
+      ],
+      chosenCandidate: {
+        source: "teams",
+        query,
+        normalizedQuery: directMatch.normalizedQuery,
+        candidates: [directMatch.record.name ?? directMatch.record.displayName ?? query],
+        matchedTeam: directMatch.record.name ?? directMatch.record.displayName ?? null,
+        logoUrl,
+      },
+    },
+  };
+}
+
+export async function resolvePolymarketTeamLogo(
+  query: string,
+  context?: PolymarketTeamLookupContext,
+  options?: PolymarketTeamLookupOptions,
+): Promise<PolymarketTeamLogoResolution> {
   const normalizedQuery = cleanPolymarketTeamQuery(query);
-  const teamsIndex = await fetchAllPolymarketTeams();
+  const index = await fetchAllPolymarketTeams().catch(() => null);
   const attempts: PolymarketTeamLookupAttempt[] = [];
   attempts.push({
     source: "teams",
     query,
     normalizedQuery,
-    candidates: teamsIndex.records
+    candidates: (index?.records ?? [])
       .filter((team) => {
         const name = cleanTeamText(team.name ?? "");
         const display = cleanTeamText(teamDisplayName(team));
@@ -525,65 +629,59 @@ export async function resolvePolymarketTeamLogo(query: string, context?: Polymar
     logoUrl: null,
     rejectedReason: "no exact /teams index match",
   });
-  const teamPageResolution = await fetchPolymarketTeamPageResolution(query, context);
-  if (teamPageResolution?.logoUrl && teamPageResolution.match) {
+
+  const directMatch = index ? matchPolymarketTeamInIndex(index, query) : null;
+  const directResolution = directMatch ? buildDirectMatchResolution(query, directMatch) : null;
+  if (directResolution) {
     return {
-      ...teamPageResolution,
+      ...directResolution,
       debug: {
-        attempts: [...attempts, ...teamPageResolution.debug.attempts],
-        chosenCandidate: teamPageResolution.debug.chosenCandidate,
+        attempts: [...attempts, ...directResolution.debug.attempts],
+        chosenCandidate: directResolution.debug.chosenCandidate,
       },
     };
   }
 
-  const directMatch = await matchPolymarketTeam(query);
-  if (directMatch?.record.logo) {
-    const logoUrl = normalizePolymarketLogoUrl(directMatch.record.logo ?? null);
-    const result: PolymarketTeamLogoResolution = {
-      match: directMatch,
-      logoUrl,
-      source: "teams",
-      acceptedReason: "polymarket-team",
-      debug: {
-        attempts: [
-          {
-            source: "teams",
-            query,
-            normalizedQuery,
-            candidates: [directMatch.record.name ?? directMatch.record.displayName ?? query],
-            matchedTeam: directMatch.record.name ?? directMatch.record.displayName ?? null,
-            logoUrl,
-            rejectedReason: logoUrl ? undefined : "matched team record has no logo",
-          },
-        ],
-        chosenCandidate: {
-          source: "teams",
-          query,
-          normalizedQuery,
-          candidates: [directMatch.record.name ?? directMatch.record.displayName ?? query],
-          matchedTeam: directMatch.record.name ?? directMatch.record.displayName ?? null,
-          logoUrl,
+  if (options?.includeTeamPageLookup) {
+    const teamPageResolution = await fetchPolymarketTeamPageResolution(query, context, options);
+    if (teamPageResolution?.logoUrl && teamPageResolution.match) {
+      return {
+        ...teamPageResolution,
+        debug: {
+          attempts: [...attempts, ...teamPageResolution.debug.attempts],
+          chosenCandidate: teamPageResolution.debug.chosenCandidate,
         },
-      },
-    };
-    return {
-      ...result,
-      debug: {
-        attempts: [...attempts, ...result.debug.attempts],
-        chosenCandidate: result.debug.chosenCandidate,
-      },
-    };
+      };
+    }
+    if (teamPageResolution) {
+      return {
+        ...teamPageResolution,
+        debug: {
+          attempts: [...attempts, ...teamPageResolution.debug.attempts],
+          chosenCandidate: teamPageResolution.debug.chosenCandidate,
+        },
+      };
+    }
   }
+
   return {
     match: null,
     logoUrl: null,
     source: null,
     rejectionReason: "no exact /teams index match or team page logo match",
     debug: {
-      attempts: [...attempts, ...(teamPageResolution?.debug.attempts ?? [])],
+      attempts,
       chosenCandidate: null,
     },
   };
+}
+
+export async function warmPolymarketTeamLogo(query: string, context?: PolymarketTeamLookupContext, options?: PolymarketTeamLookupOptions) {
+  const resolvedOptions: PolymarketTeamLookupOptions = {
+    ...options,
+    includeTeamPageLookup: true,
+  };
+  void resolvePolymarketTeamLogo(query, context, resolvedOptions).catch(() => undefined);
 }
 
 export function resetPolymarketTeamsCache() {

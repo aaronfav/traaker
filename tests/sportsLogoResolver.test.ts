@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { normalizeTeamName, resetSportsLogoCache, resolveSportsLogo } from "@/lib/sports/logoResolver";
 import { enrichMarketOutcomeLogos } from "@/lib/polymarket/markets";
-import { resetPolymarketTeamsCache, resolvePolymarketTeamLogo } from "@/lib/polymarket/teams";
+import { getPolymarketTeamsIndex, resetPolymarketTeamsCache, resolvePolymarketTeamLogo } from "@/lib/polymarket/teams";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
 describe("sports logo resolver", () => {
   afterEach(() => {
+    vi.useRealTimers();
     resetSportsLogoCache();
     resetPolymarketTeamsCache();
     vi.unstubAllEnvs();
@@ -478,6 +479,8 @@ describe("sports logo resolver", () => {
       }),
     );
 
+    await getPolymarketTeamsIndex();
+
     const [market] = await enrichMarketOutcomeLogos([
       {
         id: "nba-champion",
@@ -518,7 +521,7 @@ describe("sports logo resolver", () => {
     ]);
   });
 
-  it("preserves Polymarket team logos for MLB team outcomes", async () => {
+  it("does not block MLB markets on team-page fallback during initial enrichment", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -556,6 +559,8 @@ describe("sports logo resolver", () => {
       }),
     );
 
+    await getPolymarketTeamsIndex();
+
     const [market] = await enrichMarketOutcomeLogos([
       {
         id: "mlb-matchup",
@@ -588,26 +593,131 @@ describe("sports logo resolver", () => {
       } satisfies TerminalMarket,
     ]);
 
-    expect(market.outcomeOptions).toMatchObject([
-      {
-        name: "LAA",
-        polymarketTeamLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/Los Angeles Angels-66dbbd1c0d.png",
-        outcomeLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/Los Angeles Angels-66dbbd1c0d.png",
-        logoSource: "polymarket",
-        polymarketTeamAbbreviation: "LAA",
-        polymarketTeamName: "Los Angeles Angels",
-      },
-      {
-        name: "DET",
-        polymarketTeamLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/Detroit Tigers-98db052d82.png",
-        outcomeLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/Detroit Tigers-98db052d82.png",
-        logoSource: "polymarket",
-        polymarketTeamAbbreviation: "DET",
-        polymarketTeamName: "Detroit Tigers",
-      },
+    expect(market.outcomeOptions?.[0]).toMatchObject({
+      name: "LAA",
+      logoSource: "fallback",
+    });
+    expect(market.outcomeOptions?.[1]).toMatchObject({
+      name: "DET",
+      logoSource: "fallback",
+    });
+    expect(market.outcomeOptions?.[0]?.outcomeLogoUrl).toBeUndefined();
+    expect(market.outcomeOptions?.[1]?.outcomeLogoUrl).toBeUndefined();
+    expect(market.outcomeOptions?.[0]?.polymarketTeamLogoUrl).toBeUndefined();
+    expect(market.outcomeOptions?.[1]?.polymarketTeamLogoUrl).toBeUndefined();
+  });
+
+  it("resolves MLB team pages when explicitly enabled", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("gamma-api.polymarket.com/teams")) {
+          return new Response(JSON.stringify([]), { status: 200 });
+        }
+        if (url.includes("polymarket.com/teams/mlb/los-angeles-angels")) {
+          return new Response(
+            `<!doctype html><html><head><script type="application/ld+json">${JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "SportsTeam",
+              name: "Los Angeles Angels",
+              alternateName: "LAA",
+              sport: "MLB",
+              logo: "https://polymarket-upload.s3.us-east-2.amazonaws.com/Los Angeles Angels-66dbbd1c0d.png",
+            })}</script></head><body></body></html>`,
+            { status: 200 },
+          );
+        }
+        if (url.includes("polymarket.com/teams/mlb/detroit-tigers")) {
+          return new Response(
+            `<!doctype html><html><head><script type="application/ld+json">${JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "SportsTeam",
+              name: "Detroit Tigers",
+              alternateName: "DET",
+              sport: "MLB",
+              logo: "https://polymarket-upload.s3.us-east-2.amazonaws.com/Detroit Tigers-98db052d82.png",
+            })}</script></head><body></body></html>`,
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ teams: [] }), { status: 200 });
+      }),
+    );
+
+    await expect(
+      resolvePolymarketTeamLogo("LAA", { category: "MLB", sport: "Baseball", marketTitle: "Los Angeles Angels vs. Detroit Tigers" }, { includeTeamPageLookup: true }),
+    ).resolves.toMatchObject({
+      logoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/Los Angeles Angels-66dbbd1c0d.png",
+      source: "team_page",
+      acceptedReason: "polymarket-team-page",
+    });
+    await expect(
+      resolvePolymarketTeamLogo("DET", { category: "MLB", sport: "Baseball", marketTitle: "Los Angeles Angels vs. Detroit Tigers" }, { includeTeamPageLookup: true }),
+    ).resolves.toMatchObject({
+      logoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/Detroit Tigers-98db052d82.png",
+      source: "team_page",
+      acceptedReason: "polymarket-team-page",
+    });
+  });
+
+  it("dedupes concurrent MLB team-page lookups", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("gamma-api.polymarket.com/teams")) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (url.includes("polymarket.com/teams/mlb/los-angeles-angels")) {
+        return new Response(
+          `<!doctype html><html><head><script type="application/ld+json">${JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "SportsTeam",
+            name: "Los Angeles Angels",
+            alternateName: "LAA",
+            sport: "MLB",
+            logo: "https://polymarket-upload.s3.us-east-2.amazonaws.com/Los Angeles Angels-66dbbd1c0d.png",
+          })}</script></head><body></body></html>`,
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify({ teams: [] }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const context = { category: "MLB", sport: "Baseball", marketTitle: "Los Angeles Angels vs. Detroit Tigers" };
+    const [first, second] = await Promise.all([
+      resolvePolymarketTeamLogo("LAA", context, { includeTeamPageLookup: true }),
+      resolvePolymarketTeamLogo("LAA", context, { includeTeamPageLookup: true }),
     ]);
-    expect(market.outcomeOptions?.[0]?.teamDisplayName).toBe("Los Angeles Angels");
-    expect(market.outcomeOptions?.[1]?.teamDisplayName).toBe("Detroit Tigers");
+
+    expect(first.logoUrl).toBe("https://polymarket-upload.s3.us-east-2.amazonaws.com/Los Angeles Angels-66dbbd1c0d.png");
+    expect(second.logoUrl).toBe("https://polymarket-upload.s3.us-east-2.amazonaws.com/Los Angeles Angels-66dbbd1c0d.png");
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("polymarket.com/teams/mlb/los-angeles-angels"))).toHaveLength(1);
+  });
+
+  it("times out slow team-page lookup and falls back fast", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("gamma-api.polymarket.com/teams")) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (url.includes("polymarket.com/teams/mlb/los-angeles-angels")) {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+        });
+      }
+      return new Response(JSON.stringify({ teams: [] }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const promise = resolvePolymarketTeamLogo("LAA", { category: "MLB", sport: "Baseball", marketTitle: "Los Angeles Angels vs. Detroit Tigers" }, { includeTeamPageLookup: true, teamPageTimeoutMs: 1 });
+    const resolved = await promise;
+
+    expect(resolved).toMatchObject({
+      logoUrl: null,
+      source: null,
+      rejectionReason: "no exact /teams index match or team page logo match",
+    });
   });
 
   it("normalizes duplicated Polymarket upload prefixes in team logos", async () => {
@@ -633,7 +743,7 @@ describe("sports logo resolver", () => {
       }),
     );
 
-    const resolved = await resolvePolymarketTeamLogo("Rayo Vallecano de Madrid");
+    const resolved = await resolvePolymarketTeamLogo("Rayo Vallecano de Madrid", undefined, { includeTeamPageLookup: true });
 
     expect(resolved.logoUrl).toBe("https://polymarket-upload.s3.us-east-2.amazonaws.com/Rayo Vallecano de Madrid-145c4f8af9.png-cd975d6f63.png");
   });
@@ -655,6 +765,8 @@ describe("sports logo resolver", () => {
         return new Response(JSON.stringify({ data: [] }), { status: 200 });
       }),
     );
+
+    await getPolymarketTeamsIndex();
 
     const [market] = await enrichMarketOutcomeLogos([
       {
@@ -721,43 +833,16 @@ describe("sports logo resolver", () => {
       }),
     );
 
-    const [market] = await enrichMarketOutcomeLogos([
-      {
-        id: "rayo-line",
-        conditionId: "condition",
-        slug: "rayo-line",
-        title: "Crystal Palace FC vs. Rayo Vallecano De Madrid",
+    await expect(
+      resolvePolymarketTeamLogo("Rayo Vallecano De Madrid 1 5", {
+        category: "Soccer",
         sport: "Soccer",
-        league: "Soccer",
-        status: "upcoming",
-        startTime: "2026-06-01T00:00:00.000Z",
-        endTime: null,
-        yesPrice: 0.5,
-        noPrice: 0.5,
-        volume24h: 10000,
-        volume: 10000,
-        liquidity: 5000,
-        priceMove24h: 0,
-        volume1wk: 10000,
-        volumeAcceleration: 0,
-        spread: 0.02,
-        recentTradesCount: 0,
-        opportunityScore: 1,
-        outcomes: { yes: "Rayo Vallecano De Madrid 1 5", no: "Crystal Palace" },
-        tokenIds: { yes: "rayo", no: "palace" },
-        outcomeOptions: [
-          { name: "Rayo Vallecano De Madrid 1 5", price: 0.52, tokenId: "rayo" },
-          { name: "Crystal Palace", price: 0.48, tokenId: "palace" },
-        ],
-        source: "polymarket",
-      } satisfies TerminalMarket,
-    ]);
-
-    expect(market.outcomeOptions?.[0]).toMatchObject({
-      name: "Rayo Vallecano De Madrid 1 5",
-      polymarketTeamLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/rayo.png",
-      outcomeLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/rayo.png",
-      teamDisplayName: "Rayo Vallecano De Madrid",
+        marketTitle: "Crystal Palace FC vs. Rayo Vallecano De Madrid",
+      }),
+    ).resolves.toMatchObject({
+      logoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/rayo.png",
+      source: "teams",
+      acceptedReason: "polymarket-team",
     });
   });
 

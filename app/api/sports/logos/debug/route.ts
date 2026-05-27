@@ -56,7 +56,7 @@ export async function GET(request: Request) {
         let matchedPolymarketTeamLogoUrl: string | null = null;
         let polymarketDebug: Awaited<ReturnType<typeof resolvePolymarketTeamLogo>>["debug"] | null = null;
         for (const candidate of teamCandidates) {
-          const match = await resolvePolymarketTeamLogo(candidate, { category, sport, marketTitle });
+          const match = await resolvePolymarketTeamLogo(candidate, { category, sport, marketTitle }, { includeTeamPageLookup: true });
           if (match.match && match.logoUrl) {
             matchedPolymarketTeam = match.match;
             matchedPolymarketTeamLogoUrl = match.logoUrl;
