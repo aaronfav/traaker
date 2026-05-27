@@ -1,4 +1,5 @@
 import { TEAM_ALIASES, TEAM_SUFFIX_PATTERN } from "@/lib/sports/teamAliases";
+import { isNationalTeamMarket, resolveCountryTeam } from "@/lib/sports/countryTeams";
 
 export type MarketTeamExtractionInput = {
   marketTitle?: string;
@@ -136,6 +137,8 @@ function uniqueTeams(teams: string[]) {
 
 function mapOutcomeToTitleTeam(outcome: string, titleTeams: string[], category?: string, sport?: string) {
   if (isNonTeamOutcome(outcome)) return null;
+  const country = resolveCountryTeam(outcome);
+  if (country && isNationalTeamMarket("", category, sport)) return country.name;
   return titleTeams.find((team) => teamAliasMatches(outcome, team, category, sport)) ?? null;
 }
 
@@ -156,11 +159,17 @@ export function extractMarketTeams(input: MarketTeamExtractionInput): MarketTeam
 
   outcomes.forEach((outcome, index) => {
     if (titleTeams.length > 0) {
-      outcomeTeamMap[outcome] = mappedTeams[index] ?? null;
+      const country = resolveCountryTeam(outcome);
+      outcomeTeamMap[outcome] = mappedTeams[index] ?? (country && isNationalTeamMarket(input.marketTitle, input.category, input.sport) ? country.name : null);
       return;
     }
 
-    outcomeTeamMap[outcome] = isNonTeamOutcome(outcome) ? null : canonicalTeamName(outcome, input.category, input.sport);
+    const country = resolveCountryTeam(outcome);
+    outcomeTeamMap[outcome] = isNonTeamOutcome(outcome)
+      ? null
+      : country && isNationalTeamMarket(input.marketTitle, input.category, input.sport)
+        ? country.name
+        : canonicalTeamName(outcome, input.category, input.sport);
   });
 
   return {

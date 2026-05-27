@@ -99,4 +99,18 @@ describe("market team extractor", () => {
       ARS: "Arsenal",
     });
   });
+
+  it("canonicalizes country outcomes in national team markets", () => {
+    const result = extractMarketTeams({
+      marketTitle: "2026 FIFA World Cup Winner",
+      category: "Soccer",
+      outcomes: ["USA", "France", "England"],
+    });
+
+    expect(result.outcomeTeamMap).toEqual({
+      USA: "United States",
+      France: "France",
+      England: "England",
+    });
+  });
 });
