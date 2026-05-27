@@ -214,7 +214,16 @@ function sportsLogoResolution(input: {
 function cleanLogoUrl(value?: string | null) {
   const url = value?.trim();
   if (!url) return null;
-  if (/^(https?:\/\/|\/)/i.test(url)) return url;
+  if (/^(https?:\/\/|\/)/i.test(url)) {
+    const polymarketHost = "https://polymarket-upload.s3.us-east-2.amazonaws.com/";
+    if (url.includes(polymarketHost)) {
+      const lastHostIndex = url.lastIndexOf(polymarketHost);
+      if (lastHostIndex > 0) {
+        return `${polymarketHost}${url.slice(lastHostIndex + polymarketHost.length)}`;
+      }
+    }
+    return url;
+  }
   return null;
 }
 

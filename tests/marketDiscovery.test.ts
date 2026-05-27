@@ -48,12 +48,13 @@ describe("fetchSportsMarkets", () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     const markets = await fetchSportsMarkets();
+    const eventUrls = requestedUrls.filter((url) => url.includes("/events"));
 
     expect(markets).toHaveLength(501);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
-    expect(new URL(requestedUrls[0]).searchParams.get("offset")).toBe("0");
-    expect(new URL(requestedUrls[1]).searchParams.get("offset")).toBe("200");
-    expect(new URL(requestedUrls[2]).searchParams.get("offset")).toBe("400");
-    expect(new URL(requestedUrls[3]).searchParams.get("offset")).toBe("501");
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(new URL(eventUrls[0]).searchParams.get("offset")).toBe("0");
+    expect(new URL(eventUrls[1]).searchParams.get("offset")).toBe("200");
+    expect(new URL(eventUrls[2]).searchParams.get("offset")).toBe("400");
+    expect(new URL(eventUrls[3]).searchParams.get("offset")).toBe("501");
   });
 });

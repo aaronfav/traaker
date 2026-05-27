@@ -18,6 +18,7 @@ const QUOTE_TICK_MS = 250;
 const QUOTE_RETRY_MS = 3_000;
 const DEFAULT_SHARES = "10";
 const DEFAULT_SLIPPAGE_BPS = 300;
+const POLYMARKET_UPLOAD_HOST = "https://polymarket-upload.s3.us-east-2.amazonaws.com/";
 
 type QuoteStatus = "healthy" | "refreshing" | "stale";
 type TradeSide = "Buy" | "Sell";
@@ -84,8 +85,11 @@ function selectedOutcomeFromMarket(market: MarketBubbleNode, preferred?: string 
 function confidentOutcomeLogo(outcome: { outcomeLogoUrl?: string; logoConfidence?: string; isTeamOutcome?: boolean }) {
   if (!outcome.outcomeLogoUrl) return undefined;
   if (outcome.isTeamOutcome === false) return undefined;
+  const hostIndex = outcome.outcomeLogoUrl.lastIndexOf(POLYMARKET_UPLOAD_HOST);
+  const displayLogoUrl =
+    hostIndex > 0 ? `${POLYMARKET_UPLOAD_HOST}${outcome.outcomeLogoUrl.slice(hostIndex + POLYMARKET_UPLOAD_HOST.length)}` : outcome.outcomeLogoUrl;
   if (!outcome.logoConfidence || ["exact_normalized_match", "alias_match", "league_team_match", "provider_exact_name", "provider_alias_name", "provider_shortcode"].includes(outcome.logoConfidence)) {
-    return outcome.outcomeLogoUrl;
+    return displayLogoUrl;
   }
   return undefined;
 }

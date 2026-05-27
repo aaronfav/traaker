@@ -32,7 +32,7 @@ export type TerminalMarket = {
     yes: string;
     no: string;
   };
-  outcomeOptions?: Array<{
+    outcomeOptions?: Array<{
     name: string;
     price: number;
     tokenId: string;
@@ -41,6 +41,9 @@ export type TerminalMarket = {
     bestBid?: number;
     bestAsk?: number;
     polymarketTeamLogoUrl?: string;
+    polymarketTeamId?: string | number;
+    polymarketTeamAbbreviation?: string;
+    polymarketTeamName?: string;
     sportsMonksTeamId?: string | number;
     canonicalTeamName?: string;
     isTeamOutcome?: boolean;

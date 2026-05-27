@@ -58,6 +58,9 @@ export type MarketOutcomeOption = {
   bestBid?: number;
   bestAsk?: number;
   polymarketTeamLogoUrl?: string;
+  polymarketTeamId?: string | number;
+  polymarketTeamAbbreviation?: string;
+  polymarketTeamName?: string;
   sportsMonksTeamId?: string | number;
   canonicalTeamName?: string;
   isTeamOutcome?: boolean;
@@ -127,6 +130,7 @@ type LogoCacheEntry = {
 };
 const logoCache = new Map<string, LogoCacheEntry>();
 const imageAssetCache = new Map<string, LogoCacheEntry>();
+const POLYMARKET_UPLOAD_HOST = "https://polymarket-upload.s3.us-east-2.amazonaws.com/";
 
 function safeNumber(value: number, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
@@ -142,6 +146,16 @@ function safeCoordinate(value: number | undefined, fallback = 0) {
 
 function safeRadius(value: number, fallback = 1) {
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function normalizeLogoUrl(logoUrl?: string) {
+  const url = logoUrl?.trim();
+  if (!url) return undefined;
+  const hostIndex = url.lastIndexOf(POLYMARKET_UPLOAD_HOST);
+  if (hostIndex > 0) {
+    return `${POLYMARKET_UPLOAD_HOST}${url.slice(hostIndex + POLYMARKET_UPLOAD_HOST.length)}`;
+  }
+  return url;
 }
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, safeNumber(value, 0)));
@@ -234,8 +248,9 @@ function dedupeOutcomeLabel(label: string, index: number, seen: Set<string>) {
 }
 
 function getLogoAsset(logoUrl?: string) {
-  if (!logoUrl || typeof window === "undefined") return null;
-  const cached = logoCache.get(logoUrl);
+  const normalizedLogoUrl = normalizeLogoUrl(logoUrl);
+  if (!normalizedLogoUrl || typeof window === "undefined") return null;
+  const cached = logoCache.get(normalizedLogoUrl);
   if (cached) return cached;
   const image = new Image();
   image.crossOrigin = "anonymous";
@@ -259,8 +274,8 @@ function getLogoAsset(logoUrl?: string) {
   image.onerror = () => {
     entry.failed = true;
   };
-  image.src = logoUrl;
-  logoCache.set(logoUrl, entry);
+  image.src = normalizedLogoUrl;
+  logoCache.set(normalizedLogoUrl, entry);
   return entry;
 }
 

@@ -5,6 +5,7 @@ import { hasSportsSignal } from "./marketFilters";
 import { mockChart, mockMarkets, mockOrderbook, mockTrades } from "./mock";
 import { resolveSportsLogo } from "@/lib/sports/logoResolver";
 import { extractMarketTeams } from "@/lib/sports/marketTeamExtractor";
+import { resolvePolymarketTeamLogo } from "@/lib/polymarket/teams";
 import type { MarketChartPoint, MarketStatus, NormalizedOrderbook, RecentTrade, TerminalMarket } from "./types";
 
 const GAMMA_HOST = "https://gamma-api.polymarket.com";
@@ -68,6 +69,9 @@ type NormalizedMarketOutcome = {
   bestBid?: number;
   bestAsk?: number;
   polymarketTeamLogoUrl?: string;
+  polymarketTeamId?: string | number;
+  polymarketTeamAbbreviation?: string;
+  polymarketTeamName?: string;
   sportsMonksTeamId?: string | number;
   canonicalTeamName?: string;
   isTeamOutcome?: boolean;
@@ -605,38 +609,66 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
 
       const outcomeOptions = await Promise.all(
         market.outcomeOptions.map(async (outcome) => {
-          if (outcome.outcomeLogoUrl) return outcome;
-          if (outcome.logoSource && outcome.logoSource !== "fallback" && outcome.logoConfidence !== "fallback") return outcome;
           const canonicalTeam = extractedTeams.outcomeTeamMap[outcome.name];
+          const teamCandidates = [
+            canonicalTeam,
+            extractedTeams.canonicalTeams.find((team) => team.toLowerCase() === outcome.name.toLowerCase()),
+            extractedTeams.canonicalTeams.find((team) => team.toLowerCase() === (outcome.teamDisplayName ?? "").toLowerCase()),
+            outcome.teamDisplayName,
+            outcome.name,
+          ]
+            .filter((value): value is string => Boolean(value))
+            .filter((value, index, values) => values.findIndex((item) => item.toLowerCase() === value.toLowerCase()) === index);
+
+          let matchedPolymarketTeamLogoUrl: string | null = null;
+          let matchedPolymarketTeam: Awaited<ReturnType<typeof resolvePolymarketTeamLogo>>["match"] | null = null;
+          for (const candidate of teamCandidates) {
+            const match = await resolvePolymarketTeamLogo(candidate);
+            if (match.match && match.logoUrl) {
+              matchedPolymarketTeam = match.match;
+              matchedPolymarketTeamLogoUrl = match.logoUrl;
+              break;
+            }
+          }
 
           const logo = await resolveSportsLogo({
             marketTitle: market.title,
             outcomeName: canonicalTeam ?? outcome.name,
             category: market.league,
             sport: market.sport,
-            polymarketLogoUrl: outcome.polymarketTeamLogoUrl,
+            polymarketLogoUrl: matchedPolymarketTeamLogoUrl ?? undefined,
             sportsMonksTeamId: outcome.sportsMonksTeamId,
           });
           if (process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1") {
             console.info("[Traak] sports logo debug", {
               message: "outcome_logo_resolved",
               marketTitle: market.title,
-              teamName: canonicalTeam ?? outcome.name,
+              rawOutcomeLabel: outcome.name,
+              cleanedTeamCandidate: canonicalTeam ?? outcome.name,
+              matchedPolymarketTeam,
               providerAttempted: logo.providerUsed,
               resolvedLogoUrl: logo.logoUrl,
+              genericLogoChosen: !logo.logoUrl || logo.entityType === "fallback" || logo.entityType === "non_team",
             });
           }
           const confidentLogo = ["exact_normalized_match", "alias_match", "league_team_match", "provider_exact_name", "provider_alias_name", "provider_shortcode"].includes(logo.confidence);
           const isTeamOutcome = logo.entityType === "club_team" || logo.entityType === "national_team";
+          const teamDisplayName = logo.teamDisplayName || canonicalTeam || logo.normalizedInput;
+          const baseOutcome = { ...outcome };
+          delete baseOutcome.outcomeLogoUrl;
+          delete baseOutcome.polymarketTeamLogoUrl;
           return {
-            ...outcome,
-            ...(outcome.polymarketTeamLogoUrl ? { polymarketTeamLogoUrl: outcome.polymarketTeamLogoUrl } : {}),
+            ...baseOutcome,
+            ...(matchedPolymarketTeamLogoUrl ? { polymarketTeamLogoUrl: matchedPolymarketTeamLogoUrl } : {}),
+            ...(matchedPolymarketTeam?.record.id !== undefined ? { polymarketTeamId: matchedPolymarketTeam.record.id } : {}),
+            ...(matchedPolymarketTeam?.record.abbreviation ? { polymarketTeamAbbreviation: matchedPolymarketTeam.record.abbreviation } : {}),
+            ...(matchedPolymarketTeam?.record.name ? { polymarketTeamName: matchedPolymarketTeam.record.name } : {}),
             ...(outcome.sportsMonksTeamId !== undefined ? { sportsMonksTeamId: outcome.sportsMonksTeamId } : {}),
             ...(isTeamOutcome ? { canonicalTeamName: canonicalTeam ?? logo.normalizedInput } : {}),
             isTeamOutcome,
             entityType: logo.entityType,
             ...(logo.logoUrl && confidentLogo && isTeamOutcome ? { outcomeLogoUrl: logo.logoUrl } : {}),
-            ...(isTeamOutcome ? { teamDisplayName: logo.teamDisplayName || canonicalTeam || logo.normalizedInput } : {}),
+            ...(isTeamOutcome ? { teamDisplayName } : {}),
             logoSource: logo.logoSource,
             logoConfidence: logo.confidence,
           };
