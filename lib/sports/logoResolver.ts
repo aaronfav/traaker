@@ -1,6 +1,7 @@
 import { TEAM_ALIASES, TEAM_SUFFIX_PATTERN } from "@/lib/sports/teamAliases";
 import { canonicalTeamName, cleanOutcomeTeamCandidate, compactTeamText, extractMarketTeams, isNonTeamOutcome, stripTeamSuffix } from "@/lib/sports/marketTeamExtractor";
 import { countryFlagUrl, isClubTeamMarket, isNationalTeamMarket, resolveCountryTeam } from "@/lib/sports/countryTeams";
+import { resolvePolymarketTeamLogo } from "@/lib/polymarket/teams";
 
 export type SportsLogoProvider = "polymarket" | "sportsmonks" | "thesportsdb" | "local" | "fallback";
 export type SportsLogoConfidence =
@@ -748,6 +749,30 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
         participantType,
         normalizedInput: input.outcomeName.trim(),
         acceptedReason: "polymarket_participant_logo",
+        cacheHit: true,
+        lookupMs: Date.now() - startedAt,
+      });
+      debug?.normalizedInput.push(result.normalizedInput);
+      debug?.finalResults.push(result);
+      logLogoDebug("final_logo_result", { input, result });
+      return result;
+    }
+
+    const participantTeamPage = await resolvePolymarketTeamLogo(input.outcomeName, {
+      category: input.category,
+      sport: input.sport,
+      marketTitle: input.marketTitle,
+    }, { includeTeamPageLookup: true });
+    if (participantTeamPage.logoUrl) {
+      const result = sportsLogoResolution({
+        logoUrl: participantTeamPage.logoUrl,
+        teamName: participantTeamPage.match?.record.displayName?.trim() || participantTeamPage.match?.record.name?.trim() || input.outcomeName.trim(),
+        source: "polymarket",
+        confidence: "alias_match",
+        entityType: "club_team",
+        participantType,
+        normalizedInput: input.outcomeName.trim(),
+        acceptedReason: "polymarket_participant_team_page",
         cacheHit: true,
         lookupMs: Date.now() - startedAt,
       });
