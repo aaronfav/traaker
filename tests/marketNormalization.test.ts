@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { normalizeGammaMarket, normalizeGammaSportsEvent } from "@/lib/polymarket/markets";
+import { enrichMarketOutcomeLogos, normalizeGammaMarket, normalizeGammaSportsEvent } from "@/lib/polymarket/markets";
 
 const validSportsMarket = {
   id: "123",
@@ -207,7 +207,7 @@ describe("normalizeGammaMarket", () => {
 
     expect(market).not.toBeNull();
     expect(market?.title).toBe("UEFA Champions League Winner");
-    expect(market?.outcomeOptions).toEqual([
+    expect(market?.outcomeOptions).toMatchObject([
       { name: "PSG", price: 0.59, tokenId: "111111", marketId: "psg-market", conditionId: "psg-condition", bestBid: 0.58, bestAsk: 0.6 },
       { name: "Arsenal", price: 0.43, tokenId: "222221", marketId: "arsenal-market", conditionId: "arsenal-condition", bestBid: 0.42, bestAsk: 0.44 },
     ]);
@@ -215,6 +215,90 @@ describe("normalizeGammaMarket", () => {
     expect(market?.outcomes.no).toBe("Arsenal");
     expect(market?.tokenIds.yes).toBe("111111");
     expect(market?.tokenIds.no).toBe("222221");
+  });
+
+  it("preserves participant metadata for aggregated NBA and tennis markets", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 })));
+
+    const market = normalizeGammaSportsEvent({
+      id: "nba-finals-mvp-event",
+      slug: "nba-playoffs-finals-mvp",
+      title: "NBA Playoffs: Finals MVP",
+      category: "NBA",
+      closed: false,
+      active: true,
+      volume: 100000,
+      volume24hr: 25000,
+      liquidity: 75000,
+      image: "https://polymarket-upload.s3.us-east-2.amazonaws.com/nba-playoffs-finals-mvp.png",
+      tags: [{ label: "Sports" }, { label: "NBA" }, { label: "Basketball" }],
+      markets: [
+        {
+          id: "wemby-market",
+          conditionId: "wemby-condition",
+          question: "Will Victor Wembanyama win the 2026 NBA Finals MVP?",
+          slug: "will-victor-wembanyama-win-the-2026-nba-finals-mvp",
+          groupItemTitle: "Victor Wembanyama",
+          active: true,
+          acceptingOrders: true,
+          enableOrderBook: true,
+          outcomes: JSON.stringify(["Yes", "No"]),
+          outcomePrices: JSON.stringify(["0.59", "0.41"]),
+          clobTokenIds: JSON.stringify(["111111", "111112"]),
+          image: "https://polymarket-upload.s3.us-east-2.amazonaws.com/victor-wembanyama.png",
+          icon: "https://polymarket-upload.s3.us-east-2.amazonaws.com/victor-wembanyama.png",
+          tags: [{ label: "NBA" }, { label: "Basketball" }],
+        },
+        {
+          id: "brunson-market",
+          conditionId: "brunson-condition",
+          question: "Will Jalen Brunson win the 2026 NBA Finals MVP?",
+          slug: "will-jalen-brunson-win-the-2026-nba-finals-mvp",
+          groupItemTitle: "Jalen Brunson",
+          active: true,
+          acceptingOrders: true,
+          enableOrderBook: true,
+          outcomes: JSON.stringify(["Yes", "No"]),
+          outcomePrices: JSON.stringify(["0.41", "0.59"]),
+          clobTokenIds: JSON.stringify(["222221", "222222"]),
+          image: "https://polymarket-upload.s3.us-east-2.amazonaws.com/jalen-brunson.png",
+          icon: "https://polymarket-upload.s3.us-east-2.amazonaws.com/jalen-brunson.png",
+          tags: [{ label: "NBA" }, { label: "Basketball" }],
+        },
+      ],
+    });
+
+    expect(market).not.toBeNull();
+    expect(market?.outcomeOptions).toMatchObject([
+      {
+        name: "Victor Wembanyama",
+        participantType: "player",
+        isLogoOutcome: true,
+        polymarketTeamLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/nba-playoffs-finals-mvp.png",
+      },
+      {
+        name: "Jalen Brunson",
+        participantType: "player",
+        isLogoOutcome: true,
+        polymarketTeamLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/nba-playoffs-finals-mvp.png",
+      },
+    ]);
+
+    const enriched = await enrichMarketOutcomeLogos([market!]);
+    expect(enriched[0]?.outcomeOptions).toMatchObject([
+      {
+        name: "Victor Wembanyama",
+        participantType: "player",
+        outcomeLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/nba-playoffs-finals-mvp.png",
+        logoSource: "polymarket",
+      },
+      {
+        name: "Jalen Brunson",
+        participantType: "player",
+        outcomeLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/nba-playoffs-finals-mvp.png",
+        logoSource: "polymarket",
+      },
+    ]);
   });
 
   it("filters inactive or non-sports markets", () => {

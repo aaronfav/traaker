@@ -967,6 +967,7 @@ function aggregateEventMarkets(event: GammaEvent, candidates: Array<{ market: Ga
       const polymarketTeamLogoUrl = logoFromRecord(market) || yesOption?.polymarketTeamLogoUrl;
       const sportsMonksTeamId = sportsMonksTeamIdFromRecord(market) ?? yesOption?.sportsMonksTeamId;
       return {
+        ...(yesOption ?? {}),
         name,
         price,
         tokenId,
@@ -976,6 +977,15 @@ function aggregateEventMarkets(event: GammaEvent, candidates: Array<{ market: Ga
         ...(Number.isFinite(bestAsk) ? { bestAsk } : {}),
         ...(polymarketTeamLogoUrl ? { polymarketTeamLogoUrl } : {}),
         ...(sportsMonksTeamId !== undefined ? { sportsMonksTeamId } : {}),
+        ...(yesOption?.polymarketParticipantLogoUrl ? { polymarketParticipantLogoUrl: yesOption.polymarketParticipantLogoUrl } : {}),
+        ...(yesOption?.polymarketParticipantId !== undefined ? { polymarketParticipantId: yesOption.polymarketParticipantId } : {}),
+        ...(yesOption?.polymarketParticipantName ? { polymarketParticipantName: yesOption.polymarketParticipantName } : {}),
+        ...(yesOption?.polymarketParticipantAbbreviation ? { polymarketParticipantAbbreviation: yesOption.polymarketParticipantAbbreviation } : {}),
+        ...(yesOption?.polymarketParticipantSlug ? { polymarketParticipantSlug: yesOption.polymarketParticipantSlug } : {}),
+        ...(yesOption?.participantType ? { participantType: yesOption.participantType } : {}),
+        ...(yesOption?.entityType ? { entityType: yesOption.entityType } : {}),
+        ...(yesOption?.isLogoOutcome !== undefined ? { isLogoOutcome: yesOption.isLogoOutcome } : {}),
+        ...(yesOption?.teamDisplayName ? { teamDisplayName: yesOption.teamDisplayName } : {}),
       };
     })
     .filter((outcome): outcome is NormalizedMarketOutcome => outcome !== null);
