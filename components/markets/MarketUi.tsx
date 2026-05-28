@@ -48,7 +48,7 @@ export function MarketPanelHeader({
   actions: ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 border-b border-slate-800/85 px-4 py-4 sm:px-5">
+    <div className="sticky top-0 z-20 flex items-start justify-between gap-3 border-b border-slate-800/85 bg-[#070a12]/96 px-4 py-4 shadow-[0_10px_24px_rgba(0,0,0,0.16)] backdrop-blur-2xl sm:px-5">
       <div className="min-w-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           {category ? (

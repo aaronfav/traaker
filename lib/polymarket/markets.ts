@@ -13,6 +13,7 @@ const GAMMA_HOST = "https://gamma-api.polymarket.com";
 const GAMMA_PAGE_LIMIT = 200;
 const GAMMA_SPORTS_EVENTS_PAGE_LIMIT = 100;
 const GAMMA_SPORTS_EVENTS_MAX_PAGES = 50;
+const GAMMA_EVENT_FETCH_TIMEOUT_MS = 12_000;
 
 const sportsTerms = [
   "nba",
@@ -755,6 +756,102 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
   return result;
 }
 
+type LogoWarmupTask = {
+  marketTitle: string;
+  category?: string;
+  sport?: string;
+  outcomeName: string;
+  polymarketLogoUrl?: string;
+  polymarketParticipantLogoUrl?: string;
+  sportsMonksTeamId?: string | number;
+  participantType?: NormalizedMarketOutcome["participantType"];
+};
+
+function collectLogoWarmupTasks(markets: TerminalMarket[]) {
+  const tasks: LogoWarmupTask[] = [];
+  const seen = new Set<string>();
+  for (const market of markets) {
+    for (const outcome of market.outcomeOptions ?? []) {
+      const key = [
+        market.title,
+        market.league,
+        market.sport,
+        outcome.name,
+        outcome.teamDisplayName ?? "",
+        outcome.polymarketTeamLogoUrl ?? "",
+        outcome.polymarketParticipantLogoUrl ?? "",
+        outcome.sportsMonksTeamId ?? "",
+        outcome.participantType ?? "",
+      ]
+        .map((value) => String(value).trim().toLowerCase())
+        .join("|");
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      tasks.push({
+        marketTitle: market.title,
+        category: market.league,
+        sport: market.sport,
+        outcomeName: outcome.teamDisplayName || outcome.name,
+        polymarketLogoUrl: outcome.polymarketTeamLogoUrl ?? undefined,
+        polymarketParticipantLogoUrl: outcome.polymarketParticipantLogoUrl ?? undefined,
+        sportsMonksTeamId: outcome.sportsMonksTeamId,
+        participantType: outcome.participantType,
+      });
+    }
+  }
+  return tasks;
+}
+
+async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>) {
+  const queue = [...items];
+  const active = new Set<Promise<void>>();
+
+  const startNext = () => {
+    while (queue.length > 0 && active.size < limit) {
+      const item = queue.shift();
+      if (item === undefined) break;
+      const promise = worker(item).catch(() => undefined);
+      active.add(promise);
+      void promise.finally(() => {
+        active.delete(promise);
+      });
+    }
+  };
+
+  startNext();
+  while (active.size > 0) {
+    await Promise.race(active);
+    startNext();
+  }
+}
+
+export function warmMarketOutcomeLogos(markets: TerminalMarket[]) {
+  if (process.env.NODE_ENV === "test" || process.env.LOGO_BACKGROUND_WARMUP === "false") return;
+  const tasks = collectLogoWarmupTasks(markets);
+  if (tasks.length === 0) return;
+  const startedAt = Date.now();
+  void runWithConcurrency(tasks, 4, async (task) => {
+    await resolveSportsLogo({
+      marketTitle: task.marketTitle,
+      outcomeName: task.outcomeName,
+      category: task.category,
+      sport: task.sport,
+      polymarketLogoUrl: task.polymarketLogoUrl,
+      polymarketParticipantLogoUrl: task.polymarketParticipantLogoUrl,
+      sportsMonksTeamId: task.sportsMonksTeamId,
+      participantType: task.participantType,
+    }).catch(() => null);
+  }).finally(() => {
+    if (process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1") {
+      console.info("[Traak] sports logo debug", {
+        message: "logo_warmup_complete",
+        taskCount: tasks.length,
+        durationMs: Date.now() - startedAt,
+      });
+    }
+  });
+}
+
 type FastMarketPageResult = MarketsApiPayload & {
   rawFetched: number;
   sportsMatched: number;
@@ -773,9 +870,12 @@ async function fetchGammaSportsEventPage(offset: number, limit = GAMMA_SPORTS_EV
     limit: String(limit),
     offset: String(offset),
   });
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), GAMMA_EVENT_FETCH_TIMEOUT_MS);
   const response = await fetch(`${GAMMA_HOST}/events?${params.toString()}`, {
     cache: "no-store",
-  });
+    signal: controller.signal,
+  }).finally(() => globalThis.clearTimeout(timeout));
   if (!response.ok) {
     throw new Error(`Gamma events fetch failed with status ${response.status}`);
   }
@@ -1114,7 +1214,20 @@ export async function getLiveSportsMarketsApiPayload(params: MarketQueryParams =
   let stopReason: FastMarketPageResult["stopReason"] = "end";
 
   while (true) {
-    const page = await fetchGammaSportsEventPage(currentOffset);
+    let page: GammaEvent[];
+    try {
+      page = await fetchGammaSportsEventPage(currentOffset);
+    } catch (error) {
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[Traak] live sports market page fetch interrupted", {
+          currentOffset,
+          pagesFetched,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      stopReason = "end";
+      break;
+    }
     pagesFetched += 1;
     rawFetched += page.length;
 
@@ -1152,7 +1265,8 @@ export async function getLiveSportsMarketsApiPayload(params: MarketQueryParams =
   counts.displayedMarkets = collectedMarkets.length;
 
   const page = getMarketPage(discovery, { ...params, minVolume });
-  const markets = await enrichMarketOutcomeLogos(page.markets);
+  const markets = page.markets;
+  warmMarketOutcomeLogos(markets);
   const requestDurationMs = Date.now() - requestStartedAt;
 
   if (process.env.NODE_ENV !== "production") {
@@ -1605,7 +1719,8 @@ export function seedMarketSnapshotCache(discovery: SportsMarketDiscovery, expire
 export async function fetchSportsMarkets(): Promise<TerminalMarket[]> {
   const startedAt = Date.now();
   const discovery = await fetchSportsMarketDiscovery();
-  const markets = await enrichMarketOutcomeLogos(discovery.markets);
+  const markets = discovery.markets;
+  warmMarketOutcomeLogos(markets);
   if (process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1") {
     console.info("[Traak] sports logo debug", {
       message: "sports_markets_total_time",

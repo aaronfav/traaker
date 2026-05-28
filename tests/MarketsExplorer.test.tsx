@@ -113,6 +113,46 @@ describe("MarketsExplorer", () => {
     );
     expect(screen.queryByRole("button", { name: /view nba markets/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Explore NBA" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "All" })).not.toBeInTheDocument();
+  });
+
+  it("clicking a featured category loads the matching sport bubbles", async () => {
+    const soccerMarket = {
+      ...market,
+      id: "soccer-1",
+      conditionId: "soccer-condition-1",
+      title: "Arsenal vs Chelsea",
+      sport: "Soccer",
+      league: "UCL",
+      liquidity: 24_000,
+      volume: 48_000,
+    };
+    const requestedUrls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      requestedUrls.push(url);
+      if (url.includes("/counts")) {
+        return new Response(JSON.stringify({ loading: false, counts, source: "polymarket" }), { status: 200 });
+      }
+      if (url.includes("/prewarm")) {
+        return new Response(JSON.stringify({ started: true }), { status: 200 });
+      }
+      if (url.includes("sport=Soccer")) {
+        return new Response(JSON.stringify({ ...initialPage, markets: [soccerMarket], counts, countsLoading: false, source: "polymarket" }), {
+          status: 200,
+        });
+      }
+      return new Response(JSON.stringify({ ...initialPage, markets: [market], counts, countsLoading: false, source: "polymarket" }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<MarketsExplorer initialPage={initialPage} source="polymarket" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    fireEvent.click(screen.getByText("Champions League").closest("button") ?? screen.getByText("Champions League"));
+
+    await waitFor(() => expect(requestedUrls.some((url) => url.includes("sport=Soccer"))).toBe(true));
+    expect(screen.getByRole("application", { name: /1 sports market bubble map/i })).toBeInTheDocument();
   });
 
   it("filters out extreme favored prices before range display", () => {

@@ -269,6 +269,18 @@ describe("MarketBubbleMap", () => {
     expect(screen.queryByRole("heading", { name: "Los Angeles Lakers vs. Boston Celtics" })).not.toBeInTheDocument();
   });
 
+  it("closes the trade panel with the mobile back button", () => {
+    const [node] = layoutBubbleNodes([marketToBubbleNode(market)], 1200, 680, false);
+    render(<MarketBubbleMap markets={[market]} />);
+
+    fireEvent.click(screen.getByRole("application"), { clientX: node.x, clientY: node.y });
+    expect(screen.getByRole("heading", { name: "Los Angeles Lakers vs. Boston Celtics" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /back to bubbles/i }));
+
+    expect(screen.queryByRole("heading", { name: "Los Angeles Lakers vs. Boston Celtics" })).not.toBeInTheDocument();
+  });
+
   it("renders invalid tiny node values without negative canvas radii", () => {
     const invalidMarket: TerminalMarket = {
       ...market,

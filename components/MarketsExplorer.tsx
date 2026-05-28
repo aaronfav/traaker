@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Flame, RefreshCw, Search, Sparkles } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -13,8 +13,14 @@ import { DEFAULT_MARKET_MIN_VOLUME, hasUsefulFavoredPrice, rankHighValueMarkets 
 import type { MarketPage, MarketQuerySort, MarketQueryStatus, SportsMarketDiscovery } from "@/lib/polymarket/markets";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
-const sports = ["All", "NBA", "NFL", "Soccer", "UFC", "Tennis"] as const;
-const sportPills = sports.map((label) => ({ label, icon: label === "All" ? "" : categoryIconSrc(label), fallback: label === "All" ? "" : categoryIcon(label) }));
+const sports = ["NBA", "NFL", "Soccer", "UFC", "Tennis"] as const;
+const sportPills = sports.map((label) => ({ label, icon: categoryIconSrc(label), fallback: categoryIcon(label) }));
+const featuredCategories = [
+  { title: "NBA Playoffs", sport: "NBA" as const, detail: "124 markets", icon: categoryIconSrc("NBA"), fallback: categoryIcon("NBA") },
+  { title: "Champions League", sport: "Soccer" as const, detail: "88 markets", icon: categoryIconSrc("Soccer"), fallback: categoryIcon("Soccer") },
+  { title: "UFC 315", sport: "UFC" as const, detail: "42 markets", icon: categoryIconSrc("UFC"), fallback: categoryIcon("UFC") },
+  { title: "French Open", sport: "Tennis" as const, detail: "67 markets", icon: categoryIconSrc("Tennis"), fallback: categoryIcon("Tennis") },
+] as const;
 const rangeOptions = [
   { label: "1-50", start: 0, end: 50 },
   { label: "51-100", start: 50, end: 100 },
@@ -94,7 +100,7 @@ export function MarketsExplorer({
 }) {
   const firstRender = useRef(true);
   const requestIdRef = useRef(0);
-  const [sport, setSport] = useState<(typeof sports)[number]>("All");
+  const [sport, setSport] = useState<(typeof sports)[number] | "All">("All");
   const status: MarketQueryStatus = "all";
   const sort: MarketQuerySort = "liquidity";
   const minVolume = DEFAULT_MARKET_MIN_VOLUME;
@@ -106,10 +112,31 @@ export function MarketsExplorer({
   const [isLoading, setIsLoading] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const dashboardLoadStartedAt = useRef(0);
+  const initialLoadLoggedRef = useRef(false);
+  const closeSelectedMarket = useCallback(() => setSelectedSearchMarket(null), []);
+  const activateSport = useCallback((nextSport: (typeof sports)[number]) => {
+    setSport(nextSport);
+    setRangeStart(0);
+    setQuery("");
+    setSelectedSearchMarket(null);
+  }, []);
+  const activateFeaturedCategory = useCallback((nextSport: (typeof sports)[number]) => {
+    setSport(nextSport);
+    setRangeStart(0);
+    setQuery("");
+    setSelectedSearchMarket(null);
+  }, []);
   const liveRequestUrl = useMemo(
     () => buildMarketsUrl({ offset: 0, limit: maxMarketFetchLimit, sort, sport, status, minVolume }),
     [minVolume, sort, sport, status],
   );
+
+  useEffect(() => {
+    if (dashboardLoadStartedAt.current === 0) {
+      dashboardLoadStartedAt.current = Date.now();
+    }
+  }, []);
 
   useEffect(() => {
     if (markets.length > 0) marketStore.setMarketSnapshots(markets);
@@ -128,11 +155,20 @@ export function MarketsExplorer({
     fetch(liveRequestUrl, { signal: controller.signal })
       .then(readMarketsResponse)
       .then((nextPage) => {
-        if (requestId !== requestIdRef.current) return;
-        setMarkets(nextPage.markets);
-        marketStore.setMarketSnapshots(nextPage.markets, { replace: true });
-        setLatestSource(nextPage.source);
-      })
+      if (requestId !== requestIdRef.current) return;
+      setMarkets(nextPage.markets);
+      marketStore.setMarketSnapshots(nextPage.markets, { replace: true });
+      setLatestSource(nextPage.source);
+      if (process.env.NODE_ENV !== "production" && (process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1")) {
+        console.info("[Traak] dashboard market fetch", {
+          durationMs: Date.now() - dashboardLoadStartedAt.current,
+          sport,
+          returned: nextPage.returned,
+          total: nextPage.total,
+          source: nextPage.source,
+        });
+      }
+    })
       .catch((error) => {
         if ((error as Error).name !== "AbortError") {
           console.error(error);
@@ -144,7 +180,21 @@ export function MarketsExplorer({
       });
 
     return () => controller.abort();
-  }, [liveRequestUrl, refreshNonce]);
+  }, [liveRequestUrl, refreshNonce, sport]);
+
+  useEffect(() => {
+    if (initialLoadLoggedRef.current) return;
+    if (isLoading) return;
+    if (markets.length === 0) return;
+    initialLoadLoggedRef.current = true;
+    if (process.env.NODE_ENV !== "production" && (process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1")) {
+      console.info("[Traak] dashboard initial render", {
+        durationMs: Date.now() - dashboardLoadStartedAt.current,
+        marketCount: markets.length,
+        source: latestSource,
+      });
+    }
+  }, [isLoading, latestSource, markets.length]);
 
   const isInitialLoading = isLoading && markets.length === 0;
   const isRefreshing = isLoading && markets.length > 0;
@@ -170,7 +220,7 @@ export function MarketsExplorer({
                       : "border-slate-800 bg-slate-950/35 text-slate-200 hover:border-slate-700 hover:bg-slate-900/80"
                   }`}
                   key={item.label}
-                  onClick={() => setSport(item.label)}
+                onClick={() => activateSport(item.label)}
                   size="sm"
                   type="button"
                   variant="ghost"
@@ -186,7 +236,10 @@ export function MarketsExplorer({
               <select
                 aria-label="Market range"
                 className="absolute inset-0 cursor-pointer opacity-0"
-                onChange={(event) => setRangeStart(Number(event.target.value) as typeof rangeStart)}
+                onChange={(event) => {
+                  setRangeStart(Number(event.target.value) as typeof rangeStart);
+                  setSelectedSearchMarket(null);
+                }}
                 value={rangeStart}
               >
                 {rangeOptions.map((option) => (
@@ -290,6 +343,13 @@ export function MarketsExplorer({
           </Button>
         </div>
 
+        {isInitialLoading || isRefreshing ? (
+          <div className="mb-4 inline-flex items-center gap-2 rounded-xl border border-cyan-400/20 bg-cyan-400/8 px-4 py-2 text-sm font-semibold text-cyan-100">
+            <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+            {isInitialLoading ? `Loading ${sport === "All" ? "markets" : `${sport} markets`}` : `Updating ${sport === "All" ? "markets" : `${sport} markets`}`}
+          </div>
+        ) : null}
+
         <MarketBubbleMap activeSport={sport} isLoading={isInitialLoading} isRefreshing={isRefreshing} markets={visibleMarkets} />
 
         <div className="mt-5 flex items-center gap-3 overflow-x-auto rounded-xl border border-slate-800/90 bg-slate-900/58 p-4 shadow-xl shadow-black/25 backdrop-blur-xl">
@@ -302,17 +362,15 @@ export function MarketsExplorer({
               <p className="text-lg font-bold text-slate-50">Now</p>
             </div>
           </div>
-          {[
-            { title: "NBA Playoffs", detail: "124 markets", icon: categoryIconSrc("NBA"), fallback: categoryIcon("NBA") },
-            { title: "Champions League", detail: "88 markets", icon: categoryIconSrc("Soccer"), fallback: categoryIcon("Soccer") },
-            { title: "UFC 315", detail: "42 markets", icon: categoryIconSrc("UFC"), fallback: categoryIcon("UFC") },
-            { title: "French Open", detail: "67 markets", icon: categoryIconSrc("Tennis"), fallback: categoryIcon("Tennis") },
-          ].map((item) => (
+          {featuredCategories.map((item) => (
             <button
               className="flex min-w-[12rem] items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/35 px-4 py-3 text-left transition duration-200 hover:-translate-y-0.5 hover:border-cyan-400/35 hover:bg-cyan-400/8 hover:shadow-lg hover:shadow-black/20"
-              key={item.title}
-              type="button"
-            >
+            key={item.title}
+            onClick={() => {
+                activateFeaturedCategory(item.sport);
+              }}
+            type="button"
+          >
               <SportIcon src={item.icon} fallback={item.fallback} className="h-7 w-7" />
               <span>
                 <span className="block font-bold text-slate-100">{item.title}</span>
@@ -325,7 +383,7 @@ export function MarketsExplorer({
 
       {selectedSearchMarket ? (
         <div className="fixed inset-0 z-40 bg-black/10" onClick={() => setSelectedSearchMarket(null)}>
-          <MarketTradePanel key={selectedSearchMarket.id} market={selectedSearchMarket} onClose={() => setSelectedSearchMarket(null)} onUpdatePrices={fetchLatestMarketForNode} />
+          <MarketTradePanel key={selectedSearchMarket.id} market={selectedSearchMarket} onClose={closeSelectedMarket} onUpdatePrices={fetchLatestMarketForNode} />
         </div>
       ) : null}
     </section>

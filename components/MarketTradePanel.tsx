@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, CheckCircle2, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, CheckCircle2, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -522,7 +522,7 @@ export function MarketTradePanel({
   return (
     <aside
       aria-label="Market trading panel"
-      className="absolute inset-x-0 bottom-0 z-30 flex max-h-[92svh] max-w-full flex-col overflow-hidden border-t border-slate-800/90 bg-[#070a12]/96 shadow-2xl shadow-black/70 backdrop-blur-2xl md:inset-x-auto md:bottom-0 md:right-0 md:top-0 md:h-full md:max-h-none md:w-[clamp(390px,30vw,480px)] md:border-l md:border-t-0"
+      className="absolute inset-x-0 bottom-0 z-30 flex max-h-[92svh] max-w-full flex-col overflow-hidden overscroll-contain border-t border-slate-800/90 bg-[#070a12]/96 shadow-2xl shadow-black/70 backdrop-blur-2xl md:inset-x-auto md:bottom-0 md:right-0 md:top-0 md:h-full md:max-h-none md:w-[clamp(390px,30vw,480px)] md:border-l md:border-t-0"
       onClick={(event) => event.stopPropagation()}
     >
       <MarketPanelHeader
@@ -533,18 +533,44 @@ export function MarketTradePanel({
         title={displayTitle}
         subtitle={subtitle}
         actions={
-          <>
-          <Button aria-label="Refresh quote now" className="h-8 w-8" disabled={!onUpdatePrices || quoteStatus === "refreshing"} onClick={() => void refreshQuote()} size="icon" type="button" variant="ghost">
-            <RefreshCw className={`h-3.5 w-3.5 ${quoteStatus === "refreshing" ? "animate-spin" : ""}`} />
-          </Button>
-          <Button aria-label="Close market details" className="h-8 w-8" onClick={onClose} size="icon" type="button" variant="ghost">
-            <X className="h-4 w-4" />
-          </Button>
-          </>
+          <div className="flex items-center gap-1.5">
+            <Button
+              aria-label="Back to bubbles"
+              className="h-8 gap-1.5 rounded-full px-3 md:hidden"
+              onClick={onClose}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </Button>
+            <Button
+              aria-label="Refresh quote now"
+              className="h-8 w-8"
+              disabled={!onUpdatePrices || quoteStatus === "refreshing"}
+              onClick={() => void refreshQuote()}
+              size="icon"
+              type="button"
+              variant="ghost"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${quoteStatus === "refreshing" ? "animate-spin" : ""}`} />
+            </Button>
+            <Button
+              aria-label="Close market details"
+              className="hidden h-8 w-8 md:inline-flex"
+              onClick={onClose}
+              size="icon"
+              type="button"
+              variant="ghost"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
         }
       />
 
-      <div className="traak-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-6 sm:px-5">
+      <div className="traak-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 pb-6 sm:px-5">
         {displayMarket.activeRangeWarning ? (
           <div className="mb-4 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm font-medium text-amber-100">
             Market moved outside active range
