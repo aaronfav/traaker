@@ -148,10 +148,14 @@ function getContextText(context?: PolymarketTeamLookupContext) {
   return cleanTeamText(`${context?.category ?? ""} ${context?.sport ?? ""} ${context?.marketTitle ?? ""}`);
 }
 
-function inferPolymarketTeamPageGame(context?: PolymarketTeamLookupContext) {
+function inferPolymarketTeamPageGames(context?: PolymarketTeamLookupContext) {
   const normalized = getContextText(context);
-  if (/\bmlb|baseball\b/.test(normalized)) return "mlb";
-  return null;
+  if (/\bmlb|baseball\b/.test(normalized)) return ["mlb"];
+  if (/\btennis\b/.test(normalized)) return ["atp", "wta"];
+  if (/\bufc|mma|boxing\b/.test(normalized)) return ["ufc"];
+  if (/\bformula 1|f1\b/.test(normalized)) return ["f1"];
+  if (/\bbasketball|nba\b/.test(normalized)) return ["nba"];
+  return [];
 }
 
 function slugifyTeamName(value: string) {
@@ -160,6 +164,10 @@ function slugifyTeamName(value: string) {
 
 function normalizeJsonLdText(value: unknown) {
   return cleanTeamText(String(value ?? ""));
+}
+
+function teamPageCacheKey(game: string, query: string) {
+  return `slow:${game}:${cleanTeamText(query)}`;
 }
 
 function parsePolymarketTeamPageLogo(html: string, teamName: string) {
@@ -203,17 +211,18 @@ async function fetchPolymarketTeamPageResolution(
   context?: PolymarketTeamLookupContext,
   options?: PolymarketTeamLookupOptions,
 ): Promise<PolymarketTeamLogoResolution | null> {
-  const game = inferPolymarketTeamPageGame(context);
-  if (!game) return null;
+  const games = inferPolymarketTeamPageGames(context);
+  if (process.env.LOGO_DEBUG === "true") {
+    console.log("[Traak] polymarket team page games", {
+      query,
+      context,
+      games,
+    });
+  }
+  if (!games.length) return null;
   const timeoutMs = Math.max(250, Math.min(1500, options?.teamPageTimeoutMs ?? TEAM_PAGE_FETCH_TIMEOUT_MS));
 
   const cache = getTeamPageCache();
-  const cacheKey = `slow:${game}:${cleanTeamText(query)}`;
-  const cached = cache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) {
-    if (cached.value) return cached.value;
-    if (cached.promise) return cached.promise;
-  }
 
   const extractedTeams = extractMarketTeams({
     marketTitle: context?.marketTitle,
@@ -229,82 +238,100 @@ async function fetchPolymarketTeamPageResolution(
     .filter(Boolean);
   const pageCandidates = slugCandidates.length ? slugCandidates : [slugifyTeamName(query)];
   const attempts: PolymarketTeamLookupAttempt[] = [];
+  const cacheKey = teamPageCacheKey(games.join("|"), query);
 
   const promise = (async () => {
-    for (const slug of pageCandidates) {
-      const teamPageUrl = `${POLYMARKET_TEAMS_BASE_URL}/${game}/${slug}`;
-      const response = await fetchWithTimeout(teamPageUrl, { cache: "no-store" }, timeoutMs);
-      if (!response.ok) {
-        attempts.push({
-          source: "team_page",
-          query,
-          normalizedQuery: cleanTeamText(query),
-          candidates: [slug],
-          matchedTeam: null,
-          logoUrl: null,
-          rejectedReason: `team page returned status ${response.status}`,
-          teamPageUrl,
-        });
-        continue;
+    for (const game of games) {
+      const cacheKey = teamPageCacheKey(game, query);
+      const cached = cache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        if (cached.value) return cached.value;
+        if (cached.promise) return cached.promise;
       }
 
-      const html = await response.text();
-      const parsed = parsePolymarketTeamPageLogo(html, query) ?? parsePolymarketTeamPageLogo(html, cleanPolymarketTeamQuery(query));
-      if (!parsed) {
-        attempts.push({
-          source: "team_page",
-          query,
-          normalizedQuery: cleanTeamText(query),
-          candidates: [slug],
-          matchedTeam: null,
-          logoUrl: null,
-          rejectedReason: "team page logo did not match requested team",
-          teamPageUrl,
-        });
-        continue;
-      }
-
-      const result: PolymarketTeamLogoResolution = {
-        match: {
-          record: {
-            name: parsed.name,
-            displayName: parsed.displayName,
-            abbreviation: parsed.abbreviation,
-            logo: parsed.logo,
-            league: game.toUpperCase(),
-          },
-          matchedBy: "name",
-          query,
-          normalizedQuery: cleanTeamText(query),
-        },
-        logoUrl: parsed.logo,
-        source: "team_page",
-        acceptedReason: "polymarket-team-page",
-        debug: {
-          attempts: [
-            ...attempts,
-            {
+      const gamePromise = (async () => {
+        for (const slug of pageCandidates) {
+          const teamPageUrl = `${POLYMARKET_TEAMS_BASE_URL}/${game}/${slug}`;
+          const response = await fetchWithTimeout(teamPageUrl, { cache: "no-store" }, timeoutMs);
+          if (!response.ok) {
+            attempts.push({
               source: "team_page",
               query,
               normalizedQuery: cleanTeamText(query),
               candidates: [slug],
-              matchedTeam: parsed.name,
-              logoUrl: parsed.logo,
+              matchedTeam: null,
+              logoUrl: null,
+              rejectedReason: `team page returned status ${response.status}`,
               teamPageUrl,
+            });
+            continue;
+          }
+
+          const html = await response.text();
+          const parsed = parsePolymarketTeamPageLogo(html, query) ?? parsePolymarketTeamPageLogo(html, cleanPolymarketTeamQuery(query));
+          if (!parsed) {
+            attempts.push({
+              source: "team_page",
+              query,
+              normalizedQuery: cleanTeamText(query),
+              candidates: [slug],
+              matchedTeam: null,
+              logoUrl: null,
+              rejectedReason: "team page logo did not match requested team",
+              teamPageUrl,
+            });
+            continue;
+          }
+
+          const result: PolymarketTeamLogoResolution = {
+            match: {
+              record: {
+                name: parsed.name,
+                displayName: parsed.displayName,
+                abbreviation: parsed.abbreviation,
+                logo: parsed.logo,
+                league: game.toUpperCase(),
+              },
+              matchedBy: "name",
+              query,
+              normalizedQuery: cleanTeamText(query),
             },
-          ],
-          chosenCandidate: {
-            source: "team_page",
-            query,
-            normalizedQuery: cleanTeamText(query),
-            candidates: [slug],
-            matchedTeam: parsed.name,
             logoUrl: parsed.logo,
-            teamPageUrl,
-          },
-        },
-      };
-      return result;
+            source: "team_page",
+            acceptedReason: "polymarket-team-page",
+            debug: {
+              attempts: [
+                ...attempts,
+                {
+                  source: "team_page",
+                  query,
+                  normalizedQuery: cleanTeamText(query),
+                  candidates: [slug],
+                  matchedTeam: parsed.name,
+                  logoUrl: parsed.logo,
+                  teamPageUrl,
+                },
+              ],
+              chosenCandidate: {
+                source: "team_page",
+                query,
+                normalizedQuery: cleanTeamText(query),
+                candidates: [slug],
+                matchedTeam: parsed.name,
+                logoUrl: parsed.logo,
+                teamPageUrl,
+              },
+            },
+          };
+          return result;
+        }
+
+        return null;
+      })();
+
+      cache.set(cacheKey, { expiresAt: Date.now() + TEAM_PAGE_CACHE_TTL_MS, promise: gamePromise });
+      const result = await gamePromise;
+      if (result) return result;
     }
 
     const result: PolymarketTeamLogoResolution = {
@@ -543,9 +570,9 @@ export function peekPolymarketTeamLogo(
 
   if (options?.includeTeamPageLookup) {
     const cache = getTeamPageCache();
-    const game = inferPolymarketTeamPageGame(context);
-    if (game) {
-      const cacheKey = `slow:${game}:${cleanTeamText(query)}`;
+    const games = inferPolymarketTeamPageGames(context);
+    for (const game of games) {
+      const cacheKey = teamPageCacheKey(game, query);
       const cached = cache.get(cacheKey);
       if (cached && cached.expiresAt > Date.now() && cached.value?.logoUrl && cached.value.match) {
         return cached.value;
