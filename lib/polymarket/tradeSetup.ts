@@ -47,6 +47,8 @@ export type TradingWalletContext = {
   signatureType: 2 | 3;
 };
 
+const DEPOSIT_REQUIRED_PREFIX = "polymarket:deposit-wallet-required:";
+
 type PolymarketAccountLoadOptions = {
   walletClient?: WalletClient;
   address?: Address;
@@ -86,6 +88,18 @@ const normalizeBalance = (raw: { balance?: string; allowances?: Record<string, s
   };
 };
 
+const depositRequiredKey = (address: string) => `${DEPOSIT_REQUIRED_PREFIX}${address.toLowerCase()}`;
+
+export const isDepositWalletRequiredStored = (address: string) => {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(depositRequiredKey(address)) === "1";
+};
+
+export const markDepositWalletRequired = (address: string) => {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(depositRequiredKey(address), "1");
+};
+
 export async function resolveTradingWalletContext(input: {
   walletClient?: WalletClient | null;
   address?: Address | null;
@@ -118,7 +132,10 @@ export async function resolveTradingWalletContext(input: {
   }
 
   let walletMode: TradingWalletMode | null = null;
-  if (proxyDeployed === true) {
+  const depositWalletRequired = isDepositWalletRequiredStored(input.address);
+  if (depositWalletRequired) {
+    walletMode = "deposit-wallet";
+  } else if (proxyDeployed === true) {
     walletMode = "legacy-proxy";
   } else if (depositWalletStatus.initialized === true) {
     walletMode = "deposit-wallet";

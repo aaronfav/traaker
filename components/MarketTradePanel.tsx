@@ -10,8 +10,13 @@ import { categoryIcon, categoryIconSrc } from "@/lib/markets/category";
 import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
 import { sharedMarketOutcomeIconUrl, shouldUseOutcomeTeamLogos } from "@/lib/polymarket/marketDisplay";
 import { getTradeDisabledReason } from "@/lib/polymarket/readiness";
-import { placeMarketOrder, Side, validateTrade } from "@/lib/polymarket/orders";
-import { ensureTradingReady, resolveTradingWalletContext, type TradeProgress } from "@/lib/polymarket/tradeSetup";
+import { isDepositWalletRequiredError, placeMarketOrder, Side, validateTrade } from "@/lib/polymarket/orders";
+import {
+  ensureTradingReady,
+  markDepositWalletRequired,
+  resolveTradingWalletContext,
+  type TradeProgress,
+} from "@/lib/polymarket/tradeSetup";
 import type { MarketBubbleNode } from "@/components/MarketBubbleMap";
 
 const QUOTE_REFRESH_MS = 10_000;
@@ -173,6 +178,7 @@ export function MarketTradePanel({
   const activeMarketIdRef = useRef(market.id);
   const refreshTokenRef = useRef(0);
   const lastMarketIdRef = useRef(market.id);
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   const selectedOutcome = selectedOutcomeFromMarket(displayMarket, selectedOutcomeName);
   const category = displayMarket.category && displayMarket.category !== "Market" ? displayMarket.category : "";
@@ -228,6 +234,10 @@ export function MarketTradePanel({
       mountedRef.current = false;
     };
   }, [market]);
+
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: 0, behavior: "auto" });
+  }, [market.id]);
 
   useEffect(() => {
     let active = true;
@@ -368,67 +378,61 @@ export function MarketTradePanel({
   const createOrder = useCallback(
     async (side: TradeSide) => {
       let tradeMarket = displayMarket;
-      let setup: Awaited<ReturnType<typeof ensureTradingReady>> | null = null;
+      const walletAddress = walletClient?.account?.address;
       const outcome = selectedOutcomeFromMarket(tradeMarket, selectedOutcomeName);
       const price = side === "Buy" ? outcomePriceForSide(tradeMarket, outcome?.name ?? "", "Buy") : outcomePriceForSide(tradeMarket, outcome?.name ?? "", "Sell");
       if (!outcome || !Number.isFinite(price)) return;
-      setSubmittingSide(side);
-      setToast(null);
-      setOrderId("");
-      setTradeProgress("checking-wallet");
-
+      if (!isConnected) {
+        setToast({ tone: "error", message: "Connect a wallet before trading." });
+        return;
+      }
+      if (chainId !== 137) {
+        setToast({ tone: "error", message: "Switch to Polygon mainnet before trading." });
+        return;
+      }
+      if (!walletClient || !walletAddress) {
+        setToast({ tone: "error", message: "Connect a wallet before trading." });
+        return;
+      }
       const tokenID = outcome.tokenId ?? "";
       const orderValue = safeShares * (Number.isFinite(price) ? (price as number) : 0);
+      if (!tokenID) {
+        setToast({ tone: "error", message: "This outcome is missing a CLOB token id." });
+        return;
+      }
+      if (safeShares <= 0 || orderValue <= 0) {
+        setToast({ tone: "error", message: "Enter an order size greater than 0." });
+        return;
+      }
 
-      try {
-        if (!isConnected) {
-          setToast({ tone: "error", message: "Connect a wallet before trading." });
-          return;
-        }
-        if (chainId !== 137) {
-          setToast({ tone: "error", message: "Switch to Polygon mainnet before trading." });
-          return;
-        }
-        if (!tokenID) {
-          setToast({ tone: "error", message: "This outcome is missing a CLOB token id." });
-          return;
-        }
-        if (safeShares <= 0 || orderValue <= 0) {
-          setToast({ tone: "error", message: "Enter an order size greater than 0." });
-          return;
-        }
-        if (!walletClient) {
-          setToast({ tone: "error", message: "Connect a wallet before trading." });
-          return;
-        }
-
-        if (onUpdatePrices && (quoteIsStale || !Number.isFinite(price))) {
+      const submitOnce = async (forceDepositWallet = false) => {
+        let setup: Awaited<ReturnType<typeof ensureTradingReady>> | null = null;
+        let activeMarket = tradeMarket;
+        const initialOutcome = selectedOutcomeFromMarket(activeMarket, selectedOutcomeName);
+        const initialPrice = side === "Buy" ? outcomePriceForSide(activeMarket, initialOutcome?.name ?? "", "Buy") : outcomePriceForSide(activeMarket, initialOutcome?.name ?? "", "Sell");
+        if (onUpdatePrices && (quoteIsStale || !Number.isFinite(initialPrice))) {
           setTradeProgress("refreshing-quote");
           const refreshed = await refreshQuoteWithRetry();
           if (refreshed) {
+            activeMarket = refreshed;
             tradeMarket = refreshed;
           }
         }
 
-        const refreshedOutcome = selectedOutcomeFromMarket(tradeMarket, selectedOutcomeName);
+        const refreshedOutcome = selectedOutcomeFromMarket(activeMarket, selectedOutcomeName);
         const refreshedPrice =
           side === "Buy"
-            ? outcomePriceForSide(tradeMarket, refreshedOutcome?.name ?? "", "Buy")
-            : outcomePriceForSide(tradeMarket, refreshedOutcome?.name ?? "", "Sell");
-        const finalPrice = Number.isFinite(refreshedPrice) ? refreshedPrice : price;
+            ? outcomePriceForSide(activeMarket, refreshedOutcome?.name ?? "", "Buy")
+            : outcomePriceForSide(activeMarket, refreshedOutcome?.name ?? "", "Sell");
+        const finalPrice = Number.isFinite(refreshedPrice) ? refreshedPrice : initialPrice;
         if (!refreshedOutcome || !Number.isFinite(finalPrice)) {
-          setToast({ tone: "error", message: "Unable to refresh the quote. Try again in a moment." });
-          return;
+          throw new Error("Unable to refresh the quote. Try again in a moment.");
         }
         const finalOrderValue = safeShares * (finalPrice as number);
 
         let availableBalance = Number.MAX_SAFE_INTEGER;
         if (runtimeConfig.realTradingEnabled) {
-          const walletAddress = walletClient.account?.address;
-          if (!walletAddress) {
-            setToast({ tone: "error", message: "Connect a wallet before trading." });
-            return;
-          }
+          if (forceDepositWallet) markDepositWalletRequired(walletAddress);
           setup = await ensureTradingReady({
             walletClient,
             address: walletAddress as `0x${string}`,
@@ -454,8 +458,7 @@ export function MarketTradePanel({
         });
 
         if (!validation.ok) {
-          setToast({ tone: "error", message: userFacingTradeError(validation.errors[0] ?? "Trade validation failed.") });
-          return;
+          throw new Error(userFacingTradeError(validation.errors[0] ?? "Trade validation failed."));
         }
 
         if (!runtimeConfig.realTradingEnabled) {
@@ -483,11 +486,32 @@ export function MarketTradePanel({
         const nextOrderId = extractOrderId(response);
         setOrderId(nextOrderId);
         setToast({ tone: "success", message: nextOrderId ? `Order submitted: ${nextOrderId}` : `${side} order submitted.` });
+      };
+
+      setSubmittingSide(side);
+      setToast(null);
+      setOrderId("");
+      setTradeProgress("checking-wallet");
+
+      try {
+        await submitOnce(false);
       } catch (error) {
-        setToast({
-          tone: "error",
-          message: error instanceof Error ? error.message : "Polymarket rejected the order. Check wallet setup, balance, allowances, and market liquidity.",
-        });
+        if (!isDepositWalletRequiredError(error) || !walletAddress) {
+          setToast({
+            tone: "error",
+            message: error instanceof Error ? error.message : "Polymarket rejected the order. Check wallet setup, balance, allowances, and market liquidity.",
+          });
+          return;
+        }
+        try {
+          setTradeProgress("initializing-trading-wallet");
+          await submitOnce(true);
+        } catch (retryError) {
+          setToast({
+            tone: "error",
+            message: retryError instanceof Error ? retryError.message : "Polymarket rejected the order. Check wallet setup, balance, allowances, and market liquidity.",
+          });
+        }
       } finally {
         setSubmittingSide(null);
         setTradeProgress("idle");
@@ -596,7 +620,7 @@ export function MarketTradePanel({
         </div>
       </div>
 
-      <div className="traak-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 pb-8 sm:px-5">
+      <div ref={bodyRef} className="traak-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 pb-8 sm:px-5">
         {displayMarket.activeRangeWarning ? (
           <div className="mb-4 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm font-medium text-amber-100">
             Market moved outside active range

@@ -6,8 +6,8 @@ import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
-import { OrderType, placeMarketOrder, Side } from "@/lib/polymarket/orders";
-import { ensureTradingReady, resolveTradingWalletContext, type TradeProgress } from "@/lib/polymarket/tradeSetup";
+import { OrderType, placeMarketOrder, Side, isDepositWalletRequiredError } from "@/lib/polymarket/orders";
+import { ensureTradingReady, markDepositWalletRequired, resolveTradingWalletContext, type TradeProgress } from "@/lib/polymarket/tradeSetup";
 import type { Address } from "viem";
 
 const DEFAULT_SLIPPAGE_BPS = 300;
@@ -171,9 +171,10 @@ export default function PortfolioClient() {
       return;
     }
 
-    setSubmitting(true);
-    setTradeProgress("checking-wallet");
-    try {
+    const submitOnce = async (forceDepositWallet = false) => {
+      if (forceDepositWallet && address) {
+        markDepositWalletRequired(address as string);
+      }
       const setup = await ensureTradingReady({
         walletClient,
         address: address as Address,
@@ -191,7 +192,7 @@ export default function PortfolioClient() {
         funderAddress: setup.tradingWalletAddress,
       });
       setTradeProgress("submitting-order");
-      const response = await placeMarketOrder(client, {
+      return placeMarketOrder(client, {
         tokenID: position.tokenId,
         amount,
         currentPrice: price as number,
@@ -200,11 +201,29 @@ export default function PortfolioClient() {
         orderType: OrderType.FAK,
         negRisk: position.negativeRisk,
       });
+    };
+
+    setSubmitting(true);
+    setTradeProgress("checking-wallet");
+    try {
+      const response = await submitOnce(false);
       setNotice(`Sell order ${getOrderStatus(response)}.`);
       setSellState(null);
       await loadPositions("refresh");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to submit sell order.");
+      if (!isDepositWalletRequiredError(err) || !address) {
+        setError(err instanceof Error ? err.message : "Unable to submit sell order.");
+        return;
+      }
+      try {
+        setTradeProgress("initializing-trading-wallet");
+        const response = await submitOnce(true);
+        setNotice(`Sell order ${getOrderStatus(response)}.`);
+        setSellState(null);
+        await loadPositions("refresh");
+      } catch (retryErr) {
+        setError(retryErr instanceof Error ? retryErr.message : "Unable to submit sell order.");
+      }
     } finally {
       setSubmitting(false);
       setTradeProgress("idle");

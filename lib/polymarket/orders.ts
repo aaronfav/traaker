@@ -44,6 +44,11 @@ async function safeJson<T>(response: Response): Promise<T | null> {
   }
 }
 
+export function isDepositWalletRequiredError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /maker address not allowed|deposit wallet flow|deposit wallet required|must trade through a polymarket deposit wallet/i.test(message);
+}
+
 export async function fetchBuilderCode() {
   const localBuilderCode = getBuilderCode();
   if (localBuilderCode) return assertBuilderCodeReady(localBuilderCode);
@@ -128,7 +133,7 @@ export async function submitSignedOrder(input: { order: SignedOrder | Normalized
     if (/invalid authorization/i.test(haystack)) {
       throw new Error("Polymarket authorization expired. Retry the order after refreshing credentials.");
     }
-    if (/maker address not allowed|deposit wallet flow|deposit wallet required/i.test(haystack)) {
+    if (isDepositWalletRequiredError(haystack)) {
       throw new Error("This account must trade through a Polymarket deposit wallet. Deploy or fund the deposit wallet before trading.");
     }
     throw new Error(message);

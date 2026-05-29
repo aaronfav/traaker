@@ -7,9 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
-import { OrderType, placeLimitOrder, placeMarketOrder, Side, validateTrade } from "@/lib/polymarket/orders";
+import { OrderType, placeLimitOrder, placeMarketOrder, Side, validateTrade, isDepositWalletRequiredError } from "@/lib/polymarket/orders";
 import { getPositions } from "@/lib/polymarket/portfolio";
-import { ensureTradingReady, type TradeProgress } from "@/lib/polymarket/tradeSetup";
+import { ensureTradingReady, markDepositWalletRequired, type TradeProgress } from "@/lib/polymarket/tradeSetup";
 import type { PortfolioBalanceState } from "@/lib/polymarket/types";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
@@ -108,56 +108,53 @@ export function TradeTicket({
       }
 
       if (!walletClient) return;
-      const setup = await ensureTradingReady({
-        walletClient,
-        address: walletClient.account.address as `0x${string}`,
-        publicClient,
-        side: "Buy",
-        tokenId: tokenID,
-        amount: usdcAmount,
-        price: tradePrice,
-        onProgress: setTradeProgress,
-      });
-      const liveBalance = setup.balance as PortfolioBalanceState | null;
-      const liveUsdcBalance = liveBalance?.usdc.balance ?? Number.MAX_SAFE_INTEGER;
-      setAvailableBalance(liveBalance?.usdc.balance ?? null);
+      const submitOnce = async () => {
+        const setup = await ensureTradingReady({
+          walletClient,
+          address: walletClient.account.address as `0x${string}`,
+          publicClient,
+          side: "Buy",
+          tokenId: tokenID,
+          amount: usdcAmount,
+          price: tradePrice,
+          onProgress: setTradeProgress,
+        });
+        const liveBalance = setup.balance as PortfolioBalanceState | null;
+        const liveUsdcBalance = liveBalance?.usdc.balance ?? Number.MAX_SAFE_INTEGER;
+        setAvailableBalance(liveBalance?.usdc.balance ?? null);
 
-      const liveValidation = validateTrade({
-        walletConnected: isConnected,
-        chainId: chainId ?? 0,
-        tokenID,
-        amount: usdcAmount,
-        price: tradePrice,
-        slippageBps: parsedSlippage,
-        availableBalance: liveUsdcBalance,
-      });
+        const liveValidation = validateTrade({
+          walletConnected: isConnected,
+          chainId: chainId ?? 0,
+          tokenID,
+          amount: usdcAmount,
+          price: tradePrice,
+          slippageBps: parsedSlippage,
+          availableBalance: liveUsdcBalance,
+        });
 
-      if (!liveValidation.ok) {
-        setValidationErrors(liveValidation.errors);
-        setStatus("error");
-        setMessage(liveValidation.errors[0] ?? "Trade validation failed.");
-        return;
-      }
+        if (!liveValidation.ok) {
+          throw new Error(liveValidation.errors[0] ?? "Trade validation failed.");
+        }
 
-      setStatus("submitting");
-      setMessage("Submitting order.");
-      setTradeProgress("submitting-order");
+        setStatus("submitting");
+        setMessage("Submitting order.");
+        setTradeProgress("submitting-order");
 
-      const client = await createSignerClient({
-        signer: walletClient,
-        signatureType: setup.signatureType === 2 ? SignatureTypeV2.POLY_GNOSIS_SAFE : SignatureTypeV2.POLY_1271,
-        funderAddress: setup.tradingWalletAddress,
-      });
+        const client = await createSignerClient({
+          signer: walletClient,
+          signatureType: setup.signatureType === 2 ? SignatureTypeV2.POLY_GNOSIS_SAFE : SignatureTypeV2.POLY_1271,
+          funderAddress: setup.tradingWalletAddress,
+        });
 
-      const response =
-        mode === "limit"
-          ? await placeLimitOrder(client, {
+        return mode === "limit"
+          ? placeLimitOrder(client, {
               tokenID,
               price: tradePrice,
               size: estimatedShares,
               side: Side.BUY,
             })
-          : await placeMarketOrder(client, {
+          : placeMarketOrder(client, {
               tokenID,
               amount: usdcAmount,
               currentPrice: price,
@@ -165,7 +162,9 @@ export function TradeTicket({
               orderType: OrderType.FOK,
               side: Side.BUY,
             });
+      };
 
+      const response = await submitOnce();
       const nextOrderId = extractOrderId(response);
       setOrderId(nextOrderId);
       setStatus("pending");
@@ -175,6 +174,59 @@ export function TradeTicket({
       setMessage(nextOrderId ? `Order live or filled: ${nextOrderId}` : `Order submitted: ${JSON.stringify(response).slice(0, 180)}`);
       setReviewing(false);
     } catch (error) {
+      if (isDepositWalletRequiredError(error) && walletClient?.account?.address) {
+        try {
+          setTradeProgress("initializing-trading-wallet");
+          markDepositWalletRequired(walletClient.account.address as string);
+          const setup = await ensureTradingReady({
+            walletClient,
+            address: walletClient.account.address as `0x${string}`,
+            publicClient,
+            side: "Buy",
+            tokenId: tokenID,
+            amount: usdcAmount,
+            price: tradePrice,
+            onProgress: setTradeProgress,
+          });
+          const client = await createSignerClient({
+            signer: walletClient,
+            signatureType: setup.signatureType === 2 ? SignatureTypeV2.POLY_GNOSIS_SAFE : SignatureTypeV2.POLY_1271,
+            funderAddress: setup.tradingWalletAddress,
+          });
+          setStatus("submitting");
+          setMessage("Submitting order.");
+          setTradeProgress("submitting-order");
+          const response =
+            mode === "limit"
+              ? await placeLimitOrder(client, {
+                  tokenID,
+                  price: tradePrice,
+                  size: estimatedShares,
+                  side: Side.BUY,
+                })
+              : await placeMarketOrder(client, {
+                  tokenID,
+                  amount: usdcAmount,
+                  currentPrice: price,
+                  maxSlippageBps: parsedSlippage,
+                  orderType: OrderType.FOK,
+                  side: Side.BUY,
+                });
+          const nextOrderId = extractOrderId(response);
+          setOrderId(nextOrderId);
+          setStatus("pending");
+          setMessage(nextOrderId ? `Order accepted. Waiting for open-order refresh: ${nextOrderId}` : "Order accepted. Refreshing open orders.");
+          await Promise.allSettled([fetch("/api/polymarket/account", { cache: "no-store" }), getPositions()]);
+          setStatus("success");
+          setMessage(nextOrderId ? `Order live or filled: ${nextOrderId}` : `Order submitted: ${JSON.stringify(response).slice(0, 180)}`);
+          setReviewing(false);
+          return;
+        } catch (retryError) {
+          setStatus("error");
+          setMessage(retryError instanceof Error ? `Polymarket rejected the order: ${retryError.message}` : "Polymarket rejected the order. Check wallet setup, balance, allowances, and market liquidity.");
+          return;
+        }
+      }
       setStatus("error");
       setMessage(error instanceof Error ? `Polymarket rejected the order: ${error.message}` : "Polymarket rejected the order. Check wallet setup, balance, allowances, and market liquidity.");
     } finally {
