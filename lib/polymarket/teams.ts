@@ -162,6 +162,18 @@ function slugifyTeamName(value: string) {
   return cleanTeamText(value).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+function expandTeamPageSlugCandidates(query: string) {
+  const cleaned = cleanTeamText(query);
+  const parts = cleaned.split(/\s+/).filter(Boolean);
+  const candidates = new Set<string>();
+  if (cleaned) candidates.add(slugifyTeamName(cleaned));
+  if (parts.length > 1) {
+    candidates.add(slugifyTeamName(parts.slice(-1).join(" ")));
+    candidates.add(slugifyTeamName(parts.slice(-2).join(" ")));
+  }
+  return [...candidates].filter(Boolean);
+}
+
 function normalizeJsonLdText(value: unknown) {
   return cleanTeamText(String(value ?? ""));
 }
@@ -189,7 +201,18 @@ function parsePolymarketTeamPageLogo(html: string, teamName: string) {
         const alt = normalizeJsonLdText(data.alternateName);
         const logo = typeof data.logo === "string" ? normalizePolymarketLogoUrl(data.logo) : null;
         if (!logo) continue;
-        if (name === normalizedQuery || name === strippedQuery || alt === normalizedQuery || alt === strippedQuery) {
+        const matchesName =
+          name === normalizedQuery ||
+          name === strippedQuery ||
+          alt === normalizedQuery ||
+          alt === strippedQuery ||
+          normalizedQuery.endsWith(` ${name}`) ||
+          strippedQuery.endsWith(` ${name}`) ||
+          normalizedQuery.endsWith(` ${alt}`) ||
+          strippedQuery.endsWith(` ${alt}`) ||
+          normalizedQuery.endsWith(name) ||
+          strippedQuery.endsWith(name);
+        if (matchesName) {
           return {
             name: typeof data.name === "string" ? data.name.trim() : teamName,
             displayName: typeof data.name === "string" ? data.name.trim() : teamName,
@@ -230,7 +253,7 @@ async function fetchPolymarketTeamPageResolution(
     sport: context?.sport,
     outcomes: [query],
   });
-  const slugCandidates = [...new Set([query, cleanPolymarketTeamQuery(query), stripTeamSuffix(query), extractedTeams.outcomeTeamMap[query], ...extractedTeams.canonicalTeams]).values()]
+  const slugCandidates = [...new Set([query, cleanPolymarketTeamQuery(query), stripTeamSuffix(query), extractedTeams.outcomeTeamMap[query], ...extractedTeams.canonicalTeams, ...expandTeamPageSlugCandidates(query)]).values()]
     .filter((value): value is string => Boolean(value))
     .map((value) => cleanTeamText(value))
     .filter(Boolean)

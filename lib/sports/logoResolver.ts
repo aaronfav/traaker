@@ -750,8 +750,17 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
       sport: input.sport,
       marketTitle: input.marketTitle,
     },
-    { includeTeamPageLookup: false },
+    { includeTeamPageLookup: true },
   );
+  logLogoDebug("teams_lookup_result", {
+    marketTitle: input.marketTitle,
+    outcomeName: input.outcomeName,
+    normalizedInput: teamLogoResolution.match?.normalizedQuery ?? teamName,
+    matchedTeam: teamLogoResolution.match?.record.name ?? teamLogoResolution.match?.record.displayName ?? null,
+    resolvedLogoUrl: teamLogoResolution.logoUrl,
+    fallbackReason: teamLogoResolution.source === "teams" || teamLogoResolution.source === "team_page" ? null : teamLogoResolution.rejectionReason ?? "no /teams logo match",
+    resolutionSource: teamLogoResolution.source,
+  });
   if (teamLogoResolution.logoUrl && teamLogoResolution.match) {
     const matchedBy = teamLogoResolution.match.matchedBy;
     const confidence: SportsLogoConfidence =
@@ -789,6 +798,14 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
     rejectionReason: teamLogoResolution.rejectionReason ?? "no /teams logo match",
     cacheHit: true,
     lookupMs: Date.now() - startedAt,
+  });
+  logLogoDebug("logo_fallback", {
+    marketTitle: input.marketTitle,
+    outcomeName: input.outcomeName,
+    matchedTeam: teamLogoResolution.match?.record.name ?? teamLogoResolution.match?.record.displayName ?? null,
+    resolvedLogoUrl: teamLogoResolution.logoUrl,
+    fallbackReason: teamLogoResolution.rejectionReason ?? "no /teams logo match",
+    resolutionSource: teamLogoResolution.source,
   });
   debug?.finalResults.push(fallback);
   logLogoDebug("final_logo_result", { input: { ...input, resolvedTeamName: teamName }, result: fallback });
