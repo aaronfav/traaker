@@ -21,18 +21,9 @@ export function MarketLogoBadge({
   size?: number;
   className?: string;
 }) {
-  const [failedLogoUrl, setFailedLogoUrl] = useState<string | undefined>();
-  const displayLogoUrl = logoUrl?.trim() && failedLogoUrl !== logoUrl.trim() ? logoUrl.trim() : "";
-
-  if (process.env.NODE_ENV !== "production") {
-    console.debug("[Traak] MarketLogoBadge props", {
-      label,
-      logoUrl: logoUrl?.trim() || null,
-      displayLogoUrl: displayLogoUrl || null,
-      failedLogoUrl: failedLogoUrl || null,
-      size,
-    });
-  }
+  const [failedLogoUrls, setFailedLogoUrls] = useState<string[]>([]);
+  const trimmedLogoUrl = logoUrl?.trim() ?? "";
+  const displayLogoUrl = trimmedLogoUrl && !failedLogoUrls.includes(trimmedLogoUrl) ? trimmedLogoUrl : "";
 
   return (
     <span
@@ -48,7 +39,9 @@ export function MarketLogoBadge({
           height={size}
           src={displayLogoUrl}
           width={size}
-          onError={() => setFailedLogoUrl(displayLogoUrl)}
+          onError={() =>
+            setFailedLogoUrls((current) => (current.includes(displayLogoUrl) ? current : [...current, displayLogoUrl]))
+          }
         />
       ) : (
         <span className="leading-none">{initials(label)}</span>

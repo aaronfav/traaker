@@ -701,29 +701,10 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
   const category = normalizeSportsLogoCategory(input.category, input.sport);
   const entity = classifyLogoEntity(input, category);
   const participantType = input.participantType ?? null;
-  if (entity.entityType === "national_team" && entity.country) {
-    const result = sportsLogoResolution({
-      logoUrl: countryFlagUrl(entity.country),
-      teamName: entity.country.name,
-      source: "local",
-      confidence: "alias_match",
-      entityType: "national_team",
-      participantType: "country",
-      normalizedInput: entity.country.name,
-      acceptedReason: "country_flag",
-      cacheHit: true,
-      lookupMs: Date.now() - startedAt,
-    });
-    debug?.normalizedInput.push(result.normalizedInput);
-    debug?.candidateQueries.push(entity.country.name);
-    debug?.finalResults.push(result);
-    logLogoDebug("final_logo_result", { input, result });
-    return result;
-  }
-
   const candidate = normalizeTeamCandidate(input.outcomeName, input.marketTitle, input.category, input.sport);
-  const teamName = candidate?.teamName ?? "";
-  if (!candidate || !teamName || NON_TEAM_CATEGORIES.has(category)) {
+  const teamName = candidate?.teamName ?? input.outcomeName.trim();
+  const rawContext = `${input.category ?? ""} ${input.sport ?? ""} ${input.marketTitle ?? ""} ${input.outcomeName}`;
+  if (!candidate && entity.entityType !== "national_team") {
     const fallback = sportsLogoResolution({
       logoUrl: null,
       teamName: input.outcomeName.trim(),
@@ -742,6 +723,15 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
     return fallback;
   }
   debug?.normalizedInput.push(teamName);
+
+  if (input.polymarketLogoUrl || input.polymarketParticipantLogoUrl) {
+    logLogoDebug("market_metadata_logo", {
+      marketTitle: input.marketTitle,
+      outcomeName: input.outcomeName,
+      polymarketLogoUrl: input.polymarketLogoUrl ?? null,
+      polymarketParticipantLogoUrl: input.polymarketParticipantLogoUrl ?? null,
+    });
+  }
 
   const teamLogoResolution = await resolvePolymarketTeamLogo(
     input.outcomeName,
@@ -762,6 +752,15 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
     resolutionSource: teamLogoResolution.source,
   });
   if (teamLogoResolution.logoUrl && teamLogoResolution.match) {
+    if (entity.entityType === "national_team" && entity.country) {
+      logLogoDebug("provider_logo_rejected_for_national_team", {
+        marketTitle: input.marketTitle,
+        outcomeName: input.outcomeName,
+        matchedTeam: teamLogoResolution.match.record.name ?? teamLogoResolution.match.record.displayName ?? null,
+        resolvedLogoUrl: teamLogoResolution.logoUrl,
+        resolutionSource: teamLogoResolution.source,
+      });
+    } else {
     const matchedBy = teamLogoResolution.match.matchedBy;
     const confidence: SportsLogoConfidence =
       matchedBy === "abbreviation"
@@ -782,6 +781,77 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
       lookupMs: Date.now() - startedAt,
     });
     debug?.normalizedInput.push(result.normalizedInput);
+    debug?.finalResults.push(result);
+    logLogoDebug("final_logo_result", { input, result });
+    return result;
+    }
+  }
+
+  const sportsDbLogoResolution = await fetchTheSportsDbTeamLogo(teamName, category, rawContext, candidate?.confidence ?? "fallback", debug);
+  logLogoDebug("sportsdb_lookup_result", {
+    marketTitle: input.marketTitle,
+    outcomeName: input.outcomeName,
+    matchedTeam: sportsDbLogoResolution?.teamName ?? null,
+    resolvedLogoUrl: sportsDbLogoResolution?.logoUrl ?? null,
+    fallbackReason: sportsDbLogoResolution ? null : "no SportsDB match",
+    resolutionSource: sportsDbLogoResolution?.source ?? null,
+  });
+  if (sportsDbLogoResolution?.logoUrl) {
+    if (entity.entityType === "national_team" && entity.country) {
+      logLogoDebug("provider_logo_rejected_for_national_team", {
+        marketTitle: input.marketTitle,
+        outcomeName: input.outcomeName,
+        matchedTeam: sportsDbLogoResolution.teamName,
+        resolvedLogoUrl: sportsDbLogoResolution.logoUrl,
+        resolutionSource: sportsDbLogoResolution.source,
+      });
+    } else {
+    debug?.finalResults.push(sportsDbLogoResolution);
+    logLogoDebug("final_logo_result", { input, result: sportsDbLogoResolution });
+    return sportsDbLogoResolution;
+    }
+  }
+
+  const sportsMonksLogoResolution = await fetchSportsMonksTeamLogo(teamName, category, candidate?.confidence ?? "fallback", input.sportsMonksTeamId, debug);
+  logLogoDebug("sportmonks_lookup_result", {
+    marketTitle: input.marketTitle,
+    outcomeName: input.outcomeName,
+    matchedTeam: sportsMonksLogoResolution?.teamName ?? null,
+    resolvedLogoUrl: sportsMonksLogoResolution?.logoUrl ?? null,
+    fallbackReason: sportsMonksLogoResolution ? null : "no SportMonks match",
+    resolutionSource: sportsMonksLogoResolution?.source ?? null,
+  });
+  if (sportsMonksLogoResolution?.logoUrl) {
+    if (entity.entityType === "national_team" && entity.country) {
+      logLogoDebug("provider_logo_rejected_for_national_team", {
+        marketTitle: input.marketTitle,
+        outcomeName: input.outcomeName,
+        matchedTeam: sportsMonksLogoResolution.teamName,
+        resolvedLogoUrl: sportsMonksLogoResolution.logoUrl,
+        resolutionSource: sportsMonksLogoResolution.source,
+      });
+    } else {
+    debug?.finalResults.push(sportsMonksLogoResolution);
+    logLogoDebug("final_logo_result", { input, result: sportsMonksLogoResolution });
+    return sportsMonksLogoResolution;
+    }
+  }
+
+  if (entity.entityType === "national_team" && entity.country) {
+    const result = sportsLogoResolution({
+      logoUrl: countryFlagUrl(entity.country),
+      teamName: entity.country.name,
+      source: "local",
+      confidence: "alias_match",
+      entityType: "national_team",
+      participantType: "country",
+      normalizedInput: entity.country.name,
+      acceptedReason: "country_flag",
+      cacheHit: true,
+      lookupMs: Date.now() - startedAt,
+    });
+    debug?.normalizedInput.push(result.normalizedInput);
+    debug?.candidateQueries.push(entity.country.name);
     debug?.finalResults.push(result);
     logLogoDebug("final_logo_result", { input, result });
     return result;

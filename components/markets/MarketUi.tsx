@@ -94,8 +94,8 @@ export function OutcomeCard({
   onClick: () => void;
 }) {
   const testId = `outcome-logo-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "option"}`;
-  const [failedLogoUrl, setFailedLogoUrl] = useState<string | undefined>();
-  const displayLogoUrl = logoUrl && failedLogoUrl !== logoUrl ? logoUrl : undefined;
+  const [failedLogoUrls, setFailedLogoUrls] = useState<string[]>([]);
+  const displayLogoUrl = logoUrl && !failedLogoUrls.includes(logoUrl) ? logoUrl : undefined;
   const logoIsExternal = displayLogoUrl ? /^https?:\/\//i.test(displayLogoUrl) : false;
 
   return (
@@ -111,9 +111,29 @@ export function OutcomeCard({
       <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full border border-slate-700/70 bg-slate-950/80 shadow-inner shadow-black/30">
         {displayLogoUrl && logoIsExternal ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img data-testid={testId} data-logo-url={displayLogoUrl} src={displayLogoUrl} alt="" width={32} height={32} className="h-8 w-8 object-contain" loading="lazy" decoding="async" onError={() => setFailedLogoUrl(displayLogoUrl)} />
+          <img
+            data-testid={testId}
+            data-logo-url={displayLogoUrl}
+            src={displayLogoUrl}
+            alt=""
+            width={32}
+            height={32}
+            className="h-8 w-8 object-contain"
+            loading="lazy"
+            decoding="async"
+            onError={() => setFailedLogoUrls((current) => (current.includes(displayLogoUrl) ? current : [...current, displayLogoUrl]))}
+          />
         ) : displayLogoUrl ? (
-          <Image data-testid={testId} data-logo-url={displayLogoUrl} src={displayLogoUrl} alt="" width={32} height={32} className="h-8 w-8 object-contain" onError={() => setFailedLogoUrl(displayLogoUrl)} />
+          <Image
+            data-testid={testId}
+            data-logo-url={displayLogoUrl}
+            src={displayLogoUrl}
+            alt=""
+            width={32}
+            height={32}
+            className="h-8 w-8 object-contain"
+            onError={() => setFailedLogoUrls((current) => (current.includes(displayLogoUrl) ? current : [...current, displayLogoUrl]))}
+          />
         ) : fallbackIconSrc ? (
           <Image data-testid={testId} data-logo-url={fallbackIconSrc} src={fallbackIconSrc} alt="" width={28} height={28} className="h-7 w-7 object-contain opacity-85" />
         ) : (
