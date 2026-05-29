@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { EstimateRow, MarketPanelHeader, OutcomeCard } from "@/components/markets/MarketUi";
 import { categoryIcon, categoryIconSrc } from "@/lib/markets/category";
 import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
+import { sharedMarketOutcomeIconUrl, shouldUseOutcomeTeamLogos } from "@/lib/polymarket/marketDisplay";
 import { getTradeDisabledReason } from "@/lib/polymarket/readiness";
 import { placeMarketOrder, Side, validateTrade } from "@/lib/polymarket/orders";
 import { ensureTradingReady, resolveTradingWalletContext, type TradeProgress } from "@/lib/polymarket/tradeSetup";
@@ -168,6 +169,8 @@ export function MarketTradePanel({
   const category = displayMarket.category && displayMarket.category !== "Market" ? displayMarket.category : "";
   const categoryMark = categoryIcon(category);
   const categoryMarkSrc = categoryIconSrc(category);
+  const useTeamLogos = shouldUseOutcomeTeamLogos(displayMarket);
+  const sharedMarketLogo = sharedMarketOutcomeIconUrl(displayMarket) || categoryMarkSrc || undefined;
   const displayTitle = formatMarketTitle(displayMarket.title);
   const marketTime = formatMarketTime(displayMarket.startTime);
   const subtitle = [category || displayMarket.league || displayMarket.sport, marketTime].filter(Boolean).join(" · ");
@@ -595,12 +598,13 @@ export function MarketTradePanel({
           <div className="traak-scrollbar grid max-h-[min(44svh,460px)] gap-2 overflow-y-auto pr-1">
             {displayMarket.outcomes.map((outcome) => {
               const selected = outcome.name === selectedOutcome?.name;
+              const logoUrl = useTeamLogos ? confidentOutcomeLogo(outcome) : sharedMarketLogo;
               return (
                 <OutcomeCard
                   key={`${displayMarket.id}-${outcome.name}`}
                   name={outcome.name}
                   price={formatCents(outcome.price)}
-                  logoUrl={confidentOutcomeLogo(outcome)}
+                  logoUrl={logoUrl}
                   teamDisplayName={outcome.teamDisplayName}
                   fallbackIcon={categoryMark}
                   fallbackIconSrc={categoryMarkSrc}

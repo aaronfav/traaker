@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MarketTradePanel } from "@/components/MarketTradePanel";
 import { marketStore, type MarketValueState } from "@/app/store/marketStore";
-import { hasUsefulFavoredPrice, isUsefulFavoredPrice } from "@/lib/polymarket/marketDisplay";
+import { hasUsefulFavoredPrice, isUsefulFavoredPrice, sharedMarketOutcomeIconUrl, shouldUseOutcomeTeamLogos } from "@/lib/polymarket/marketDisplay";
 import { deriveMarketCategory } from "@/lib/markets/category";
 import { findTeamStyleMatch, marketBubbleRadius, momentumGlowColor } from "@/lib/sports/teamStyles";
 import type { TerminalMarket } from "@/lib/polymarket/types";
@@ -23,6 +23,7 @@ export type MarketBubbleNode = {
   marketUrl?: string;
   polymarketUrl?: string;
   tradeUrl?: string;
+  image?: string;
   logoUrl?: string;
   logoPath?: string;
   primaryColor: string;
@@ -457,7 +458,9 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
   const favored = getFavoredOutcome(market);
   const outcomes = getMarketOutcomes(market);
   const style = marketColors(market, favored.name);
+  const useTeamLogos = shouldUseOutcomeTeamLogos(market);
   const confidentLogo = (outcome?: MarketOutcomeOption) =>
+    useTeamLogos &&
     outcome?.outcomeLogoUrl &&
     outcome.isLogoOutcome !== false &&
     outcome.entityType !== "fallback" &&
@@ -467,6 +470,8 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
       : undefined;
   const favoredOutcomeLogo = confidentLogo(outcomes.find((outcome) => outcome.name === favored.name));
   const primaryOutcomeLogo = favoredOutcomeLogo ?? confidentLogo(outcomes.find((outcome) => confidentLogo(outcome)));
+  const sharedOutcomeLogo = sharedMarketOutcomeIconUrl(market);
+  const bubbleLogoUrl = useTeamLogos ? primaryOutcomeLogo : sharedOutcomeLogo;
   const val = Math.max(8, rankBubbleRadius(marketBubbleRadius(sizeBasis), index));
   const trendScore = trendScoreForMarket(market, volume);
   const position = seededPosition(market.id);
@@ -486,8 +491,9 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
     marketUrl: `/markets/${market.id}`,
     polymarketUrl: market.slug ? `https://polymarket.com/event/${market.slug}` : undefined,
     tradeUrl: `/trade/${market.id}`,
-    logoUrl: primaryOutcomeLogo,
+    logoUrl: bubbleLogoUrl ?? undefined,
     logoPath: style.logoPath,
+    image: market.image ?? undefined,
     primaryColor: style.primary,
     secondaryColor: style.secondary,
     glowColor: momentumGlowColor(priceChange, volume),
