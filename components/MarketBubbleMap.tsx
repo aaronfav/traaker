@@ -2091,7 +2091,7 @@ export function MarketBubbleMap({
   return (
     <div
       aria-label={`${bodyCount} sports market bubble map`}
-      className="relative h-[clamp(430px,62svh,620px)] w-full overflow-hidden rounded-xl border border-slate-800/90 bg-[#01030a] shadow-[0_28px_90px_rgba(0,0,0,0.36),inset_0_1px_0_rgba(255,255,255,0.04)] md:h-[clamp(440px,calc(100svh-19rem),620px)]"
+      className="relative h-[clamp(430px,62svh,620px)] w-full overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_28px_90px_rgba(0,0,0,0.36),inset_0_1px_0_rgba(255,255,255,0.04)] md:h-[clamp(440px,calc(100svh-19rem),620px)]"
       onClick={handleClick}
       onMouseLeave={handleMouseLeave}
       onMouseMove={handleMouseMove}
@@ -2105,17 +2105,17 @@ export function MarketBubbleMap({
 
       {hoveredMarket ? (
         <div
-          className="pointer-events-none absolute z-20 w-72 rounded-lg border border-slate-700/80 bg-slate-950/92 p-3 text-xs text-slate-200 shadow-2xl shadow-black/40 backdrop-blur"
+          className="pointer-events-none absolute z-20 w-72 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--foreground)] shadow-2xl shadow-black/40 backdrop-blur"
           style={{ left: Math.min(pointer.x + 14, Math.max(12, dimensions.width - 300)), top: Math.min(pointer.y + 14, Math.max(12, dimensions.height - 140)) }}
         >
-          <p className="line-clamp-2 font-semibold text-slate-50">{hoveredMarket.title}</p>
-          <div className="mt-2 grid grid-cols-2 gap-2 text-slate-400">
+          <p className="line-clamp-2 font-semibold text-[var(--foreground)]">{hoveredMarket.title}</p>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-[var(--muted)]">
             <span>Favored</span>
-            <span className="text-right text-slate-100">
+            <span className="text-right text-[var(--foreground)]">
               {hoveredMarket.favoredOutcome} {formatCents(hoveredMarket.favoredPrice)}
             </span>
             <span>Liquidity</span>
-            <span className="text-right text-slate-100">{money(hoveredMarket.liquidity)}</span>
+            <span className="text-right text-[var(--foreground)]">{money(hoveredMarket.liquidity)}</span>
             <span>Movement</span>
             <span className={hoveredMarket.priceChange >= 0 ? "text-right text-emerald-200" : "text-right text-rose-200"}>{pct(hoveredMarket.priceChange)}</span>
           </div>
@@ -2129,15 +2129,15 @@ export function MarketBubbleMap({
       ) : null}
 
       {isRefreshing ? (
-        <div className="absolute left-3 top-3 z-20 flex items-center gap-2 rounded-full border border-cyan-400/25 bg-slate-950/78 px-3 py-1.5 text-xs font-semibold text-cyan-100 shadow-xl shadow-black/30 backdrop-blur-md">
+        <div className="absolute left-3 top-3 z-20 flex items-center gap-2 rounded-full border border-cyan-400/25 bg-[var(--surface)] px-3 py-1.5 text-xs font-semibold text-cyan-600 shadow-xl shadow-black/30 backdrop-blur-md dark:text-cyan-100">
           <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.9)]" />
           Refreshing markets
         </div>
       ) : null}
 
       {bodyCount === 0 && !loadingVisible ? (
-        <div className="absolute inset-0 z-20 grid place-items-center px-6 text-center text-sm font-medium text-slate-400">
-          <div className="rounded-xl border border-slate-800/90 bg-slate-950/68 px-5 py-4 shadow-xl shadow-black/20 backdrop-blur-xl">
+        <div className="absolute inset-0 z-20 grid place-items-center px-6 text-center text-sm font-medium text-[var(--muted)]">
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 py-4 shadow-xl shadow-black/20 backdrop-blur-xl">
             No sports markets matched this view.
           </div>
         </div>

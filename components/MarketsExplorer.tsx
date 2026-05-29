@@ -206,8 +206,8 @@ export function MarketsExplorer({
   const categoryCta = sport === "All" ? "Explore markets" : `Explore ${sport}`;
 
   return (
-    <section className="relative w-full overflow-hidden bg-[radial-gradient(circle_at_50%_0%,rgba(34,211,238,0.09),transparent_34rem),linear-gradient(180deg,#05070d_0%,#07101a_46%,#04070d_100%)]">
-      <div className="border-b border-slate-800/80 bg-[#0a101c]/82 shadow-xl shadow-black/25 backdrop-blur-2xl">
+    <section className="relative w-full overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
+      <div className="border-b border-[var(--border)] bg-[var(--surface)] shadow-xl shadow-black/25 backdrop-blur-2xl">
         <div className="mx-auto flex w-full max-w-[118rem] flex-col gap-4 px-5 py-4 sm:px-7 lg:flex-row lg:items-center lg:px-10">
           <div className="flex flex-wrap items-center gap-3">
             {sportPills.map((item) => {
@@ -218,7 +218,7 @@ export function MarketsExplorer({
                   className={`h-12 rounded-xl border px-4 text-sm font-bold shadow-lg shadow-black/15 transition duration-200 ${
                     active
                       ? "border-cyan-300/70 bg-cyan-300/12 text-cyan-100 shadow-[0_0_26px_rgba(34,211,238,0.12)] hover:bg-cyan-300/16"
-                      : "border-slate-800 bg-slate-950/35 text-slate-200 hover:border-slate-700 hover:bg-slate-900/80"
+                      : "border-[var(--border)] bg-[var(--surface-3)] text-[var(--foreground)] hover:border-slate-700 hover:bg-[var(--surface-2)]"
                   }`}
                   key={item.label}
                 onClick={() => activateSport(item.label)}
@@ -255,7 +255,7 @@ export function MarketsExplorer({
             <label className="relative block flex-1 lg:max-w-md">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
               <Input
-                className="h-12 rounded-xl border-slate-800 bg-slate-950/70 pl-11 text-sm shadow-inner shadow-black/25 transition focus:border-cyan-300/60 placeholder:text-slate-500"
+                className="h-12 rounded-xl pl-11 text-sm shadow-inner shadow-black/25 transition focus:border-cyan-300/60 placeholder:text-[var(--muted)]"
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search markets..."
                 value={query}
@@ -263,7 +263,7 @@ export function MarketsExplorer({
             </label>
             <Button
               aria-label="Refresh markets"
-              className="h-12 rounded-xl border border-slate-800 bg-slate-950/35 px-4 text-sm font-semibold text-slate-300 transition hover:border-slate-700 hover:bg-slate-900 hover:text-slate-100"
+              className="h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-3)] px-4 text-sm font-semibold text-[var(--foreground)] transition hover:border-slate-700 hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
               disabled={isLoading}
               onClick={() => setRefreshNonce((value) => value + 1)}
               size="sm"
@@ -360,10 +360,10 @@ export function MarketsExplorer({
         <div className="mt-5 rounded-2xl border border-slate-800/90 bg-slate-900/58 p-4 shadow-xl shadow-black/25 backdrop-blur-xl">
           <div className="mb-4 flex items-end justify-between gap-3">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Trending Now</p>
-              <h2 className="mt-1 text-lg font-semibold text-slate-50">Popular market collections</h2>
+              <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--muted)]">Trending Now</p>
+              <h2 className="mt-1 text-lg font-semibold text-[var(--foreground)]">Popular market collections</h2>
             </div>
-            <p className="hidden text-sm text-slate-400 sm:block">Tap a card to switch the board.</p>
+            <p className="hidden text-sm text-[var(--muted)] sm:block">Tap a card to switch the board.</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {featuredCategories.map((item) => {
@@ -374,7 +374,7 @@ export function MarketsExplorer({
                   className={`group flex min-h-[96px] items-center justify-between gap-3 rounded-xl border p-4 text-left transition duration-200 ${
                     active
                       ? "border-cyan-300/60 bg-cyan-300/10 shadow-[0_0_24px_rgba(34,211,238,0.10),inset_0_1px_0_rgba(255,255,255,0.04)]"
-                      : "border-slate-800 bg-slate-950/35 hover:-translate-y-0.5 hover:border-cyan-400/35 hover:bg-cyan-400/8 hover:shadow-lg hover:shadow-black/20"
+                      : "border-[var(--border)] bg-[var(--surface-3)] hover:-translate-y-0.5 hover:border-cyan-400/35 hover:bg-cyan-400/8 hover:shadow-lg hover:shadow-black/20"
                   }`}
                   key={item.title}
                   onClick={() => {
@@ -385,15 +385,15 @@ export function MarketsExplorer({
                   <div className="flex min-w-0 items-center gap-3">
                     <SportIcon src={item.icon} fallback={item.fallback} className="h-9 w-9" />
                     <div className="min-w-0">
-                      <span className="block truncate font-bold text-slate-100">{item.title}</span>
-                      <span className="mt-1 block text-sm text-slate-400">{item.detail}</span>
+                      <span className="block truncate font-bold text-[var(--foreground)]">{item.title}</span>
+                      <span className="mt-1 block text-sm text-[var(--muted)]">{item.detail}</span>
                     </div>
                   </div>
                   <span
                     className={`grid h-9 w-9 shrink-0 place-items-center rounded-full border transition ${
                       active
                         ? "border-cyan-300/30 bg-cyan-300/14 text-cyan-100"
-                        : "border-slate-700 bg-slate-950/60 text-slate-400 group-hover:border-cyan-300/30 group-hover:text-cyan-100"
+                        : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] group-hover:border-cyan-300/30 group-hover:text-cyan-100"
                     }`}
                   >
                     <ArrowRight className="h-4 w-4" />

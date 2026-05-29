@@ -558,7 +558,7 @@ export function MarketTradePanel({
   return (
     <aside
       aria-label="Market trading panel"
-      className="absolute inset-x-0 bottom-0 z-30 flex max-h-[92svh] max-w-full flex-col overflow-hidden overscroll-contain border-t border-slate-800/90 bg-[#070a12]/96 shadow-2xl shadow-black/70 backdrop-blur-2xl md:inset-x-auto md:bottom-0 md:right-0 md:top-0 md:h-full md:max-h-none md:w-[clamp(420px,33vw,560px)] md:border-l md:border-t-0"
+      className="absolute inset-x-0 bottom-0 z-30 flex max-h-[92svh] max-w-full flex-col overflow-hidden overscroll-contain border-t border-[var(--border)] bg-[var(--surface)] shadow-2xl shadow-black/70 backdrop-blur-2xl md:inset-x-auto md:bottom-0 md:right-0 md:top-0 md:h-full md:max-h-none md:w-[clamp(420px,33vw,560px)] md:border-l md:border-t-0"
       onClick={(event) => event.stopPropagation()}
     >
       <MarketPanelHeader
@@ -595,31 +595,6 @@ export function MarketTradePanel({
         }
         />
 
-      <div className="border-b border-slate-800/85 bg-[#070a12]/96 px-4 py-3 md:hidden">
-        <div className="flex items-center gap-2">
-          <Button
-            aria-label="Back to markets"
-            className="h-11 flex-1 justify-start gap-2 rounded-xl border border-slate-800 bg-slate-950/55 px-3 text-sm font-semibold text-slate-100 shadow-lg shadow-black/15"
-            onClick={onClose}
-            type="button"
-            variant="ghost"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to markets
-          </Button>
-          <Button
-            aria-label="Close market details"
-            className="h-11 w-11 rounded-xl border border-slate-800 bg-slate-950/55 text-slate-300 shadow-lg shadow-black/15"
-            onClick={onClose}
-            size="icon"
-            type="button"
-            variant="ghost"
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-
       <div ref={bodyRef} className="traak-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 pb-8 sm:px-5">
         {displayMarket.activeRangeWarning ? (
           <div className="mb-4 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm font-medium text-amber-100">
@@ -627,23 +602,35 @@ export function MarketTradePanel({
           </div>
         ) : null}
 
-        <div className="rounded-xl border border-slate-800/90 bg-slate-950/55 p-3 shadow-xl shadow-black/20">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-3)] p-3 shadow-xl shadow-black/20">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
               <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Outcomes</p>
               <p className="mt-1 text-sm text-slate-400">Pick the outcome you want to trade.</p>
             </div>
-            {polymarketUrl ? (
-              <a
-                className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-200 transition hover:text-cyan-100"
-                href={polymarketUrl}
-                rel="noreferrer"
-                target={polymarketUrl.startsWith("http") ? "_blank" : undefined}
+            <div className="flex items-center gap-2">
+              <Button
+                aria-label="Back to markets"
+                className="h-8 gap-1.5 rounded-full px-3 text-xs font-semibold md:hidden"
+                onClick={onClose}
+                type="button"
+                variant="outline"
               >
-                Polymarket
-                <ExternalLink className="h-3 w-3" />
-              </a>
-            ) : null}
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Back
+              </Button>
+              {polymarketUrl ? (
+                <a
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-600 transition hover:text-cyan-500 dark:text-cyan-200 dark:hover:text-cyan-100"
+                  href={polymarketUrl}
+                  rel="noreferrer"
+                  target={polymarketUrl.startsWith("http") ? "_blank" : undefined}
+                >
+                  Polymarket
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              ) : null}
+            </div>
           </div>
           <div className="grid gap-2 pr-1 md:traak-scrollbar md:max-h-[min(52svh,540px)] md:overflow-y-auto md:pr-2">
             {displayMarket.outcomes.map((outcome) => {
@@ -666,10 +653,10 @@ export function MarketTradePanel({
           </div>
         </div>
 
-        <label className="mt-4 block rounded-xl border border-slate-800/90 bg-slate-950/55 p-3 text-sm shadow-xl shadow-black/10">
-          <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Shares</span>
+        <label className="mt-4 block rounded-xl border border-[var(--border)] bg-[var(--surface-3)] p-3 text-sm shadow-xl shadow-black/10">
+          <span className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Shares</span>
           <Input
-            className="mt-2 h-12 rounded-lg border-slate-800 bg-black/70 text-base font-semibold shadow-inner shadow-black/20"
+            className="mt-2 h-12 rounded-lg text-base font-semibold shadow-inner shadow-black/20"
             min="0"
             onChange={(event) => setShares(event.target.value)}
             step="1"
@@ -678,18 +665,18 @@ export function MarketTradePanel({
           />
         </label>
 
-        <div className="mt-4 divide-y divide-slate-800/80 overflow-hidden rounded-xl border border-slate-800/90 bg-[linear-gradient(180deg,rgba(15,23,42,0.82),rgba(2,6,23,0.72))] text-sm shadow-xl shadow-black/15">
-          <div className="border-b border-slate-800/80 px-4 py-3">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Estimate</p>
+        <div className="mt-4 divide-y divide-[var(--border)] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-3)] text-sm shadow-xl shadow-black/15">
+          <div className="border-b border-[var(--border)] px-4 py-3">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Estimate</p>
           </div>
           <EstimateRow label="Est. cost" value={Number.isFinite(buyPrice) ? `$${(safeShares * (buyPrice as number)).toFixed(2)}` : "--"} />
           <EstimateRow label="Est. proceeds" value={Number.isFinite(sellPrice) ? `$${(safeShares * (sellPrice as number)).toFixed(2)}` : "--"} accent />
         </div>
 
         {orderId ? (
-          <div className="mt-4 rounded-xl border border-slate-800 bg-black/35 p-3 text-xs text-slate-400">
-            <span className="text-slate-500">Order hash/id</span>
-            <p className="mt-1 break-all font-mono text-slate-200">{orderId}</p>
+          <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-3)] p-3 text-xs text-[var(--muted)]">
+            <span className="text-[var(--muted)]">Order hash/id</span>
+            <p className="mt-1 break-all font-mono text-[var(--foreground)]">{orderId}</p>
           </div>
         ) : null}
 
@@ -697,10 +684,10 @@ export function MarketTradePanel({
           <div
             className={`mt-4 flex gap-2 rounded-lg border p-3 text-sm ${
               toast.tone === "success"
-                ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
-                : toast.tone === "error"
-                  ? "border-rose-400/30 bg-rose-400/10 text-rose-100"
-                  : "border-cyan-400/30 bg-cyan-400/10 text-cyan-100"
+              ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
+              : toast.tone === "error"
+                ? "border-rose-400/30 bg-rose-400/10 text-rose-100"
+                : "border-cyan-400/30 bg-cyan-400/10 text-cyan-100"
             }`}
           >
             {toast.tone === "success" ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />}
@@ -709,10 +696,10 @@ export function MarketTradePanel({
         ) : null}
       </div>
 
-      <div className="border-t border-slate-800/90 bg-[#070a12]/98 px-4 py-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-18px_38px_rgba(0,0,0,0.4)] sm:py-3">
+      <div className="border-t border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-18px_38px_rgba(0,0,0,0.4)] sm:py-3">
         <div className="grid grid-cols-2 gap-3">{actionButtons}</div>
         {tradeProgress !== "idle" ? (
-          <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-cyan-200">
+          <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-cyan-600 dark:text-cyan-200">
             {tradeProgress === "checking-wallet"
               ? "Checking wallet"
               : tradeProgress === "initializing-trading-wallet"
@@ -726,7 +713,7 @@ export function MarketTradePanel({
                       : "Submitting order"}
           </p>
         ) : null}
-        {tradeDisabledReason ? <p className="mt-2 text-[11px] leading-4 text-amber-200">{tradeDisabledReason}</p> : null}
+        {tradeDisabledReason ? <p className="mt-2 text-[11px] leading-4 text-amber-600 dark:text-amber-200">{tradeDisabledReason}</p> : null}
       </div>
 
       {toast ? (

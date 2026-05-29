@@ -36,7 +36,7 @@ export function WalletConnectButton() {
 
         return (
           <button
-            className="inline-flex h-11 items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-4 text-sm font-bold text-slate-100 shadow-lg shadow-black/20 transition hover:border-cyan-300/40 hover:bg-slate-900"
+            className="inline-flex h-11 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 text-sm font-bold text-[var(--foreground)] shadow-lg shadow-black/20 transition hover:border-cyan-300/40 hover:bg-[var(--surface-2)]"
             onClick={openAccountModal}
             type="button"
           >
