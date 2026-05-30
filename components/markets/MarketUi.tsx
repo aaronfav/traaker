@@ -23,7 +23,7 @@ export function TagPill({
         : "border-slate-700/70 bg-slate-900/60 text-slate-200";
 
   return (
-    <span className={`inline-flex min-w-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold ${toneClass}`}>
+    <span data-tone={tone} className={`traak-market-chip inline-flex min-w-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold ${toneClass}`}>
       {icon ? <span className="shrink-0 leading-none">{icon}</span> : null}
       <span className="truncate">{children}</span>
     </span>
@@ -48,7 +48,7 @@ export function MarketPanelHeader({
   actions: ReactNode;
 }) {
   return (
-    <div className="sticky top-0 z-20 flex items-start justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-4 shadow-[0_10px_24px_rgba(0,0,0,0.16)] backdrop-blur-2xl sm:px-5">
+    <div className="traak-trade-panel-header sticky top-0 z-20 flex items-start justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-4 shadow-[0_10px_24px_rgba(0,0,0,0.16)] backdrop-blur-2xl sm:px-5">
       <div className="min-w-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           {category ? (
@@ -64,10 +64,10 @@ export function MarketPanelHeader({
           </TagPill>
           <span className="min-w-0 truncate text-xs font-medium text-[var(--muted)]">{timestamp}</span>
         </div>
-        <h2 className="mt-4 line-clamp-3 max-w-full overflow-hidden break-words text-xl font-semibold leading-tight text-[var(--foreground)] [overflow-wrap:anywhere] sm:line-clamp-2 sm:text-2xl">
+        <h2 className="mt-3.5 line-clamp-3 max-w-full overflow-hidden break-words text-xl font-semibold leading-tight text-[var(--foreground)] [overflow-wrap:anywhere] sm:line-clamp-2 sm:text-2xl">
           {title}
         </h2>
-        {subtitle ? <p className="mt-2 truncate text-sm font-medium text-[var(--muted)]">{subtitle}</p> : null}
+        {subtitle ? <p className="mt-1.5 truncate text-sm font-medium text-[var(--muted)]">{subtitle}</p> : null}
       </div>
       <div className="flex shrink-0 items-center gap-1">{actions}</div>
     </div>
@@ -100,7 +100,8 @@ export function OutcomeCard({
 
   return (
     <button
-      className={`grid min-h-[66px] w-full grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border px-3 py-3 text-left transition duration-200 ${
+      aria-pressed={selected}
+      className={`traak-outcome-card grid min-h-[66px] w-full grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border px-3 py-3 text-left transition duration-200 ${
         selected
           ? "border-cyan-300/70 bg-cyan-300/10 text-[var(--foreground)] shadow-[0_0_20px_rgba(34,211,238,0.1),inset_0_1px_0_rgba(255,255,255,0.05)]"
           : "border-[var(--border)] bg-[var(--surface-3)] text-[var(--foreground)] hover:border-cyan-300/60 hover:bg-[var(--surface-2)]"
@@ -155,7 +156,7 @@ export function OutcomeCard({
 
 export function EstimateRow({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div className="flex items-center justify-between gap-4 px-4 py-3">
+    <div className="traak-estimate-row flex items-center justify-between gap-4 px-4 py-3">
       <span className="text-sm font-medium text-[var(--muted)]">{label}</span>
       <span className={`shrink-0 text-sm font-bold tabular-nums ${accent ? "text-emerald-300" : "text-[var(--foreground)]"}`}>{value}</span>
     </div>

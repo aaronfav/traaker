@@ -595,15 +595,15 @@ export function MarketTradePanel({
         }
         />
 
-      <div ref={bodyRef} className="traak-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 pb-8 sm:px-5">
+      <div ref={bodyRef} className="traak-scrollbar traak-trade-panel-body min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 pb-8 sm:px-5">
         {displayMarket.activeRangeWarning ? (
           <div className="mb-4 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm font-medium text-amber-100">
             Market moved outside active range
           </div>
         ) : null}
 
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-3)] p-3 shadow-xl shadow-black/20">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="traak-trade-panel-section rounded-xl border border-[var(--border)] bg-[var(--surface-3)] p-3 shadow-xl shadow-black/20">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Outcomes</p>
               <p className="mt-1 text-sm text-slate-400">Pick the outcome you want to trade.</p>
@@ -632,7 +632,7 @@ export function MarketTradePanel({
               ) : null}
             </div>
           </div>
-          <div className="grid gap-2 pr-1 md:traak-scrollbar md:max-h-[min(52svh,540px)] md:overflow-y-auto md:pr-2">
+          <div className="grid gap-2.5 pr-1 md:traak-scrollbar md:max-h-[min(52svh,540px)] md:overflow-y-auto md:pr-2">
             {displayMarket.outcomes.map((outcome) => {
               const selected = outcome.name === selectedOutcome?.name;
               const logoUrl = confidentOutcomeLogo(outcome, useTeamLogos ? undefined : sharedMarketLogo) ?? sharedMarketLogo;
@@ -653,7 +653,7 @@ export function MarketTradePanel({
           </div>
         </div>
 
-        <label className="mt-4 block rounded-xl border border-[var(--border)] bg-[var(--surface-3)] p-3 text-sm shadow-xl shadow-black/10">
+        <label className="traak-trade-panel-section mt-4 block rounded-xl border border-[var(--border)] bg-[var(--surface-3)] p-3 text-sm shadow-xl shadow-black/10">
           <span className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Shares</span>
           <Input
             className="mt-2 h-12 rounded-lg text-base font-semibold shadow-inner shadow-black/20"
@@ -665,7 +665,7 @@ export function MarketTradePanel({
           />
         </label>
 
-        <div className="mt-4 divide-y divide-[var(--border)] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-3)] text-sm shadow-xl shadow-black/15">
+        <div className="traak-trade-panel-section mt-4 divide-y divide-[var(--border)] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-3)] text-sm shadow-xl shadow-black/15">
           <div className="border-b border-[var(--border)] px-4 py-3">
             <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Estimate</p>
           </div>
@@ -674,7 +674,7 @@ export function MarketTradePanel({
         </div>
 
         {orderId ? (
-          <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-3)] p-3 text-xs text-[var(--muted)]">
+          <div className="traak-trade-panel-section mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-3)] p-3 text-xs text-[var(--muted)]">
             <span className="text-[var(--muted)]">Order hash/id</span>
             <p className="mt-1 break-all font-mono text-[var(--foreground)]">{orderId}</p>
           </div>
@@ -696,7 +696,7 @@ export function MarketTradePanel({
         ) : null}
       </div>
 
-      <div className="border-t border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-18px_38px_rgba(0,0,0,0.4)] sm:py-3">
+      <div className="traak-trade-panel-footer border-t border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-18px_38px_rgba(0,0,0,0.4)] sm:py-3">
         <div className="grid grid-cols-2 gap-3">{actionButtons}</div>
         {tradeProgress !== "idle" ? (
           <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-cyan-600 dark:text-cyan-200">
