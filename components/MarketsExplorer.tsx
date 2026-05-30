@@ -355,7 +355,9 @@ export function MarketsExplorer({
           </div>
         ) : null}
 
-        <MarketBubbleMap activeSport={sport} isLoading={isInitialLoading} isRefreshing={isRefreshing} markets={visibleMarkets} />
+        <div className="traak-market-stage-shell rounded-[1.75rem] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[0_24px_90px_rgba(15,23,42,0.12)]">
+          <MarketBubbleMap activeSport={sport} isLoading={isInitialLoading} isRefreshing={isRefreshing} markets={visibleMarkets} />
+        </div>
 
         <div className="traak-collection-panel mt-5 rounded-2xl border border-slate-800/90 bg-slate-900/58 p-4 shadow-xl shadow-black/25 backdrop-blur-xl">
           <div className="mb-4 flex items-end justify-between gap-3">
@@ -406,9 +408,13 @@ export function MarketsExplorer({
       </div>
 
       {selectedSearchMarket ? (
-        <div className="fixed inset-0 z-40 bg-black/10" onClick={() => setSelectedSearchMarket(null)}>
-          <MarketTradePanel key={selectedSearchMarket.id} market={selectedSearchMarket} onClose={closeSelectedMarket} onUpdatePrices={fetchLatestMarketForNode} />
-        </div>
+        <MarketTradePanel
+          key={selectedSearchMarket.id}
+          market={selectedSearchMarket}
+          onClose={closeSelectedMarket}
+          onUpdatePrices={fetchLatestMarketForNode}
+          presentation="modal"
+        />
       ) : null}
     </section>
   );

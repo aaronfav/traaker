@@ -2143,28 +2143,17 @@ export function MarketBubbleMap({
         </div>
       ) : null}
       {selectedMarket ? (
-        <>
-          <div
-            aria-hidden="true"
-            className="absolute inset-0 z-20 bg-black/10"
-            onClick={(event) => {
-              event.stopPropagation();
-              setSelectedMarketId(null);
-              setSelectedPanelSnapshot(null);
-              marketStore.setSelectedMarketId(null);
-            }}
-          />
-          <MarketTradePanel
-            key={selectedMarket.id}
-            market={selectedMarket}
-            onUpdatePrices={fetchLatestMarketForNode}
-            onClose={() => {
-              setSelectedMarketId(null);
-              setSelectedPanelSnapshot(null);
-              marketStore.setSelectedMarketId(null);
-            }}
-          />
-        </>
+        <MarketTradePanel
+          key={selectedMarket.id}
+          market={selectedMarket}
+          onUpdatePrices={fetchLatestMarketForNode}
+          onClose={() => {
+            setSelectedMarketId(null);
+            setSelectedPanelSnapshot(null);
+            marketStore.setSelectedMarketId(null);
+          }}
+          presentation="modal"
+        />
       ) : null}
     </div>
   );

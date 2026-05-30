@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, ArrowLeft, CheckCircle2, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -144,11 +144,14 @@ export function MarketTradePanel({
   market,
   onUpdatePrices,
   onClose,
+  presentation = "drawer",
 }: {
   market: MarketBubbleNode;
   onUpdatePrices?: (market: MarketBubbleNode) => Promise<MarketBubbleNode | null>;
   onClose: () => void;
+  presentation?: "drawer" | "modal";
 }) {
+  const isModal = presentation === "modal";
   const { chainId, isConnected } = useOptionalAccount();
   const publicClient = useOptionalPublicClient();
   const walletClient = useOptionalWalletClient();
@@ -238,6 +241,15 @@ export function MarketTradePanel({
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: 0, behavior: "auto" });
   }, [market.id]);
+
+  useEffect(() => {
+    if (!isModal) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isModal, onClose]);
 
   useEffect(() => {
     let active = true;
@@ -556,11 +568,25 @@ export function MarketTradePanel({
   );
 
   return (
-    <aside
-      aria-label="Market trading panel"
-      className="traak-trade-panel absolute inset-x-0 bottom-0 z-30 flex max-h-[92svh] max-w-full flex-col overflow-hidden overscroll-contain border-t border-[var(--border)] bg-[var(--surface)] shadow-2xl shadow-black/70 backdrop-blur-2xl md:inset-x-auto md:bottom-0 md:right-0 md:top-0 md:h-full md:max-h-none md:w-[clamp(420px,33vw,560px)] md:border-l md:border-t-0"
-      onClick={(event) => event.stopPropagation()}
-    >
+    <>
+      {isModal ? (
+        <div
+          aria-hidden="true"
+          className="fixed inset-0 z-40 bg-slate-950/58 backdrop-blur-[2px]"
+          onClick={onClose}
+        />
+      ) : null}
+      <aside
+        aria-label="Market trading panel"
+        aria-modal={isModal ? true : undefined}
+        className={
+          isModal
+            ? "traak-trade-panel traak-trade-panel-modal fixed inset-0 z-50 flex h-[100svh] w-full max-w-none flex-col overflow-hidden overscroll-contain border-0 bg-[var(--surface)] shadow-[0_40px_120px_rgba(15,23,42,0.28)] backdrop-blur-2xl sm:left-1/2 sm:top-1/2 sm:h-[min(88svh,900px)] sm:w-[min(100vw-2rem,1040px)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[1.75rem] sm:border sm:border-[var(--border)]"
+            : "traak-trade-panel absolute inset-x-0 bottom-0 z-30 flex max-h-[92svh] max-w-full flex-col overflow-hidden overscroll-contain border-t border-[var(--border)] bg-[var(--surface)] shadow-2xl shadow-black/70 backdrop-blur-2xl md:inset-x-auto md:bottom-0 md:right-0 md:top-0 md:h-full md:max-h-none md:w-[clamp(420px,33vw,560px)] md:border-l md:border-t-0"
+        }
+        role={isModal ? "dialog" : "complementary"}
+        onClick={(event) => event.stopPropagation()}
+      >
       <MarketPanelHeader
         category={category}
         categoryIcon={categoryMark ? <span className="text-sm leading-none">{categoryMark}</span> : undefined}
@@ -583,13 +609,14 @@ export function MarketTradePanel({
             </Button>
             <Button
               aria-label="Close market details"
-              className="hidden h-8 w-8 md:inline-flex"
+              className={`h-8 ${isModal ? "gap-1.5 rounded-full px-3 text-xs font-semibold" : "w-8"}`}
               onClick={onClose}
-              size="icon"
+              size={isModal ? "default" : "icon"}
               type="button"
-              variant="ghost"
+              variant={isModal ? "outline" : "ghost"}
             >
               <X className="h-4 w-4" />
+              {isModal ? <span className="hidden sm:inline">Close</span> : null}
             </Button>
           </div>
         }
@@ -609,16 +636,6 @@ export function MarketTradePanel({
               <p className="mt-1 text-sm text-slate-400">Pick the outcome you want to trade.</p>
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                aria-label="Back to markets"
-                className="h-8 gap-1.5 rounded-full px-3 text-xs font-semibold md:hidden"
-                onClick={onClose}
-                type="button"
-                variant="outline"
-              >
-                <ArrowLeft className="h-3.5 w-3.5" />
-                Back
-              </Button>
               {polymarketUrl ? (
                 <a
                   className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-600 transition hover:text-cyan-500 dark:text-cyan-200 dark:hover:text-cyan-100"
@@ -726,5 +743,6 @@ export function MarketTradePanel({
         </div>
       ) : null}
     </aside>
+    </>
   );
 }
