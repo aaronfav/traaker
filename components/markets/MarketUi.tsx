@@ -78,18 +78,28 @@ export function OutcomeCard({
   name,
   price,
   logoUrl,
+  flagUrl,
   teamDisplayName,
   fallbackIcon,
   fallbackIconSrc,
+  recentForm,
+  ranking,
+  record,
+  oddsLabel,
   selected,
   onClick,
 }: {
   name: string;
   price: string;
   logoUrl?: string;
+  flagUrl?: string;
   teamDisplayName?: string;
   fallbackIcon?: string;
   fallbackIconSrc?: string;
+  recentForm?: string[];
+  ranking?: number;
+  record?: string;
+  oddsLabel?: string;
   selected: boolean;
   onClick: () => void;
 }) {
@@ -109,7 +119,7 @@ export function OutcomeCard({
       onClick={onClick}
       type="button"
     >
-      <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)] shadow-inner shadow-black/30">
+      <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)] shadow-inner shadow-black/30">
         {displayLogoUrl && logoIsExternal ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -142,9 +152,30 @@ export function OutcomeCard({
             {fallbackIcon || (teamDisplayName ?? name).slice(0, 1).toUpperCase()}
           </span>
         )}
+        {flagUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            alt=""
+            className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full border border-white/70 object-cover shadow-lg shadow-black/20"
+            src={flagUrl}
+          />
+        ) : null}
       </span>
       <span className="min-w-0 overflow-hidden self-center">
         <span className="line-clamp-2 break-words text-[0.95rem] font-semibold leading-snug [overflow-wrap:anywhere]">{teamDisplayName || name}</span>
+        <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--muted)]">
+          {typeof ranking === "number" ? <span className="rounded-full border border-[var(--border)] px-2 py-0.5 font-semibold">#{ranking}</span> : null}
+          {record ? <span className="rounded-full border border-[var(--border)] px-2 py-0.5 font-semibold">{record}</span> : null}
+          {oddsLabel ? <span className="rounded-full border border-[var(--border)] px-2 py-0.5 font-semibold text-cyan-500">{oddsLabel}</span> : null}
+        </span>
+        {recentForm?.length ? (
+          <span className="mt-1.5 flex items-center gap-1">
+            {recentForm.slice(0, 5).map((symbol, index) => {
+              const tone = symbol === "W" ? "bg-emerald-500/80" : symbol === "L" ? "bg-rose-500/80" : "bg-slate-400/70";
+              return <span key={`${name}-form-${index}`} className={`h-1.5 w-4 rounded-full ${tone}`} />;
+            })}
+          </span>
+        ) : null}
       </span>
       <span className="flex shrink-0 items-center justify-end gap-2 pl-2 text-right text-lg font-black tabular-nums">
         {price}

@@ -330,10 +330,6 @@ export function MarketsExplorer({
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <h1 className="traak-market-heading text-3xl font-bold tracking-tight text-[var(--foreground)] sm:text-4xl">Live Markets</h1>
-            <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-600 dark:text-emerald-300">
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-300 shadow-[0_0_14px_rgba(52,211,153,0.9)]" />
-              Live
-            </span>
           </div>
           <Button
             className="h-11 rounded-xl border border-[var(--border)] bg-[var(--surface-3)] px-4 text-sm font-semibold text-[var(--foreground)] shadow-lg shadow-black/15 transition hover:border-cyan-400/35 hover:bg-cyan-400/8"

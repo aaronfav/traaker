@@ -6,6 +6,7 @@ import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EstimateRow, MarketPanelHeader, OutcomeCard } from "@/components/markets/MarketUi";
+import type { EnrichedMarket } from "@/lib/sports/enrichmentTypes";
 import { categoryIcon, categoryIconSrc } from "@/lib/markets/category";
 import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
 import { sharedMarketOutcomeIconUrl, shouldUseOutcomeTeamLogos } from "@/lib/polymarket/marketDisplay";
@@ -17,6 +18,8 @@ import {
   resolveTradingWalletContext,
   type TradeProgress,
 } from "@/lib/polymarket/tradeSetup";
+import { countryFlagUrl, resolveCountryTeam } from "@/lib/sports/countryTeams";
+import { normalizeSportsEntityName } from "@/lib/sports/sportsResolverService";
 import type { MarketBubbleNode } from "@/components/MarketBubbleMap";
 
 const QUOTE_REFRESH_MS = 10_000;
@@ -176,6 +179,8 @@ export function MarketTradePanel({
   const [quoteExpiresAt, setQuoteExpiresAt] = useState(() => Date.now() + QUOTE_REFRESH_MS);
   const [quoteRetryAt, setQuoteRetryAt] = useState<number | null>(null);
   const [quoteStatus, setQuoteStatus] = useState<QuoteStatus>("healthy");
+  const [enrichment, setEnrichment] = useState<EnrichedMarket | null>(null);
+  const [enrichmentError, setEnrichmentError] = useState("");
   const refreshInFlightRef = useRef(false);
   const mountedRef = useRef(true);
   const activeMarketIdRef = useRef(market.id);
@@ -191,7 +196,7 @@ export function MarketTradePanel({
   const sharedMarketLogo = sharedMarketOutcomeIconUrl(displayMarket) || categoryMarkSrc || undefined;
   const displayTitle = formatMarketTitle(displayMarket.title);
   const marketTime = formatMarketTime(displayMarket.startTime);
-  const subtitle = [category || displayMarket.league || displayMarket.sport, marketTime].filter(Boolean).join(" · ");
+  const subtitle = [category || displayMarket.league || displayMarket.sport, marketTime].filter(Boolean).join(" - ");
   const selectedOutcomeIndex = Math.max(0, displayMarket.outcomes.findIndex((outcome) => outcome.name === selectedOutcome?.name));
   const buyPrice = priceForSide(displayMarket, selectedOutcomeIndex, "Buy");
   const sellPrice = priceForSide(displayMarket, selectedOutcomeIndex, "Sell");
@@ -205,6 +210,14 @@ export function MarketTradePanel({
   const secondsSinceUpdate = quoteUpdatedAt !== null ? Math.max(0, Math.floor((quoteNow - quoteUpdatedAt) / 1000)) : null;
   const quoteLabel = quoteStatus === "refreshing" ? "Refreshing quote" : formatSeconds(secondsSinceUpdate);
   const polymarketUrl = displayMarket.polymarketUrl ?? displayMarket.marketUrl;
+  const enrichmentParticipantsByName = useMemo(() => {
+    const map = new Map<string, NonNullable<EnrichedMarket["participants"]>[number]>();
+    for (const participant of enrichment?.participants ?? []) {
+      map.set(normalizeSportsEntityName(participant.name), participant);
+    }
+    return map;
+  }, [enrichment?.participants]);
+  const enrichmentSummary = enrichment?.context.standings ?? enrichment?.context.headToHead ?? enrichment?.context.lastGames?.join(" - ");
   const tradeDisabledReason = getTradeDisabledReason({
     configReady: runtimeConfig.clobReady,
     configError: runtimeConfig.missingSetupReason,
@@ -241,6 +254,36 @@ export function MarketTradePanel({
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: 0, behavior: "auto" });
   }, [market.id]);
+
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+    setEnrichment(null);
+    setEnrichmentError("");
+    void fetch("/api/markets/enrich", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ market }),
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const payload = (await response.json().catch(() => null)) as { market?: EnrichedMarket; error?: string } | null;
+        if (!active) return;
+        if (!response.ok) {
+          setEnrichmentError(payload?.error ?? "Unable to enrich this market.");
+          return;
+        }
+        setEnrichment(payload?.market ?? null);
+      })
+      .catch(() => {
+        if (active) setEnrichmentError("Unable to enrich this market.");
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [market]);
 
   useEffect(() => {
     if (!isModal) return;
@@ -636,6 +679,15 @@ export function MarketTradePanel({
               <p className="mt-1 text-sm text-slate-400">Pick the outcome you want to trade.</p>
             </div>
             <div className="flex items-center gap-2">
+              <Button
+                aria-label="Back to markets"
+                className="h-8 gap-1.5 rounded-full px-3 text-xs font-semibold"
+                onClick={onClose}
+                type="button"
+                variant="outline"
+              >
+                Back
+              </Button>
               {polymarketUrl ? (
                 <a
                   className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-600 transition hover:text-cyan-500 dark:text-cyan-200 dark:hover:text-cyan-100"
@@ -653,15 +705,22 @@ export function MarketTradePanel({
             {displayMarket.outcomes.map((outcome) => {
               const selected = outcome.name === selectedOutcome?.name;
               const logoUrl = confidentOutcomeLogo(outcome, useTeamLogos ? undefined : sharedMarketLogo) ?? sharedMarketLogo;
+              const participant = enrichmentParticipantsByName.get(normalizeSportsEntityName(outcome.name));
+              const flag = participant?.country ? resolveCountryTeam(participant.country) : null;
               return (
                 <OutcomeCard
                   key={`${displayMarket.id}-${outcome.name}`}
                   name={outcome.name}
                   price={formatCents(outcome.price)}
                   logoUrl={logoUrl}
+                  flagUrl={flag ? countryFlagUrl(flag) : undefined}
                   teamDisplayName={outcome.teamDisplayName}
                   fallbackIcon={categoryMark}
                   fallbackIconSrc={categoryMarkSrc}
+                  recentForm={participant?.recentForm}
+                  ranking={participant?.ranking}
+                  record={participant?.record}
+                  oddsLabel={enrichment?.oddsComparison?.label ? enrichment.oddsComparison.label : undefined}
                   selected={selected}
                   onClick={() => setSelectedOutcomeName(outcome.name)}
                 />
@@ -669,6 +728,65 @@ export function MarketTradePanel({
             })}
           </div>
         </div>
+
+        {enrichment ? (
+          <div className="traak-trade-panel-section mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-3)] p-3 text-sm shadow-xl shadow-black/10">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Market Insight</p>
+                <p className="mt-1 font-semibold text-[var(--foreground)]">
+                  {enrichment.sport.toUpperCase()} {enrichment.marketType.replace("_", " ")}
+                </p>
+              </div>
+              <div className="flex flex-wrap justify-end gap-1.5">
+                {enrichment.smartTags.slice(0, 6).map((tag) => (
+                  <span key={tag} className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-[11px] font-semibold text-[var(--foreground)]">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+            {enrichmentSummary ? <p className="text-sm leading-5 text-[var(--muted)]">{enrichmentSummary}</p> : null}
+            {enrichment.context.injuries?.length ? (
+              <div className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Injuries</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {enrichment.context.injuries.slice(0, 4).map((item) => (
+                    <span key={item} className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--foreground)]">
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {enrichment.oddsComparison ? (
+              <div className="mt-3 grid gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 sm:grid-cols-2">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Bookmaker Avg</p>
+                  <p className="mt-1 text-base font-bold text-[var(--foreground)]">
+                    {enrichment.oddsComparison.bookmakerAverageProbability !== undefined ? `${Math.round(enrichment.oddsComparison.bookmakerAverageProbability * 100)}%` : "--"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Polymarket</p>
+                  <p className="mt-1 text-base font-bold text-[var(--foreground)]">
+                    {enrichment.oddsComparison.polymarketProbability !== undefined ? `${Math.round(enrichment.oddsComparison.polymarketProbability * 100)}%` : "--"}
+                  </p>
+                </div>
+                <div className="sm:col-span-2">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Signal</p>
+                  <p className="mt-1 font-semibold text-[var(--foreground)]">
+                    {enrichment.oddsComparison.label === "undervalued"
+                      ? "Bookmakers imply more upside than Polymarket."
+                      : enrichment.oddsComparison.label === "overpriced"
+                        ? "Bookmakers imply less upside than Polymarket."
+                        : "Bookmakers and Polymarket are broadly aligned."}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         <label className="traak-trade-panel-section mt-4 block rounded-xl border border-[var(--border)] bg-[var(--surface-3)] p-3 text-sm shadow-xl shadow-black/10">
           <span className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Shares</span>
@@ -711,6 +829,7 @@ export function MarketTradePanel({
             <span className="break-words">{toast.message}</span>
           </div>
         ) : null}
+        {enrichmentError ? <p className="mt-3 text-xs text-[var(--muted)]">{enrichmentError}</p> : null}
       </div>
 
       <div className="traak-trade-panel-footer border-t border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-18px_38px_rgba(0,0,0,0.4)] sm:py-3">
