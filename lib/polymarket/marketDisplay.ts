@@ -1,6 +1,7 @@
 import type { TerminalMarket } from "@/lib/polymarket/types";
 import { categoryIconSrc, deriveMarketCategory } from "@/lib/markets/category";
 import { extractMarketTeams } from "@/lib/sports/marketTeamExtractor";
+import { countryFlagUrl, resolveCountryTeam } from "@/lib/sports/countryTeams";
 
 export const USEFUL_FAVORED_PRICE_MIN = 0.11;
 export const USEFUL_FAVORED_PRICE_MAX = 0.94;
@@ -13,6 +14,18 @@ export type MarketOutcomeVisual = {
   displayName: string;
   logoUrl: string | null;
   fallbackLabel: string;
+};
+
+type MarketOutcomeOption = {
+  name: string;
+  teamDisplayName?: string;
+  polymarketParticipantName?: string;
+  polymarketTeamName?: string;
+  outcomeLogoUrl?: string | null;
+  polymarketParticipantLogoUrl?: string | null;
+  polymarketTeamLogoUrl?: string | null;
+  participantType?: NonNullable<NonNullable<TerminalMarket["outcomeOptions"]>[number]["participantType"]>;
+  entityType?: NonNullable<NonNullable<TerminalMarket["outcomeOptions"]>[number]["entityType"]>;
 };
 
 type MarketLogoSelectionInput = {
@@ -99,6 +112,46 @@ function cleanLogoUrl(value?: string | null) {
   return /^(https?:\/\/|\/)/i.test(url) ? url : null;
 }
 
+function marketOutcomeCountry(name: string, teamDisplayName?: string | null, participantCountry?: string | null) {
+  return (
+    resolveCountryTeam(participantCountry ?? "") ??
+    resolveCountryTeam(teamDisplayName ?? "") ??
+    resolveCountryTeam(name) ??
+    null
+  );
+}
+
+function isSharedMarketLogo(logoUrl: string | null, market: SharedMarketIconInput) {
+  if (!logoUrl) return false;
+  const sharedLogo = cleanLogoUrl(sharedMarketOutcomeIconUrl(market));
+  return Boolean(sharedLogo && logoUrl === sharedLogo);
+}
+
+export function resolveMarketOutcomeLogoUrl(
+  outcome: MarketOutcomeOption | undefined,
+  fallbackName: string,
+  market: SharedMarketIconInput,
+  participantLogoUrl?: string | null,
+  participantCountry?: string | null,
+) {
+  const name = outcome?.teamDisplayName?.trim() || outcome?.polymarketParticipantName?.trim() || outcome?.polymarketTeamName?.trim() || outcome?.name?.trim() || fallbackName;
+  const explicitLogo = cleanLogoUrl(outcome?.outcomeLogoUrl ?? null);
+  if (explicitLogo && !isSharedMarketLogo(explicitLogo, market)) return explicitLogo;
+
+  const country = marketOutcomeCountry(name, outcome?.teamDisplayName, participantCountry);
+  if (country && (outcome?.participantType === "country" || outcome?.entityType === "national_team" || country.name === name)) {
+    return countryFlagUrl(country);
+  }
+
+  const polymarketLogo = cleanLogoUrl(outcome?.polymarketParticipantLogoUrl ?? outcome?.polymarketTeamLogoUrl ?? null);
+  if (polymarketLogo && !isSharedMarketLogo(polymarketLogo, market)) return polymarketLogo;
+
+  const providerLogo = cleanLogoUrl(participantLogoUrl);
+  if (providerLogo && !isSharedMarketLogo(providerLogo, market)) return providerLogo;
+
+  return cleanLogoUrl(sharedMarketOutcomeIconUrl(market));
+}
+
 type SharedMarketIconInput = {
   image?: string | null;
   title?: string;
@@ -120,16 +173,12 @@ function fallbackLabel(name: string) {
 }
 
 function outcomeVisualFromOutcome(
-  outcome: NonNullable<TerminalMarket["outcomeOptions"]>[number] | undefined,
+  market: SharedMarketIconInput,
+  outcome: MarketOutcomeOption | undefined,
   fallbackName: string,
 ): MarketOutcomeVisual {
   const name = outcome?.teamDisplayName?.trim() || outcome?.polymarketParticipantName?.trim() || outcome?.polymarketTeamName?.trim() || outcome?.name?.trim() || fallbackName;
-  const logoUrl = cleanLogoUrl(
-    outcome?.outcomeLogoUrl ??
-      outcome?.polymarketParticipantLogoUrl ??
-      outcome?.polymarketTeamLogoUrl ??
-      null,
-  );
+  const logoUrl = resolveMarketOutcomeLogoUrl(outcome, fallbackName, market);
 
   return {
     name,
@@ -145,7 +194,7 @@ export function getMarketOutcomeVisuals(market: Pick<TerminalMarket, "outcomeOpt
   const noOutcome = outcomeOptions[1] ?? { name: market.outcomes.no };
 
   return {
-    yes: outcomeVisualFromOutcome(yesOutcome, market.outcomes.yes),
-    no: outcomeVisualFromOutcome(noOutcome, market.outcomes.no),
+    yes: outcomeVisualFromOutcome(market, yesOutcome, market.outcomes.yes),
+    no: outcomeVisualFromOutcome(market, noOutcome, market.outcomes.no),
   };
 }

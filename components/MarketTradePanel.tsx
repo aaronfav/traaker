@@ -9,7 +9,7 @@ import { EstimateRow, MarketPanelHeader, OutcomeCard } from "@/components/market
 import type { EnrichedMarket } from "@/lib/sports/enrichmentTypes";
 import { categoryIcon, categoryIconSrc } from "@/lib/markets/category";
 import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
-import { sharedMarketOutcomeIconUrl, shouldUseOutcomeTeamLogos } from "@/lib/polymarket/marketDisplay";
+import { resolveMarketOutcomeLogoUrl, sharedMarketOutcomeIconUrl } from "@/lib/polymarket/marketDisplay";
 import { getTradeDisabledReason } from "@/lib/polymarket/readiness";
 import { isDepositWalletRequiredError, placeMarketOrder, Side, validateTrade } from "@/lib/polymarket/orders";
 import {
@@ -27,7 +27,6 @@ const QUOTE_TICK_MS = 250;
 const QUOTE_RETRY_MS = 3_000;
 const DEFAULT_SHARES = "10";
 const DEFAULT_SLIPPAGE_BPS = 300;
-const POLYMARKET_UPLOAD_HOST = "https://polymarket-upload.s3.us-east-2.amazonaws.com/";
 const SHOW_ENRICHMENT_DEBUG = process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_ENRICHMENT_DEBUG === "1";
 
 type QuoteStatus = "healthy" | "refreshing" | "stale";
@@ -111,28 +110,6 @@ function selectedOutcomeFromMarket(market: MarketBubbleNode, preferred?: string 
   return market.outcomes.find((outcome) => outcome.name === preferred) ?? market.outcomes.find((outcome) => outcome.name === market.favoredOutcome) ?? market.outcomes[0];
 }
 
-function confidentOutcomeLogo(outcome: {
-  outcomeLogoUrl?: string;
-  polymarketParticipantLogoUrl?: string;
-  polymarketTeamLogoUrl?: string;
-  logoConfidence?: string;
-  isTeamOutcome?: boolean;
-  isLogoOutcome?: boolean;
-  entityType?: string;
-}, sharedLogo?: string | null) {
-  const resolved = outcome.outcomeLogoUrl ?? outcome.polymarketParticipantLogoUrl ?? outcome.polymarketTeamLogoUrl ?? sharedLogo ?? undefined;
-  if (!resolved) return undefined;
-  if (outcome.isLogoOutcome === false) return undefined;
-  if (outcome.entityType === "fallback" || outcome.entityType === "non_team") return undefined;
-  const hostIndex = resolved.lastIndexOf(POLYMARKET_UPLOAD_HOST);
-  const displayLogoUrl =
-    hostIndex > 0 ? `${POLYMARKET_UPLOAD_HOST}${resolved.slice(hostIndex + POLYMARKET_UPLOAD_HOST.length)}` : resolved;
-  if (!outcome.logoConfidence || ["exact_normalized_match", "alias_match", "league_team_match", "provider_exact_name", "provider_alias_name", "provider_shortcode"].includes(outcome.logoConfidence)) {
-    return displayLogoUrl;
-  }
-  return undefined;
-}
-
 function outcomePriceForSide(market: MarketBubbleNode, outcomeName: string, side: TradeSide) {
   const outcome = market.outcomes.find((item) => item.name === outcomeName);
   const outcomeIndex = Math.max(0, market.outcomes.findIndex((item) => item.name === outcome?.name));
@@ -213,7 +190,6 @@ export function MarketTradePanel({
   const category = displayMarket.category && displayMarket.category !== "Market" ? displayMarket.category : "";
   const categoryMark = categoryIcon(category);
   const categoryMarkSrc = categoryIconSrc(category);
-  const useTeamLogos = shouldUseOutcomeTeamLogos(displayMarket);
   const sharedMarketLogo = sharedMarketOutcomeIconUrl(displayMarket) || categoryMarkSrc || undefined;
   const displayTitle = formatMarketTitle(displayMarket.title);
   const marketTime = formatMarketTime(displayMarket.startTime);
@@ -763,16 +739,26 @@ export function MarketTradePanel({
           <div className="grid gap-2.5 pr-1 md:traak-scrollbar md:max-h-[min(52svh,540px)] md:overflow-y-auto md:pr-2">
             {displayMarket.outcomes.map((outcome) => {
               const selected = outcome.name === selectedOutcome?.name;
-              const logoUrl = confidentOutcomeLogo(outcome, useTeamLogos ? undefined : sharedMarketLogo) ?? sharedMarketLogo;
               const participant = enrichmentParticipantsByName.get(normalizeSportsEntityName(outcome.name));
-              const flag = participant?.country ? resolveCountryTeam(participant.country) : null;
+              const participantLogoUrl = participant?.logo ?? null;
+              const participantCountry = participant?.country ?? null;
+              const resolvedLogoUrl =
+                resolveMarketOutcomeLogoUrl(
+                  outcome,
+                  outcome.teamDisplayName ?? outcome.name,
+                  { title: displayMarket.title, image: displayMarket.image ?? undefined, sport: displayMarket.sport, league: displayMarket.league },
+                  participantLogoUrl,
+                  participantCountry,
+                ) ?? sharedMarketLogo;
+              const flag = participantCountry ? resolveCountryTeam(participantCountry) : resolveCountryTeam(outcome.teamDisplayName ?? outcome.name);
+              const flagUrl = flag ? countryFlagUrl(flag) : undefined;
               return (
                 <OutcomeCard
                   key={`${displayMarket.id}-${outcome.name}`}
                   name={outcome.name}
                   price={formatCents(outcome.price)}
-                  logoUrl={logoUrl}
-                  flagUrl={flag ? countryFlagUrl(flag) : undefined}
+                  logoUrl={resolvedLogoUrl}
+                  flagUrl={flagUrl && flagUrl !== resolvedLogoUrl ? flagUrl : undefined}
                   teamDisplayName={outcome.teamDisplayName}
                   fallbackIcon={categoryMark}
                   fallbackIconSrc={categoryMarkSrc}

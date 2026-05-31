@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ChevronDown, RefreshCw, Search, Sparkles } from "lucide-react";
+import { ChevronDown, RefreshCw, Search, Sparkles } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { fetchLatestMarketForNode, MarketBubbleMap, marketToBubbleNode, type MarketBubbleNode } from "@/components/MarketBubbleMap";
@@ -16,12 +16,6 @@ import type { TerminalMarket } from "@/lib/polymarket/types";
 
 const sports = ["NBA", "NFL", "Soccer", "UFC", "Tennis"] as const;
 const sportPills = sports.map((label) => ({ label, icon: categoryIconSrc(label), fallback: categoryIcon(label) }));
-const featuredCategories = [
-  { title: "NBA Playoffs", sport: "NBA" as const, detail: "124 markets", icon: categoryIconSrc("NBA"), fallback: categoryIcon("NBA") },
-  { title: "Champions League", sport: "Soccer" as const, detail: "88 markets", icon: categoryIconSrc("Soccer"), fallback: categoryIcon("Soccer") },
-  { title: "UFC 315", sport: "UFC" as const, detail: "42 markets", icon: categoryIconSrc("UFC"), fallback: categoryIcon("UFC") },
-  { title: "French Open", sport: "Tennis" as const, detail: "67 markets", icon: categoryIconSrc("Tennis"), fallback: categoryIcon("Tennis") },
-] as const;
 const rangeOptions = [
   { label: "1-50", start: 0, end: 50 },
   { label: "51-100", start: 50, end: 100 },
@@ -117,12 +111,6 @@ export function MarketsExplorer({
   const initialLoadLoggedRef = useRef(false);
   const closeSelectedMarket = useCallback(() => setSelectedSearchMarket(null), []);
   const activateSport = useCallback((nextSport: (typeof sports)[number]) => {
-    setSport(nextSport);
-    setRangeStart(0);
-    setQuery("");
-    setSelectedSearchMarket(null);
-  }, []);
-  const activateFeaturedCategory = useCallback((nextSport: (typeof sports)[number]) => {
     setSport(nextSport);
     setRangeStart(0);
     setQuery("");
@@ -355,52 +343,6 @@ export function MarketsExplorer({
           <MarketBubbleMap activeSport={sport} isLoading={isInitialLoading} isRefreshing={isRefreshing} markets={visibleMarkets} />
         </div>
 
-        <div className="traak-collection-panel mt-5 rounded-2xl border border-slate-800/90 bg-slate-900/58 p-4 shadow-xl shadow-black/25 backdrop-blur-xl">
-          <div className="mb-4 flex items-end justify-between gap-3">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--muted)]">Trending Now</p>
-              <h2 className="mt-1 text-lg font-semibold text-[var(--foreground)]">Popular market collections</h2>
-            </div>
-            <p className="hidden text-sm text-[var(--muted)] sm:block">Tap a card to switch the board.</p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {featuredCategories.map((item) => {
-              const active = sport === item.sport;
-              return (
-                <button
-                  aria-pressed={active}
-                  className={`traak-collection-card group flex min-h-[96px] items-center justify-between gap-3 rounded-xl border p-4 text-left transition duration-200 ${
-                    active
-                      ? "border-cyan-300/60 bg-cyan-300/10 shadow-[0_0_24px_rgba(34,211,238,0.10),inset_0_1px_0_rgba(255,255,255,0.04)]"
-                      : "border-[var(--border)] bg-[var(--surface-3)] hover:-translate-y-0.5 hover:border-cyan-400/35 hover:bg-cyan-400/8 hover:shadow-lg hover:shadow-black/20"
-                  }`}
-                  key={item.title}
-                  onClick={() => {
-                    activateFeaturedCategory(item.sport);
-                  }}
-                  type="button"
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <SportIcon src={item.icon} fallback={item.fallback} className="h-9 w-9" />
-                    <div className="min-w-0">
-                      <span className="block truncate font-bold text-[var(--foreground)]">{item.title}</span>
-                      <span className="mt-1 block text-sm text-[var(--muted)]">{item.detail}</span>
-                    </div>
-                  </div>
-                  <span
-                    className={`grid h-9 w-9 shrink-0 place-items-center rounded-full border transition ${
-                      active
-                        ? "border-cyan-300/30 bg-cyan-300/14 text-cyan-100"
-                        : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] group-hover:border-cyan-300/30 group-hover:text-cyan-100"
-                    }`}
-                  >
-                    <ArrowRight className="h-4 w-4" />
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
       </div>
 
       {selectedSearchMarket ? (
