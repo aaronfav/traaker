@@ -15,6 +15,10 @@ const GAMMA_SPORTS_EVENTS_PAGE_LIMIT = 100;
 const GAMMA_SPORTS_EVENTS_MAX_PAGES = 50;
 const GAMMA_EVENT_FETCH_TIMEOUT_MS = 12_000;
 
+function logoDebugEnabled() {
+  return process.env.NEXT_PUBLIC_LOGO_DEBUG === "1" || process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1";
+}
+
 const sportsTerms = [
   "nba",
   "nfl",
@@ -631,7 +635,7 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
         sport: market.sport,
         outcomes: market.outcomeOptions.map((outcome) => outcome.name),
       });
-      if (process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1") {
+      if (logoDebugEnabled()) {
         console.info("[Traak] sports logo debug", {
           message: "extracted_market_teams",
           marketTitle: market.title,
@@ -668,6 +672,29 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
           const matchedPolymarketTeamLogoUrl = matchedPolymarket?.logoUrl ?? null;
           const matchedPolymarketTeam = matchedPolymarket?.match ?? null;
           const matchedPolymarketDebug = matchedPolymarket?.debug ?? null;
+          if (logoDebugEnabled()) {
+            console.info("[Traak] sports logo debug", {
+              message: "outcome_logo_candidates",
+              marketTitle: market.title,
+              marketSlug: typeof market.slug === "string" ? market.slug : null,
+              outcomeName: outcome.name,
+              normalizedOutcomeName: canonicalTeam ?? outcome.name,
+              candidateLogoFields: {
+                outcomeLogoUrl: outcome.outcomeLogoUrl ?? null,
+                polymarketTeamLogoUrl: outcome.polymarketTeamLogoUrl ?? null,
+                polymarketParticipantLogoUrl: outcome.polymarketParticipantLogoUrl ?? null,
+                marketImage: market.image ?? null,
+                marketOutcomeLogos: (market as Record<string, unknown>).outcomeLogos ?? null,
+                marketTeamLogos: (market as Record<string, unknown>).teamLogos ?? null,
+                marketLogos: (market as Record<string, unknown>).logos ?? null,
+              },
+              teamLookupQuery: teamCandidates[0] ?? outcome.name,
+              teamLookupCandidates: teamCandidates,
+              matchedPolymarketTeam,
+              matchedPolymarketDebug,
+              matchedPolymarketTeamLogoUrl,
+            });
+          }
           if (!matchedPolymarketTeamLogoUrl && process.env.NODE_ENV !== "test" && process.env.LOGO_BACKGROUND_WARMUP !== "false") {
             for (const candidate of teamCandidates) warmupCandidates.add(candidate);
           }
@@ -682,20 +709,23 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
             sportsMonksTeamId: outcome.sportsMonksTeamId,
             participantType: outcome.participantType,
           });
-          if (process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1") {
+          if (logoDebugEnabled()) {
             console.info("[Traak] sports logo debug", {
               message: "outcome_logo_resolved",
               marketTitle: market.title,
+              marketSlug: typeof market.slug === "string" ? market.slug : null,
               rawOutcomeLabel: outcome.name,
               cleanedTeamCandidate: canonicalTeam ?? outcome.name,
               matchedPolymarketTeam,
               polymarketDebug: matchedPolymarketDebug,
               providerAttempted: logo.providerUsed,
               resolvedLogoUrl: logo.logoUrl,
+              selectedLogoUrl: logo.logoUrl,
               participantType: logo.participantType,
               lookupMs: logo.lookupMs,
               cacheHit: logo.cacheHit,
               genericLogoChosen: !logo.logoUrl || logo.entityType === "fallback" || logo.entityType === "non_team",
+              fallbackReason: !logo.logoUrl ? logo.rejectionReason ?? "no logo selected" : null,
             });
           }
           const confidentLogo = ["exact_normalized_match", "alias_match", "league_team_match", "provider_exact_name", "provider_alias_name", "provider_shortcode"].includes(logo.confidence);
@@ -707,7 +737,9 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
           delete baseOutcome.polymarketTeamLogoUrl;
           return {
             ...baseOutcome,
-            ...(matchedPolymarketTeamLogoUrl ? { polymarketTeamLogoUrl: matchedPolymarketTeamLogoUrl } : {}),
+            ...(matchedPolymarketTeamLogoUrl || outcome.polymarketTeamLogoUrl
+              ? { polymarketTeamLogoUrl: matchedPolymarketTeamLogoUrl ?? outcome.polymarketTeamLogoUrl }
+              : {}),
             ...(matchedPolymarketTeam?.record.id !== undefined ? { polymarketTeamId: matchedPolymarketTeam.record.id } : {}),
             ...(matchedPolymarketTeam?.record.abbreviation ? { polymarketTeamAbbreviation: matchedPolymarketTeam.record.abbreviation } : {}),
             ...(matchedPolymarketTeam?.record.name ? { polymarketTeamName: matchedPolymarketTeam.record.name } : {}),
@@ -743,7 +775,7 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
     }),
   );
 
-  if (process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1") {
+  if (logoDebugEnabled()) {
     console.info("[Traak] sports logo debug", {
       message: "enrich_market_outcome_logos",
       marketCount: markets.length,
@@ -842,7 +874,7 @@ export function warmMarketOutcomeLogos(markets: TerminalMarket[]) {
       participantType: task.participantType,
     }).catch(() => null);
   }).finally(() => {
-    if (process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1") {
+    if (logoDebugEnabled()) {
       console.info("[Traak] sports logo debug", {
         message: "logo_warmup_complete",
         taskCount: tasks.length,
@@ -1644,7 +1676,7 @@ async function discoverSportsMarketDiscovery(): Promise<SportsMarketDiscovery> {
 export async function fetchSportsMarketDiscovery(): Promise<SportsMarketDiscovery> {
   const startedAt = Date.now();
   const discovery = await discoverSportsMarketDiscovery();
-  if (process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1") {
+  if (logoDebugEnabled()) {
     console.info("[Traak] sports logo debug", {
       message: "market_fetch_time",
       durationMs: Date.now() - startedAt,
@@ -1721,7 +1753,7 @@ export async function fetchSportsMarkets(): Promise<TerminalMarket[]> {
   const discovery = await fetchSportsMarketDiscovery();
   const markets = discovery.markets;
   warmMarketOutcomeLogos(markets);
-  if (process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1") {
+  if (logoDebugEnabled()) {
     console.info("[Traak] sports logo debug", {
       message: "sports_markets_total_time",
       durationMs: Date.now() - startedAt,

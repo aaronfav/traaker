@@ -235,7 +235,7 @@ async function fetchPolymarketTeamPageResolution(
   options?: PolymarketTeamLookupOptions,
 ): Promise<PolymarketTeamLogoResolution | null> {
   const games = inferPolymarketTeamPageGames(context);
-  if (process.env.LOGO_DEBUG === "true") {
+  if (process.env.NEXT_PUBLIC_LOGO_DEBUG === "1" || process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1") {
     console.log("[Traak] polymarket team page games", {
       query,
       context,

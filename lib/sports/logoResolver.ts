@@ -129,7 +129,7 @@ function createSportsLogoDebugTrace(): SportsLogoDebugTrace {
 }
 
 function logoDebugEnabled() {
-  return process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1";
+  return process.env.NEXT_PUBLIC_LOGO_DEBUG === "1" || process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1";
 }
 
 function logLogoDebug(message: string, payload: Record<string, unknown>) {
@@ -704,6 +704,20 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
   const candidate = normalizeTeamCandidate(input.outcomeName, input.marketTitle, input.category, input.sport);
   const teamName = candidate?.teamName ?? input.outcomeName.trim();
   const rawContext = `${input.category ?? ""} ${input.sport ?? ""} ${input.marketTitle ?? ""} ${input.outcomeName}`;
+  logLogoDebug("logo_resolution_input", {
+    marketTitle: input.marketTitle ?? null,
+    outcomeName: input.outcomeName,
+    category: input.category ?? null,
+    sport: input.sport ?? null,
+    polymarketLogoUrl: input.polymarketLogoUrl ?? null,
+    polymarketParticipantLogoUrl: input.polymarketParticipantLogoUrl ?? null,
+    sportsMonksTeamId: input.sportsMonksTeamId ?? null,
+    participantType,
+    normalizedCandidate: teamName,
+    candidateConfidence: candidate?.confidence ?? null,
+    entityType: entity.entityType,
+    rejectionReason: entity.rejectionReason ?? null,
+  });
   if (entity.entityType === "non_team") {
     const fallback = sportsLogoResolution({
       logoUrl: null,
@@ -724,13 +738,32 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
   }
   debug?.normalizedInput.push(teamName);
 
-  if (input.polymarketLogoUrl || input.polymarketParticipantLogoUrl) {
-    logLogoDebug("market_metadata_logo", {
+  const metadataLogoUrl = input.polymarketLogoUrl ?? input.polymarketParticipantLogoUrl ?? null;
+  if (metadataLogoUrl) {
+    const result = sportsLogoResolution({
+      logoUrl: metadataLogoUrl,
+      teamName,
+      source: "polymarket",
+      confidence: candidate?.confidence ?? "alias_match",
+      entityType: entity.entityType,
+      ...(participantType ? { participantType } : {}),
+      normalizedInput: teamName,
+      acceptedReason: "polymarket_metadata_logo",
+      cacheHit: true,
+      lookupMs: Date.now() - startedAt,
+    });
+    debug?.finalResults.push(result);
+    logLogoDebug("market_metadata_logo_accepted", {
       marketTitle: input.marketTitle,
       outcomeName: input.outcomeName,
-      polymarketLogoUrl: input.polymarketLogoUrl ?? null,
-      polymarketParticipantLogoUrl: input.polymarketParticipantLogoUrl ?? null,
+      selectedLogoUrl: result.logoUrl,
+      normalizedInput: result.normalizedInput,
+      entityType: result.entityType,
+      confidence: result.confidence,
+      acceptedReason: result.acceptedReason,
     });
+    logLogoDebug("final_logo_result", { input, result });
+    return result;
   }
 
   const teamLogoResolution = await resolvePolymarketTeamLogo(
@@ -745,11 +778,15 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
   logLogoDebug("teams_lookup_result", {
     marketTitle: input.marketTitle,
     outcomeName: input.outcomeName,
+    teamLookupQuery: input.outcomeName,
+    teamLookupCandidates: teamLogoResolution.debug.attempts.flatMap((attempt) => attempt.candidates).slice(0, 12),
     normalizedInput: teamLogoResolution.match?.normalizedQuery ?? teamName,
     matchedTeam: teamLogoResolution.match?.record.name ?? teamLogoResolution.match?.record.displayName ?? null,
     resolvedLogoUrl: teamLogoResolution.logoUrl,
     fallbackReason: teamLogoResolution.source === "teams" || teamLogoResolution.source === "team_page" ? null : teamLogoResolution.rejectionReason ?? "no /teams logo match",
     resolutionSource: teamLogoResolution.source,
+    chosenCandidate: teamLogoResolution.debug.chosenCandidate,
+    attempts: teamLogoResolution.debug.attempts,
   });
   if (teamLogoResolution.logoUrl && teamLogoResolution.match) {
     if (entity.entityType === "national_team" && entity.country) {
