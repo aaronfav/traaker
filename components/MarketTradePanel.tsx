@@ -31,6 +31,7 @@ const POLYMARKET_UPLOAD_HOST = "https://polymarket-upload.s3.us-east-2.amazonaws
 
 type QuoteStatus = "healthy" | "refreshing" | "stale";
 type TradeSide = "Buy" | "Sell";
+type TradePanelTab = "trade" | "stats";
 type TradeToast = { tone: "success" | "error" | "info"; message: string };
 type RuntimeConfig = {
   realTradingEnabled: boolean;
@@ -56,6 +57,11 @@ function formatMarketTime(value?: string) {
   const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date);
   if (isToday) return `Today ${time}`;
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
+}
+
+function normalizeComparisonProbability(value?: number) {
+  if (!Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(1, value as number));
 }
 
 function priceForSide(market: MarketBubbleNode, outcomeIndex: number, side: TradeSide) {
@@ -181,6 +187,7 @@ export function MarketTradePanel({
   const [quoteStatus, setQuoteStatus] = useState<QuoteStatus>("healthy");
   const [enrichment, setEnrichment] = useState<EnrichedMarket | null>(null);
   const [enrichmentError, setEnrichmentError] = useState("");
+  const [activeTab, setActiveTab] = useState<TradePanelTab>("trade");
   const refreshInFlightRef = useRef(false);
   const mountedRef = useRef(true);
   const activeMarketIdRef = useRef(market.id);
@@ -210,14 +217,36 @@ export function MarketTradePanel({
   const secondsSinceUpdate = quoteUpdatedAt !== null ? Math.max(0, Math.floor((quoteNow - quoteUpdatedAt) / 1000)) : null;
   const quoteLabel = quoteStatus === "refreshing" ? "Refreshing quote" : formatSeconds(secondsSinceUpdate);
   const polymarketUrl = displayMarket.polymarketUrl ?? displayMarket.marketUrl;
+  const statsEnrichment = enrichment;
   const enrichmentParticipantsByName = useMemo(() => {
     const map = new Map<string, NonNullable<EnrichedMarket["participants"]>[number]>();
-    for (const participant of enrichment?.participants ?? []) {
+    for (const participant of statsEnrichment?.participants ?? []) {
       map.set(normalizeSportsEntityName(participant.name), participant);
     }
     return map;
-  }, [enrichment?.participants]);
-  const enrichmentSummary = enrichment?.context.standings ?? enrichment?.context.headToHead ?? enrichment?.context.lastGames?.join(" - ");
+  }, [statsEnrichment?.participants]);
+  const uniqueParticipantNames = useMemo(() => {
+    const names = (statsEnrichment?.participants ?? []).map((participant) => participant.name.trim()).filter(Boolean);
+    return [...new Set(names.map((name) => normalizeSportsEntityName(name)))];
+  }, [statsEnrichment?.participants]);
+  const hasCleanH2H =
+    Boolean(statsEnrichment?.context.headToHead) &&
+    uniqueParticipantNames.length >= 2 &&
+    uniqueParticipantNames[0] !== uniqueParticipantNames[1] &&
+    !/^\s*([^vs]+)\s+vs\.?\s+\1\s*$/i.test(statsEnrichment?.context.headToHead ?? "");
+  const hasStatsContent = Boolean(
+    statsEnrichment &&
+      (hasCleanH2H ||
+        statsEnrichment.context.standings ||
+        statsEnrichment.context.injuries?.length ||
+        statsEnrichment.context.lastGames?.length ||
+        statsEnrichment.context.tournamentPath?.length ||
+        statsEnrichment.context.liveStats ||
+        statsEnrichment.event?.venue ||
+        statsEnrichment.event?.startTime ||
+        statsEnrichment.event?.status ||
+        statsEnrichment.oddsComparison),
+  );
   const tradeDisabledReason = getTradeDisabledReason({
     configReady: runtimeConfig.clobReady,
     configError: runtimeConfig.missingSetupReason,
@@ -260,6 +289,7 @@ export function MarketTradePanel({
     const controller = new AbortController();
     setEnrichment(null);
     setEnrichmentError("");
+    setActiveTab("trade");
     void fetch("/api/markets/enrich", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -720,7 +750,6 @@ export function MarketTradePanel({
                   recentForm={participant?.recentForm}
                   ranking={participant?.ranking}
                   record={participant?.record}
-                  oddsLabel={enrichment?.oddsComparison?.label ? enrichment.oddsComparison.label : undefined}
                   selected={selected}
                   onClick={() => setSelectedOutcomeName(outcome.name)}
                 />
@@ -729,83 +758,165 @@ export function MarketTradePanel({
           </div>
         </div>
 
-        {enrichment ? (
-          <div className="traak-trade-panel-section mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-3)] p-3 text-sm shadow-xl shadow-black/10">
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Market Insight</p>
-                <p className="mt-1 font-semibold text-[var(--foreground)]">
-                  {enrichment.sport.toUpperCase()} {enrichment.marketType.replace("_", " ")}
-                </p>
-              </div>
-              <div className="flex flex-wrap justify-end gap-1.5">
-                {enrichment.smartTags.slice(0, 6).map((tag) => (
-                  <span key={tag} className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-[11px] font-semibold text-[var(--foreground)]">
-                    {tag}
-                  </span>
-                ))}
-              </div>
+        <div className="traak-trade-panel-section mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-3)] p-3 text-sm shadow-xl shadow-black/10">
+          <div className="flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] p-1">
+            <button
+              className={`flex-1 rounded-full px-3 py-2 text-sm font-semibold transition ${activeTab === "trade" ? "bg-[var(--foreground)] text-[var(--surface)]" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+              onClick={() => setActiveTab("trade")}
+              type="button"
+            >
+              Trade
+            </button>
+            <button
+              className={`flex-1 rounded-full px-3 py-2 text-sm font-semibold transition ${activeTab === "stats" ? "bg-[var(--foreground)] text-[var(--surface)]" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+              onClick={() => setActiveTab("stats")}
+              type="button"
+            >
+              Stats
+            </button>
+          </div>
+
+          {activeTab === "stats" ? (
+            <div className="mt-4 space-y-3">
+              {hasStatsContent && statsEnrichment ? (
+                <>
+                  <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Matchup</p>
+                    <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">
+                      {hasCleanH2H ? statsEnrichment.context.headToHead : "Stats unavailable"}
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Event</p>
+                      <div className="mt-2 space-y-1 text-sm text-[var(--foreground)]">
+                        <p>{statsEnrichment.event?.league ?? statsEnrichment.sport.toUpperCase() ?? "Stats"}</p>
+                        <p>{statsEnrichment.event?.startTime ? formatMarketTime(statsEnrichment.event.startTime) : "Time unavailable"}</p>
+                        <p>{statsEnrichment.event?.venue ?? "Venue unavailable"}</p>
+                        <p>{statsEnrichment.event?.status ? `Status: ${statsEnrichment.event.status}` : "Status unavailable"}</p>
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Standings</p>
+                      <p className="mt-2 text-sm leading-5 text-[var(--foreground)]">{statsEnrichment.context.standings ?? "Standings unavailable"}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Form</p>
+                      {statsEnrichment.participants?.length ? (
+                        <div className="mt-2 space-y-2">
+                          {statsEnrichment.participants.slice(0, 4).map((participant) => (
+                            <div key={participant.normalizedName} className="flex items-center justify-between gap-3">
+                              <span className="min-w-0 truncate text-sm text-[var(--foreground)]">{participant.name}</span>
+                              <span className="flex shrink-0 items-center gap-1">
+                                {participant.recentForm?.length ? (
+                                  participant.recentForm.slice(0, 5).map((symbol, index) => (
+                                    <span
+                                      key={`${participant.normalizedName}-${index}`}
+                                      className={`h-1.5 w-4 rounded-full ${symbol === "W" ? "bg-emerald-500/80" : symbol === "L" ? "bg-rose-500/80" : "bg-slate-400/70"}`}
+                                    />
+                                  ))
+                                ) : (
+                                  <span className="text-xs text-[var(--muted)]">Unavailable</span>
+                                )}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-sm text-[var(--muted)]">Stats unavailable</p>
+                      )}
+                    </div>
+                    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Live Score / Status</p>
+                      <p className="mt-2 text-sm text-[var(--foreground)]">
+                        {statsEnrichment.context.liveStats?.score ? String(statsEnrichment.context.liveStats.score) : statsEnrichment.event?.score ?? "Status unavailable"}
+                      </p>
+                      <p className="mt-2 text-sm text-[var(--foreground)]">
+                        {statsEnrichment.context.lastGames?.length ? statsEnrichment.context.lastGames.slice(0, 5).join(" • ") : "Recent matches unavailable"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Injuries / News</p>
+                    {statsEnrichment.context.injuries?.length ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {statsEnrichment.context.injuries.slice(0, 6).map((item) => (
+                          <span key={item} className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--foreground)]">
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-sm text-[var(--muted)]">Stats unavailable</p>
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Odds Comparison</p>
+                    {statsEnrichment.oddsComparison ? (
+                      <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                        <div className="rounded-lg border border-[var(--border)] px-3 py-2">
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Bookmaker Avg</p>
+                          <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">
+                            {normalizeComparisonProbability(statsEnrichment.oddsComparison.bookmakerAverageProbability) !== null
+                              ? `${Math.round((normalizeComparisonProbability(statsEnrichment.oddsComparison.bookmakerAverageProbability) ?? 0) * 100)}%`
+                              : "--"}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-[var(--border)] px-3 py-2">
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Polymarket</p>
+                          <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">
+                            {normalizeComparisonProbability(statsEnrichment.oddsComparison.polymarketProbability) !== null
+                              ? `${Math.round((normalizeComparisonProbability(statsEnrichment.oddsComparison.polymarketProbability) ?? 0) * 100)}%`
+                              : "--"}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-[var(--border)] px-3 py-2">
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Edge</p>
+                          <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">
+                            {typeof statsEnrichment.oddsComparison.edge === "number" ? `${(statsEnrichment.oddsComparison.edge * 100).toFixed(1)}%` : "--"}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-sm text-[var(--muted)]">Stats unavailable</p>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--muted)]">
+                  Stats unavailable for this market.
+                </div>
+              )}
             </div>
-            {enrichmentSummary ? <p className="text-sm leading-5 text-[var(--muted)]">{enrichmentSummary}</p> : null}
-            {enrichment.context.injuries?.length ? (
-              <div className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Injuries</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {enrichment.context.injuries.slice(0, 4).map((item) => (
-                    <span key={item} className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--foreground)]">
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            {enrichment.oddsComparison ? (
-              <div className="mt-3 grid gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 sm:grid-cols-2">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Bookmaker Avg</p>
-                  <p className="mt-1 text-base font-bold text-[var(--foreground)]">
-                    {enrichment.oddsComparison.bookmakerAverageProbability !== undefined ? `${Math.round(enrichment.oddsComparison.bookmakerAverageProbability * 100)}%` : "--"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Polymarket</p>
-                  <p className="mt-1 text-base font-bold text-[var(--foreground)]">
-                    {enrichment.oddsComparison.polymarketProbability !== undefined ? `${Math.round(enrichment.oddsComparison.polymarketProbability * 100)}%` : "--"}
-                  </p>
-                </div>
-                <div className="sm:col-span-2">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Signal</p>
-                  <p className="mt-1 font-semibold text-[var(--foreground)]">
-                    {enrichment.oddsComparison.label === "undervalued"
-                      ? "Bookmakers imply more upside than Polymarket."
-                      : enrichment.oddsComparison.label === "overpriced"
-                        ? "Bookmakers imply less upside than Polymarket."
-                        : "Bookmakers and Polymarket are broadly aligned."}
-                  </p>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
+          ) : (
+            <>
+              <label className="mt-4 block rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-sm shadow-xl shadow-black/10">
+                <span className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Shares</span>
+                <Input
+                  className="mt-2 h-12 rounded-lg text-base font-semibold shadow-inner shadow-black/20"
+                  min="0"
+                  onChange={(event) => setShares(event.target.value)}
+                  step="1"
+                  type="number"
+                  value={shares}
+                />
+              </label>
 
-        <label className="traak-trade-panel-section mt-4 block rounded-xl border border-[var(--border)] bg-[var(--surface-3)] p-3 text-sm shadow-xl shadow-black/10">
-          <span className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Shares</span>
-          <Input
-            className="mt-2 h-12 rounded-lg text-base font-semibold shadow-inner shadow-black/20"
-            min="0"
-            onChange={(event) => setShares(event.target.value)}
-            step="1"
-            type="number"
-            value={shares}
-          />
-        </label>
-
-        <div className="traak-trade-panel-section mt-4 divide-y divide-[var(--border)] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-3)] text-sm shadow-xl shadow-black/15">
-          <div className="border-b border-[var(--border)] px-4 py-3">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Estimate</p>
-          </div>
-          <EstimateRow label="Est. cost" value={Number.isFinite(buyPrice) ? `$${(safeShares * (buyPrice as number)).toFixed(2)}` : "--"} />
-          <EstimateRow label="Est. proceeds" value={Number.isFinite(sellPrice) ? `$${(safeShares * (sellPrice as number)).toFixed(2)}` : "--"} accent />
+              <div className="mt-4 divide-y divide-[var(--border)] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] text-sm shadow-xl shadow-black/15">
+                <div className="border-b border-[var(--border)] px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Estimate</p>
+                </div>
+                <EstimateRow label="Est. cost" value={Number.isFinite(buyPrice) ? `$${(safeShares * (buyPrice as number)).toFixed(2)}` : "--"} />
+                <EstimateRow label="Est. proceeds" value={Number.isFinite(sellPrice) ? `$${(safeShares * (sellPrice as number)).toFixed(2)}` : "--"} accent />
+              </div>
+            </>
+          )}
         </div>
 
         {orderId ? (

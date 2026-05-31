@@ -85,7 +85,6 @@ export function OutcomeCard({
   recentForm,
   ranking,
   record,
-  oddsLabel,
   selected,
   onClick,
 }: {
@@ -99,7 +98,6 @@ export function OutcomeCard({
   recentForm?: string[];
   ranking?: number;
   record?: string;
-  oddsLabel?: string;
   selected: boolean;
   onClick: () => void;
 }) {
@@ -166,7 +164,6 @@ export function OutcomeCard({
         <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--muted)]">
           {typeof ranking === "number" ? <span className="rounded-full border border-[var(--border)] px-2 py-0.5 font-semibold">#{ranking}</span> : null}
           {record ? <span className="rounded-full border border-[var(--border)] px-2 py-0.5 font-semibold">{record}</span> : null}
-          {oddsLabel ? <span className="rounded-full border border-[var(--border)] px-2 py-0.5 font-semibold text-cyan-500">{oddsLabel}</span> : null}
         </span>
         {recentForm?.length ? (
           <span className="mt-1.5 flex items-center gap-1">
