@@ -236,6 +236,7 @@ export function MarketTradePanel({
     !/^\s*([^vs]+)\s+vs\.?\s+\1\s*$/i.test(statsEnrichment?.context.headToHead ?? "");
   const hasStatsContent = Boolean(
     statsEnrichment &&
+      statsEnrichment.enrichmentStatus === "matched" &&
       (hasCleanH2H ||
         statsEnrichment.context.standings ||
         statsEnrichment.context.injuries?.length ||

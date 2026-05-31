@@ -6,6 +6,7 @@ import { normalizeSportsEntityName, resolveBestEntity, type MarketResolverContex
 import { getTeamRecentForm, searchPlayers, searchTeams as searchSportsDbTeams } from "./sportsDbService";
 import { fetchLiveStandings, searchFixtures, searchTeams as searchSportmonksTeams } from "./sportmonksService";
 import type { EnrichedMarket, EnrichedMarketParticipant, MarketEnrichmentInput } from "./enrichmentTypes";
+import { logInfo } from "@/lib/server/logger";
 
 type ProviderCandidate = ResolvedEntityCandidate & {
   provider: "sportsdb" | "sportmonks";
@@ -13,6 +14,7 @@ type ProviderCandidate = ResolvedEntityCandidate & {
 };
 
 const FINAL_CACHE_TTL_MS = 60_000;
+const MATCH_SCORE_THRESHOLD = 0.8;
 
 function clamp(value: number, min = 0, max = 1) {
   return Math.max(min, Math.min(max, value));
@@ -79,6 +81,31 @@ function buildContextSummary(standings: Array<{ teamName: string; position: numb
   return top.length ? top.join(" | ") : undefined;
 }
 
+function normalizedOutcomeNames(outcomes: MarketResolverContext["outcomes"]) {
+  return outcomes.map((outcome) => normalizeSportsEntityName(outcome.name)).filter(Boolean);
+}
+
+function buildEnrichmentCacheKey(input: MarketResolverContext) {
+  return [
+    "enriched-market:v3",
+    input.marketId || "no-id",
+    normalizeSportsEntityName(input.question || "no-question"),
+    input.sport,
+    input.league ?? "no-league",
+    input.startTime ?? "no-start",
+    normalizedOutcomeNames(input.outcomes).join("|") || "no-outcomes",
+  ].join(":");
+}
+
+function resolveCandidateMatch(query: string, candidates: ProviderCandidate[], context: MarketResolverContext, options?: { kinds?: ProviderCandidate["kind"][]; minScore?: number }) {
+  const filtered = options?.kinds?.length ? candidates.filter((candidate) => options.kinds?.includes(candidate.kind)) : candidates;
+  const best = resolveBestEntity(query, filtered, { league: context.league, sport: context.sport, date: context.startTime ?? undefined });
+  if (!best) return null;
+  const minScore = options?.minScore ?? MATCH_SCORE_THRESHOLD;
+  if (best.score < minScore) return null;
+  return filtered.find((candidate) => candidate.id === best.id && candidate.name === best.name) ?? null;
+}
+
 function buildParticipant(query: string, candidate: ProviderCandidate | null, league?: string): EnrichedMarketParticipant {
   const country = candidate?.country ? resolveCountryTeam(candidate.country)?.name ?? candidate.country : undefined;
   const countryRecord = candidate?.country ? resolveCountryTeam(candidate.country) : query ? resolveCountryTeam(query) : null;
@@ -131,11 +158,6 @@ async function resolveCandidates(context: MarketResolverContext) {
   return candidates;
 }
 
-function bestCandidateForQuery(query: string, candidates: ProviderCandidate[], context: MarketResolverContext) {
-  const best = resolveBestEntity(query, candidates, { league: context.league, sport: context.sport, date: context.startTime ?? undefined });
-  return best ? candidates.find((candidate) => candidate.id === best.id && candidate.name === best.name) ?? null : null;
-}
-
 function eventFromCandidate(candidate: ProviderCandidate | null, context: MarketResolverContext) {
   if (!candidate) return undefined;
   return {
@@ -153,8 +175,15 @@ function eventFromCandidate(candidate: ProviderCandidate | null, context: Market
 
 export async function enrichMarket(input: MarketEnrichmentInput): Promise<EnrichedMarket> {
   const normalized = normalizePolymarketMarket(input);
-  const marketId = String(input.id ?? input.marketId ?? (normalized.question || normalized.marketId || "market"));
-  const cacheKey = `enriched-market:${marketId}`;
+  const cacheKey = buildEnrichmentCacheKey(normalized);
+  logInfo("sports.enrichment.request", "enrich market request", {
+    marketId: normalized.marketId,
+    question: normalized.question,
+    outcomes: normalized.outcomes.map((outcome) => outcome.name),
+    cacheKey,
+    sport: normalized.sport,
+    league: normalized.league,
+  });
 
   return memoizeAsync(cacheKey, FINAL_CACHE_TTL_MS, async () => {
     const candidates = await resolveCandidates(normalized);
@@ -163,12 +192,18 @@ export async function enrichMarket(input: MarketEnrichmentInput): Promise<Enrich
     const participantCandidateList: ProviderCandidate[] = [];
 
     for (const query of participantQueries) {
-      const candidate = bestCandidateForQuery(query, candidates, normalized);
+      const candidate = resolveCandidateMatch(query, candidates, normalized, {
+        kinds: normalized.sport === "soccer" ? ["team"] : normalized.marketType === "player_prop" ? ["player"] : ["team", "player"],
+        minScore: MATCH_SCORE_THRESHOLD,
+      });
       if (candidate) participantCandidateList.push(candidate);
       resolvedParticipants.push(buildParticipant(query, candidate, normalized.league));
     }
 
-    const bestEventCandidate = candidates.find((candidate) => candidate.kind === "fixture") ?? participantCandidateList[0] ?? null;
+    const eventQuery = normalized.canonicalTeams.length
+      ? normalized.canonicalTeams.join(" vs ")
+      : normalized.outcomes.slice(0, 2).map((outcome) => outcome.name).join(" vs ") || normalized.question;
+    const bestEventCandidate = normalized.sport === "soccer" ? resolveCandidateMatch(eventQuery, candidates, normalized, { kinds: ["fixture"], minScore: MATCH_SCORE_THRESHOLD }) : null;
     const event = eventFromCandidate(bestEventCandidate, normalized);
     const standings = event?.externalEventId && normalized.sport === "soccer" ? await fetchLiveStandings(event.league ?? "").catch(() => []) : [];
     const standingsSummary = buildContextSummary(standings, resolvedParticipants);
@@ -196,10 +231,7 @@ export async function enrichMarket(input: MarketEnrichmentInput): Promise<Enrich
 
     const context = {
       standings: standingsSummary,
-      headToHead:
-        participants.length >= 2
-          ? `${participants[0].name}${participants[0].record ? ` (${participants[0].record})` : ""} vs ${participants[1].name}${participants[1].record ? ` (${participants[1].record})` : ""}`
-          : undefined,
+      headToHead: event && participants.length >= 2 ? `${participants[0].name}${participants[0].record ? ` (${participants[0].record})` : ""} vs ${participants[1].name}${participants[1].record ? ` (${participants[1].record})` : ""}` : undefined,
       injuries: [],
       lastGames: participants.flatMap((participant) => participant.recentForm ?? []).slice(0, 6),
       tournamentPath: normalized.marketType === "tournament_winner" ? ["Group stage", "Knockout rounds", "Final"] : undefined,
@@ -221,11 +253,25 @@ export async function enrichMarket(input: MarketEnrichmentInput): Promise<Enrich
         (oddsComparison ? 0.17 : 0),
     );
 
-    const matchedSignals = [event, participants.some((participant) => participant.logo), oddsComparison, standingsSummary].filter(Boolean).length;
-    const enrichmentStatus = matchedSignals === 0 ? "unmatched" : matchedSignals >= 3 ? "matched" : "partial";
+    const participantMatchCount = participantCandidateList.length;
+    const matchedSignals = [event, participantMatchCount > 0, oddsComparison, standingsSummary].filter(Boolean).length;
+    const enrichmentStatus = event && participantMatchCount > 0 ? "matched" : matchedSignals > 0 ? "partial" : "unmatched";
+
+    logInfo("sports.enrichment.result", "enrich market result", {
+      marketId: normalized.marketId,
+      question: normalized.question,
+      outcomes: normalized.outcomes.map((outcome) => outcome.name),
+      cacheKey,
+      providerMatch: event?.provider ?? "none",
+      fixtureId: event?.externalEventId ?? null,
+      enrichmentStatus,
+      participantMatchCount,
+      hasStandings: Boolean(standingsSummary),
+      hasOdds: Boolean(oddsComparison),
+    });
 
     return {
-      marketId,
+      marketId: normalized.marketId || cacheKey,
       question: normalized.question,
       sport: normalized.sport,
       marketType: normalized.marketType,

@@ -1928,7 +1928,7 @@ export function MarketBubbleMap({
   const nodes = useMemo(() => markets.map((market, index) => marketToBubbleNode(market, index)), [markets]);
   const isMobile = dimensions.width < 640;
   const bodyCount = nodes.length;
-  const selectedMarket = useMemo(() => selectedPanelSnapshot ?? nodes.find((node) => node.id === selectedMarketId) ?? null, [nodes, selectedMarketId, selectedPanelSnapshot]);
+  const selectedMarket = useMemo(() => nodes.find((node) => node.id === selectedMarketId) ?? selectedPanelSnapshot ?? null, [nodes, selectedMarketId, selectedPanelSnapshot]);
   const backgroundTheme = useMemo(() => backgroundThemeForSport(activeSport ?? nodes[0]?.sport), [activeSport, nodes]);
   const backgroundTransitionRef = useRef({ previous: backgroundTheme as BackgroundTheme | null, current: backgroundTheme, startedAt: 0 });
 
