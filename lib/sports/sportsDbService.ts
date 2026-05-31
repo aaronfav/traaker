@@ -1,5 +1,6 @@
 import { memoizeAsync } from "./enrichmentCache";
 import type { ResolvedEntityCandidate } from "./sportsResolverService";
+import { logInfo } from "@/lib/server/logger";
 
 type TheSportsDbResponse<T> = {
   teams?: T[];
@@ -102,32 +103,47 @@ function normalizeEvent(event: TheSportsDbEvent): ResolvedEntityCandidate {
 
 export async function searchTeams(query: string) {
   if (!query.trim()) return [] as ResolvedEntityCandidate[];
-  const payload = await fetchJson<TheSportsDbResponse<TheSportsDbTeam>>(`searchteams.php?t=${encodeURIComponent(query)}`, 24 * 60 * 60 * 1000);
-  return (payload.teams ?? []).map(normalizeTeam);
+  const endpoint = `searchteams.php?t=${encodeURIComponent(query)}`;
+  logInfo("sportsdb.request", "TheSportsDB searchTeams request", { endpoint, query });
+  const payload = await fetchJson<TheSportsDbResponse<TheSportsDbTeam>>(endpoint, 24 * 60 * 60 * 1000);
+  const teams = (payload.teams ?? []).map(normalizeTeam);
+  logInfo("sportsdb.response", "TheSportsDB searchTeams response", { endpoint, query, count: teams.length, chosen: teams[0]?.name ?? null });
+  return teams;
 }
 
 export async function searchPlayers(query: string) {
   if (!query.trim()) return [] as ResolvedEntityCandidate[];
-  const payload = await fetchJson<TheSportsDbResponse<TheSportsDbPlayer>>(`searchplayers.php?p=${encodeURIComponent(query)}`, 24 * 60 * 60 * 1000);
-  return (payload.players ?? []).map(normalizePlayer);
+  const endpoint = `searchplayers.php?p=${encodeURIComponent(query)}`;
+  logInfo("sportsdb.request", "TheSportsDB searchPlayers request", { endpoint, query });
+  const payload = await fetchJson<TheSportsDbResponse<TheSportsDbPlayer>>(endpoint, 24 * 60 * 60 * 1000);
+  const players = (payload.players ?? []).map(normalizePlayer);
+  logInfo("sportsdb.response", "TheSportsDB searchPlayers response", { endpoint, query, count: players.length, chosen: players[0]?.name ?? null });
+  return players;
 }
 
 export async function lookupTeam(teamId: string) {
   if (!teamId.trim()) return null;
-  const payload = await fetchJson<TheSportsDbResponse<TheSportsDbTeam>>(`lookupteam.php?id=${encodeURIComponent(teamId)}`, 24 * 60 * 60 * 1000);
+  const endpoint = `lookupteam.php?id=${encodeURIComponent(teamId)}`;
+  logInfo("sportsdb.request", "TheSportsDB lookupTeam request", { endpoint, teamId });
+  const payload = await fetchJson<TheSportsDbResponse<TheSportsDbTeam>>(endpoint, 24 * 60 * 60 * 1000);
   const team = payload.teams?.[0];
+  logInfo("sportsdb.response", "TheSportsDB lookupTeam response", { endpoint, teamId, found: Boolean(team), chosen: team?.strTeam ?? null });
   return team ? normalizeTeam(team) : null;
 }
 
 export async function lookupEvent(eventId: string) {
   if (!eventId.trim()) return null;
-  const payload = await fetchJson<TheSportsDbResponse<TheSportsDbEvent>>(`lookupevent.php?id=${encodeURIComponent(eventId)}`, 24 * 60 * 60 * 1000);
+  const endpoint = `lookupevent.php?id=${encodeURIComponent(eventId)}`;
+  logInfo("sportsdb.request", "TheSportsDB lookupEvent request", { endpoint, eventId });
+  const payload = await fetchJson<TheSportsDbResponse<TheSportsDbEvent>>(endpoint, 24 * 60 * 60 * 1000);
   const event = payload.events?.[0] ?? (payload.event as TheSportsDbEvent | undefined);
+  logInfo("sportsdb.response", "TheSportsDB lookupEvent response", { endpoint, eventId, found: Boolean(event), chosen: event?.strEvent ?? null });
   return event ? normalizeEvent(event) : null;
 }
 
 export async function getTeamRecentGames(teamId: string) {
   if (!teamId.trim()) return [];
+  logInfo("sportsdb.request", "TheSportsDB recent games request", { teamId, endpoints: ["eventsnext.php", "eventslast.php"] });
   const [nextPayload, lastPayload] = await Promise.allSettled([
     fetchJson<TheSportsDbResponse<TheSportsDbEvent>>(`eventsnext.php?id=${encodeURIComponent(teamId)}`, 16 * 60 * 60 * 1000),
     fetchJson<TheSportsDbResponse<TheSportsDbEvent>>(`eventslast.php?id=${encodeURIComponent(teamId)}`, 16 * 60 * 60 * 1000),
@@ -136,7 +152,9 @@ export async function getTeamRecentGames(teamId: string) {
     ...(nextPayload.status === "fulfilled" ? nextPayload.value.events ?? [] : []),
     ...(lastPayload.status === "fulfilled" ? lastPayload.value.events ?? [] : []),
   ];
-  return events.slice(0, 8).map((event) => normalizeEvent(event).name).filter(Boolean);
+  const normalized = events.slice(0, 8).map((event) => normalizeEvent(event).name).filter(Boolean);
+  logInfo("sportsdb.response", "TheSportsDB recent games response", { teamId, count: normalized.length, samples: normalized.slice(0, 4) });
+  return normalized;
 }
 
 function formSymbol(event: TheSportsDbEvent, teamName: string) {
@@ -153,7 +171,11 @@ function formSymbol(event: TheSportsDbEvent, teamName: string) {
 
 export async function getTeamRecentForm(teamId: string, teamName: string) {
   if (!teamId.trim() || !teamName.trim()) return [];
-  const payload = await fetchJson<TheSportsDbResponse<TheSportsDbEvent>>(`eventslast.php?id=${encodeURIComponent(teamId)}`, 16 * 60 * 60 * 1000);
+  const endpoint = `eventslast.php?id=${encodeURIComponent(teamId)}`;
+  logInfo("sportsdb.request", "TheSportsDB recent form request", { endpoint, teamId, teamName });
+  const payload = await fetchJson<TheSportsDbResponse<TheSportsDbEvent>>(endpoint, 16 * 60 * 60 * 1000);
   const events = payload?.events ?? [];
-  return events.slice(0, 5).map((event) => formSymbol(event, teamName)).filter(Boolean);
+  const form = events.slice(0, 5).map((event) => formSymbol(event, teamName)).filter(Boolean);
+  logInfo("sportsdb.response", "TheSportsDB recent form response", { endpoint, teamId, teamName, count: form.length, form });
+  return form;
 }

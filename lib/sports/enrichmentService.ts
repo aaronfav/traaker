@@ -106,6 +106,22 @@ function resolveCandidateMatch(query: string, candidates: ProviderCandidate[], c
   return filtered.find((candidate) => candidate.id === best.id && candidate.name === best.name) ?? null;
 }
 
+function summarizeStatsFields(context: NonNullable<EnrichedMarket["context"]>, event: EnrichedMarket["event"], oddsComparison: EnrichedMarket["oddsComparison"]) {
+  const fields: string[] = [];
+  if (context.standings) fields.push("standings");
+  if (context.headToHead) fields.push("headToHead");
+  if (context.injuries?.length) fields.push("injuries");
+  if (context.lastGames?.length) fields.push("lastGames");
+  if (context.tournamentPath?.length) fields.push("tournamentPath");
+  if (context.liveStats) fields.push("liveStats");
+  if (event?.league) fields.push("league");
+  if (event?.venue) fields.push("venue");
+  if (event?.startTime) fields.push("startTime");
+  if (event?.status) fields.push("status");
+  if (oddsComparison) fields.push("oddsComparison");
+  return fields;
+}
+
 function buildParticipant(query: string, candidate: ProviderCandidate | null, league?: string): EnrichedMarketParticipant {
   const country = candidate?.country ? resolveCountryTeam(candidate.country)?.name ?? candidate.country : undefined;
   const countryRecord = candidate?.country ? resolveCountryTeam(candidate.country) : query ? resolveCountryTeam(query) : null;
@@ -137,8 +153,8 @@ async function resolveCandidates(context: MarketResolverContext) {
     const [sportsDbTeamResults, sportsDbPlayerResults, sportmonksTeamResults, sportmonksFixtureResults] = await Promise.allSettled([
       searchSportsDbTeams(query),
       context.marketType === "player_prop" || context.sport === "ufc" || context.sport === "tennis" ? searchPlayers(query) : Promise.resolve([]),
-      soccer ? searchSportmonksTeams(query) : Promise.resolve([]),
-      soccer ? searchFixtures(query) : Promise.resolve([]),
+      soccer ? searchSportmonksTeams(query, { league: context.league ?? null, startTime: context.startTime ?? null }) : Promise.resolve([]),
+      soccer ? searchFixtures(query, { league: context.league ?? null, startTime: context.startTime ?? null }) : Promise.resolve([]),
     ]);
 
     if (sportsDbTeamResults.status === "fulfilled") {
@@ -176,6 +192,17 @@ function eventFromCandidate(candidate: ProviderCandidate | null, context: Market
 export async function enrichMarket(input: MarketEnrichmentInput): Promise<EnrichedMarket> {
   const normalized = normalizePolymarketMarket(input);
   const cacheKey = buildEnrichmentCacheKey(normalized);
+  const normalizedParticipants = normalized.canonicalTeams.length ? normalized.canonicalTeams : normalized.outcomes.map((outcome) => outcome.name);
+  logInfo("sports.enrichment.normalized", "parsed resolver input", {
+    marketId: normalized.marketId,
+    question: normalized.question,
+    normalizedSport: normalized.sport,
+    normalizedLeague: normalized.league ?? null,
+    normalizedParticipants,
+    marketType: normalized.marketType,
+    lookupDate: normalized.startTime ?? normalized.endDate ?? null,
+    cacheKey,
+  });
   logInfo("sports.enrichment.request", "enrich market request", {
     marketId: normalized.marketId,
     question: normalized.question,
@@ -196,6 +223,17 @@ export async function enrichMarket(input: MarketEnrichmentInput): Promise<Enrich
         kinds: normalized.sport === "soccer" ? ["team"] : normalized.marketType === "player_prop" ? ["player"] : ["team", "player"],
         minScore: MATCH_SCORE_THRESHOLD,
       });
+      logInfo("sports.enrichment.match", "participant match attempt", {
+        marketId: normalized.marketId,
+        query,
+        sport: normalized.sport,
+        league: normalized.league ?? null,
+        matched: Boolean(candidate),
+        matchedName: candidate?.name ?? null,
+        provider: candidate?.provider ?? null,
+        kind: candidate?.kind ?? null,
+        reason: candidate ? "matched" : "rejected_low_score_or_no_candidate",
+      });
       if (candidate) participantCandidateList.push(candidate);
       resolvedParticipants.push(buildParticipant(query, candidate, normalized.league));
     }
@@ -204,6 +242,17 @@ export async function enrichMarket(input: MarketEnrichmentInput): Promise<Enrich
       ? normalized.canonicalTeams.join(" vs ")
       : normalized.outcomes.slice(0, 2).map((outcome) => outcome.name).join(" vs ") || normalized.question;
     const bestEventCandidate = normalized.sport === "soccer" ? resolveCandidateMatch(eventQuery, candidates, normalized, { kinds: ["fixture"], minScore: MATCH_SCORE_THRESHOLD }) : null;
+    logInfo("sports.enrichment.match", "event match attempt", {
+      marketId: normalized.marketId,
+      query: eventQuery,
+      sport: normalized.sport,
+      league: normalized.league ?? null,
+      matched: Boolean(bestEventCandidate),
+      matchedName: bestEventCandidate?.name ?? null,
+      provider: bestEventCandidate?.provider ?? null,
+      kind: bestEventCandidate?.kind ?? null,
+      reason: bestEventCandidate ? "matched" : "rejected_low_score_or_no_candidate",
+    });
     const event = eventFromCandidate(bestEventCandidate, normalized);
     const standings = event?.externalEventId && normalized.sport === "soccer" ? await fetchLiveStandings(event.league ?? "").catch(() => []) : [];
     const standingsSummary = buildContextSummary(standings, resolvedParticipants);
@@ -256,6 +305,13 @@ export async function enrichMarket(input: MarketEnrichmentInput): Promise<Enrich
     const participantMatchCount = participantCandidateList.length;
     const matchedSignals = [event, participantMatchCount > 0, oddsComparison, standingsSummary].filter(Boolean).length;
     const enrichmentStatus = event && participantMatchCount > 0 ? "matched" : matchedSignals > 0 ? "partial" : "unmatched";
+    const statsFields = summarizeStatsFields(context, event, oddsComparison);
+    const unavailableReason =
+      enrichmentStatus === "unmatched"
+        ? "No confident provider match"
+        : statsFields.length === 0
+          ? "Providers returned data, but nothing was usable"
+          : null;
 
     logInfo("sports.enrichment.result", "enrich market result", {
       marketId: normalized.marketId,
@@ -265,9 +321,13 @@ export async function enrichMarket(input: MarketEnrichmentInput): Promise<Enrich
       providerMatch: event?.provider ?? "none",
       fixtureId: event?.externalEventId ?? null,
       enrichmentStatus,
+      confidenceScore: Number((0.28 + (participants.some((participant) => participant.logo) ? 0.15 : 0) + (event ? 0.18 : 0) + (standingsSummary ? 0.12 : 0) + (oddsComparison ? 0.17 : 0)).toFixed(4)),
       participantMatchCount,
+      participantsFound: participants.map((participant) => participant.name),
+      statsFields,
       hasStandings: Boolean(standingsSummary),
       hasOdds: Boolean(oddsComparison),
+      unavailableReason,
     });
 
     return {

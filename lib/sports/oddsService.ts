@@ -3,6 +3,7 @@ import type { EnrichedMarketSport } from "./enrichmentTypes";
 import type { MarketResolverContext } from "./sportsResolverService";
 import { similarityScore } from "./sportsResolverService";
 import { fetchFixtureOdds } from "./sportmonksService";
+import { logInfo } from "@/lib/server/logger";
 
 type TheOddsApiEvent = {
   id?: string;
@@ -51,18 +52,35 @@ function sportKeyForMarket(sport: EnrichedMarketSport) {
   return "";
 }
 
-async function fetchTheOddsApiEventOdds(sport: EnrichedMarketSport) {
+async function fetchTheOddsApiEventOdds(sport: EnrichedMarketSport, context: MarketResolverContext) {
   const sportKey = sportKeyForMarket(sport);
-  if (!sportKey || !hasOddsApi()) return [];
+  if (!sportKey) {
+    logInfo("odds.response", "The Odds API skipped", { sport, reason: "unsupported sport" });
+    return [];
+  }
+  if (!hasOddsApi()) {
+    logInfo("odds.response", "The Odds API skipped", { sport, sportKey, reason: "missing api key" });
+    return [];
+  }
   const url = new URL(`${BASE_URL}/sports/${sportKey}/odds`);
   url.searchParams.set("apiKey", apiKey());
   url.searchParams.set("regions", "us");
   url.searchParams.set("markets", "h2h");
   url.searchParams.set("oddsFormat", "decimal");
   url.searchParams.set("dateFormat", "iso");
+  logInfo("odds.request", "The Odds API request", {
+    sport,
+    sportKey,
+    endpoint: url.pathname,
+    teamNames: marketTeamCandidateNames(context),
+    commenceTime: context.startTime ?? null,
+    dateFilter: context.startTime ?? null,
+  });
   const response = await fetch(url.toString(), { cache: "no-store" });
   if (!response.ok) throw new Error(`The Odds API request failed with ${response.status}`);
-  return (await response.json()) as TheOddsApiEvent[];
+  const events = (await response.json()) as TheOddsApiEvent[];
+  logInfo("odds.response", "The Odds API response", { sport, sportKey, count: events.length, matchedEvent: events[0]?.id ?? null });
+  return events;
 }
 
 function averageProbability(bookmakers: NonNullable<TheOddsApiEvent["bookmakers"]>) {
@@ -100,15 +118,38 @@ function eventMatchScore(event: TheOddsApiEvent, context: MarketResolverContext)
 
 async function fetchTheOddsApiComparison(context: MarketResolverContext): Promise<OddsComparisonResult | null> {
   const sportKey = sportKeyForMarket(context.sport);
-  if (!sportKey || !hasOddsApi()) return null;
-  const events = await memoizeAsync<TheOddsApiEvent[]>(`the-odds-api:${sportKey}`, 2 * 60 * 1000, async () => fetchTheOddsApiEventOdds(context.sport));
+  if (!sportKey) return null;
+  if (!hasOddsApi()) return null;
+  const events = await memoizeAsync<TheOddsApiEvent[]>(`the-odds-api:${sportKey}`, 2 * 60 * 1000, async () => fetchTheOddsApiEventOdds(context.sport, context));
   const bestEvent = events
     .map((event) => ({ event, score: eventMatchScore(event, context) }))
     .sort((left, right) => right.score - left.score)[0]?.event;
-  if (!bestEvent) return null;
+  if (!bestEvent) {
+    logInfo("odds.match", "The Odds API rejected", {
+      sportKey,
+      teamNames: marketTeamCandidateNames(context),
+      reason: "no matched event",
+    });
+    return null;
+  }
 
   const summary = averageProbability(bestEvent.bookmakers ?? []);
-  if (!summary) return null;
+  if (!summary) {
+    logInfo("odds.match", "The Odds API rejected", {
+      sportKey,
+      teamNames: marketTeamCandidateNames(context),
+      matchedEvent: bestEvent.id ?? null,
+      reason: "no bookmaker summary",
+    });
+    return null;
+  }
+  logInfo("odds.match", "The Odds API matched", {
+    sportKey,
+    teamNames: marketTeamCandidateNames(context),
+    matchedEvent: bestEvent.id ?? null,
+    commenceTime: bestEvent.commence_time ?? null,
+    bookmakers: bestEvent.bookmakers?.length ?? 0,
+  });
   return {
     provider: "the_odds_api",
     bookmakerAverageProbability: summary.average,
@@ -118,9 +159,18 @@ async function fetchTheOddsApiComparison(context: MarketResolverContext): Promis
 
 async function fetchSportmonksComparison(context: MarketResolverContext, fixtureId?: string | null) {
   if (context.sport !== "soccer") return null;
-  if (!fixtureId) return null;
+  if (!fixtureId) {
+    logInfo("odds.match", "Sportmonks odds rejected", { reason: "no fixture id", teamNames: marketTeamCandidateNames(context) });
+    return null;
+  }
   const odds = await fetchFixtureOdds(fixtureId);
-  if (!odds.length) return null;
+  if (!odds.length) {
+    logInfo("odds.match", "Sportmonks odds rejected", {
+      fixtureId,
+      reason: "no odds returned",
+    });
+    return null;
+  }
   const probabilities: number[] = [];
   let bestOdds = 0;
   for (const odd of odds) {
@@ -129,7 +179,15 @@ async function fetchSportmonksComparison(context: MarketResolverContext, fixture
     const decimalOdd = Number(odd.value);
     if (Number.isFinite(decimalOdd)) bestOdds = Math.max(bestOdds, decimalOdd);
   }
-  if (!probabilities.length) return null;
+  if (!probabilities.length) {
+    logInfo("odds.match", "Sportmonks odds rejected", {
+      fixtureId,
+      reason: "no probability values",
+      count: odds.length,
+    });
+    return null;
+  }
+  logInfo("odds.match", "Sportmonks odds matched", { fixtureId, count: odds.length });
   return {
     provider: "sportmonks",
     bookmakerAverageProbability: probabilities.reduce((sum, value) => sum + value, 0) / probabilities.length,

@@ -1,5 +1,6 @@
 import { memoizeAsync } from "./enrichmentCache";
 import type { ResolvedEntityCandidate } from "./sportsResolverService";
+import { logInfo } from "@/lib/server/logger";
 
 type SportmonksResponse<T> = { data?: T[] | T; meta?: Record<string, unknown> };
 
@@ -129,41 +130,105 @@ function normalizeFixture(fixture: SportmonksFixture): ResolvedEntityCandidate {
   };
 }
 
-export async function searchTeams(query: string) {
-  if (!query.trim() || !hasToken()) return [] as ResolvedEntityCandidate[];
-  const payload = await fetchJson<SportmonksResponse<SportmonksTeam>>(`/teams/search/${encodeURIComponent(query)}`, STATIC_TTL_MS);
+export async function searchTeams(query: string, options?: { league?: string | null; startTime?: string | null }) {
+  if (!query.trim()) return [] as ResolvedEntityCandidate[];
+  if (!hasToken()) {
+    logInfo("sportmonks.response", "Sportmonks searchTeams skipped", { query, reason: "missing api key" });
+    return [];
+  }
+  const endpoint = `/teams/search/${encodeURIComponent(query)}`;
+  logInfo("sportmonks.request", "Sportmonks searchTeams request", {
+    endpoint,
+    query,
+    leagueFilter: options?.league ?? null,
+    fixtureDateRange: options?.startTime ? { from: options.startTime, to: options.startTime } : null,
+  });
+  const payload = await fetchJson<SportmonksResponse<SportmonksTeam>>(endpoint, STATIC_TTL_MS);
   const teams = Array.isArray(payload?.data) ? payload.data : [];
-  return teams.map(normalizeTeam);
+  const normalized = teams.map(normalizeTeam);
+  logInfo("sportmonks.response", "Sportmonks searchTeams response", {
+    endpoint,
+    query,
+    count: normalized.length,
+    chosen: normalized[0]?.name ?? null,
+  });
+  return normalized;
 }
 
-export async function searchFixtures(query: string) {
-  if (!query.trim() || !hasToken()) return [] as ResolvedEntityCandidate[];
-  const payload = await fetchJson<SportmonksResponse<SportmonksFixture>>(`/fixtures/search/${encodeURIComponent(query)}`, SCHEDULE_TTL_MS);
+export async function searchFixtures(query: string, options?: { league?: string | null; startTime?: string | null }) {
+  if (!query.trim()) return [] as ResolvedEntityCandidate[];
+  if (!hasToken()) {
+    logInfo("sportmonks.response", "Sportmonks searchFixtures skipped", { query, reason: "missing api key" });
+    return [];
+  }
+  const endpoint = `/fixtures/search/${encodeURIComponent(query)}`;
+  logInfo("sportmonks.request", "Sportmonks searchFixtures request", {
+    endpoint,
+    query,
+    leagueFilter: options?.league ?? null,
+    fixtureDateRange: options?.startTime ? { from: options.startTime, to: options.startTime } : { days: 7 },
+  });
+  const payload = await fetchJson<SportmonksResponse<SportmonksFixture>>(endpoint, SCHEDULE_TTL_MS);
   const fixtures = Array.isArray(payload?.data) ? payload.data : [];
-  return fixtures.map(normalizeFixture);
+  const normalized = fixtures.map(normalizeFixture);
+  logInfo("sportmonks.response", "Sportmonks searchFixtures response", {
+    endpoint,
+    query,
+    count: normalized.length,
+    chosen: normalized[0]?.name ?? null,
+  });
+  return normalized;
 }
 
 export async function lookupFixture(fixtureId: string) {
-  if (!fixtureId.trim() || !hasToken()) return null;
-  const payload = await fetchJson<SportmonksResponse<SportmonksFixture>>(`/fixtures/${encodeURIComponent(fixtureId)}?include=participants;venue;state;scores`, SCHEDULE_TTL_MS);
+  if (!fixtureId.trim()) return null;
+  if (!hasToken()) {
+    logInfo("sportmonks.response", "Sportmonks lookupFixture skipped", { fixtureId, reason: "missing api key" });
+    return null;
+  }
+  const endpoint = `/fixtures/${encodeURIComponent(fixtureId)}?include=participants;venue;state;scores`;
+  logInfo("sportmonks.request", "Sportmonks lookupFixture request", { endpoint, fixtureId });
+  const payload = await fetchJson<SportmonksResponse<SportmonksFixture>>(endpoint, SCHEDULE_TTL_MS);
   const fixture = Array.isArray(payload?.data) ? payload.data[0] : payload?.data;
+  logInfo("sportmonks.response", "Sportmonks lookupFixture response", {
+    endpoint,
+    fixtureId,
+    found: Boolean(fixture),
+    chosen: fixture?.name ?? null,
+  });
   return fixture ? normalizeFixture(fixture) : null;
 }
 
 export async function fetchLiveStandings(leagueId: string) {
-  if (!leagueId.trim() || !hasToken()) return [];
-  const payload = await fetchJson<SportmonksResponse<SportmonksStanding>>(`/standings/live/leagues/${encodeURIComponent(leagueId)}`, LIVE_TTL_MS);
+  if (!leagueId.trim()) return [];
+  if (!hasToken()) {
+    logInfo("sportmonks.response", "Sportmonks standings skipped", { leagueId, reason: "missing api key" });
+    return [];
+  }
+  const endpoint = `/standings/live/leagues/${encodeURIComponent(leagueId)}`;
+  logInfo("sportmonks.request", "Sportmonks standings request", { endpoint, leagueId });
+  const payload = await fetchJson<SportmonksResponse<SportmonksStanding>>(endpoint, LIVE_TTL_MS);
   const standings = Array.isArray(payload?.data) ? payload.data : [];
-  return standings.map((standing) => ({
+  const normalized = standings.map((standing) => ({
     teamName: standing.participant?.name ?? "",
     position: standing.position ?? 0,
     points: standing.points ?? 0,
     result: standing.result ?? "",
   }));
+  logInfo("sportmonks.response", "Sportmonks standings response", { endpoint, leagueId, count: normalized.length, top: normalized.slice(0, 3) });
+  return normalized;
 }
 
 export async function fetchFixtureOdds(fixtureId: string) {
-  if (!fixtureId.trim() || !hasToken()) return [];
-  const payload = await fetchJson<SportmonksResponse<SportmonksOdd>>(`/odds/pre-match/fixtures/${encodeURIComponent(fixtureId)}`, ODD_TTL_MS);
-  return Array.isArray(payload?.data) ? payload.data : [];
+  if (!fixtureId.trim()) return [];
+  if (!hasToken()) {
+    logInfo("sportmonks.response", "Sportmonks odds skipped", { fixtureId, reason: "missing api key" });
+    return [];
+  }
+  const endpoint = `/odds/pre-match/fixtures/${encodeURIComponent(fixtureId)}`;
+  logInfo("sportmonks.request", "Sportmonks odds request", { endpoint, fixtureId });
+  const payload = await fetchJson<SportmonksResponse<SportmonksOdd>>(endpoint, ODD_TTL_MS);
+  const odds = Array.isArray(payload?.data) ? payload.data : [];
+  logInfo("sportmonks.response", "Sportmonks odds response", { endpoint, fixtureId, count: odds.length });
+  return odds;
 }
