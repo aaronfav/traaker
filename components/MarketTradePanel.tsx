@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
@@ -28,6 +28,7 @@ const QUOTE_RETRY_MS = 3_000;
 const DEFAULT_SHARES = "10";
 const DEFAULT_SLIPPAGE_BPS = 300;
 const POLYMARKET_UPLOAD_HOST = "https://polymarket-upload.s3.us-east-2.amazonaws.com/";
+const SHOW_ENRICHMENT_DEBUG = process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_ENRICHMENT_DEBUG === "1";
 
 type QuoteStatus = "healthy" | "refreshing" | "stale";
 type TradeSide = "Buy" | "Sell";
@@ -62,6 +63,19 @@ function formatMarketTime(value?: string) {
 function normalizeComparisonProbability(value?: number) {
   if (!Number.isFinite(value)) return null;
   return Math.max(0, Math.min(1, value as number));
+}
+
+function isPopulatedText(value?: string | null) {
+  return Boolean(value && value.trim().length > 0);
+}
+
+function isPopulatedArray(value?: unknown[] | undefined) {
+  return Array.isArray(value) && value.length > 0;
+}
+
+function sectionLabelForMarket(marketType?: string) {
+  if (marketType === "tournament_winner") return "This is an outright/futures market, so fixture stats may not be available.";
+  return "No external stats found for this market yet.";
 }
 
 function priceForSide(market: MarketBubbleNode, outcomeIndex: number, side: TradeSide) {
@@ -248,6 +262,20 @@ export function MarketTradePanel({
         statsEnrichment.event?.status ||
         statsEnrichment.oddsComparison),
   );
+  const statsLastGames = statsEnrichment?.context.lastGames ?? [];
+  const statsInjuries = statsEnrichment?.context.injuries ?? [];
+  const debugSummary = statsEnrichment
+    ? {
+        provider: statsEnrichment.event?.provider ?? "none",
+        confidence: Math.round(statsEnrichment.confidenceScore * 100),
+        reason:
+          statsEnrichment.enrichmentStatus === "unmatched"
+            ? "No confident provider match"
+            : statsEnrichment.enrichmentStatus === "partial"
+              ? "Partial provider match"
+              : "Matched confidently",
+      }
+    : null;
   const tradeDisabledReason = getTradeDisabledReason({
     configReady: runtimeConfig.clobReady,
     configError: runtimeConfig.missingSetupReason,
@@ -781,85 +809,85 @@ export function MarketTradePanel({
             <div className="mt-4 space-y-3">
               {hasStatsContent && statsEnrichment ? (
                 <>
-                  <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Matchup</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">
-                      {hasCleanH2H ? statsEnrichment.context.headToHead : "Stats unavailable"}
-                    </p>
-                  </div>
+                  {hasCleanH2H && isPopulatedText(statsEnrichment.context.headToHead) ? (
+                    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Matchup</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">{statsEnrichment.context.headToHead}</p>
+                    </div>
+                  ) : null}
 
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  {isPopulatedText(statsEnrichment.event?.league) || isPopulatedText(statsEnrichment.event?.startTime) || isPopulatedText(statsEnrichment.event?.venue) || isPopulatedText(statsEnrichment.event?.status) ? (
                     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
                       <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Event</p>
                       <div className="mt-2 space-y-1 text-sm text-[var(--foreground)]">
-                        <p>{statsEnrichment.event?.league ?? statsEnrichment.sport.toUpperCase() ?? "Stats"}</p>
-                        <p>{statsEnrichment.event?.startTime ? formatMarketTime(statsEnrichment.event.startTime) : "Time unavailable"}</p>
-                        <p>{statsEnrichment.event?.venue ?? "Venue unavailable"}</p>
-                        <p>{statsEnrichment.event?.status ? `Status: ${statsEnrichment.event.status}` : "Status unavailable"}</p>
+                        {isPopulatedText(statsEnrichment.event?.league) ? <p>{statsEnrichment.event?.league}</p> : null}
+                        {isPopulatedText(statsEnrichment.event?.startTime) ? <p>{formatMarketTime(statsEnrichment.event?.startTime)}</p> : null}
+                        {isPopulatedText(statsEnrichment.event?.venue) ? <p>{statsEnrichment.event?.venue}</p> : null}
+                        {isPopulatedText(statsEnrichment.event?.status) ? <p>Status: {statsEnrichment.event?.status}</p> : null}
                       </div>
                     </div>
+                  ) : null}
+
+                  {isPopulatedText(statsEnrichment.context.standings) ? (
                     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
                       <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Standings</p>
-                      <p className="mt-2 text-sm leading-5 text-[var(--foreground)]">{statsEnrichment.context.standings ?? "Standings unavailable"}</p>
+                      <p className="mt-2 text-sm leading-5 text-[var(--foreground)]">{statsEnrichment.context.standings}</p>
                     </div>
-                  </div>
+                  ) : null}
 
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  {isPopulatedArray(statsEnrichment.participants) ? (
                     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
                       <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Form</p>
-                      {statsEnrichment.participants?.length ? (
-                        <div className="mt-2 space-y-2">
-                          {statsEnrichment.participants.slice(0, 4).map((participant) => (
-                            <div key={participant.normalizedName} className="flex items-center justify-between gap-3">
-                              <span className="min-w-0 truncate text-sm text-[var(--foreground)]">{participant.name}</span>
-                              <span className="flex shrink-0 items-center gap-1">
-                                {participant.recentForm?.length ? (
-                                  participant.recentForm.slice(0, 5).map((symbol, index) => (
-                                    <span
-                                      key={`${participant.normalizedName}-${index}`}
-                                      className={`h-1.5 w-4 rounded-full ${symbol === "W" ? "bg-emerald-500/80" : symbol === "L" ? "bg-rose-500/80" : "bg-slate-400/70"}`}
-                                    />
-                                  ))
-                                ) : (
-                                  <span className="text-xs text-[var(--muted)]">Unavailable</span>
-                                )}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="mt-2 text-sm text-[var(--muted)]">Stats unavailable</p>
-                      )}
+                      <div className="mt-2 space-y-2">
+                        {statsEnrichment.participants.slice(0, 4).map((participant) => (
+                          <div key={participant.normalizedName} className="flex items-center justify-between gap-3">
+                            <span className="min-w-0 truncate text-sm text-[var(--foreground)]">{participant.name}</span>
+                            <span className="flex shrink-0 items-center gap-1">
+                              {participant.recentForm?.length ? (
+                                participant.recentForm.slice(0, 5).map((symbol, index) => (
+                                  <span
+                                    key={`${participant.normalizedName}-${index}`}
+                                    className={`h-1.5 w-4 rounded-full ${symbol === "W" ? "bg-emerald-500/80" : symbol === "L" ? "bg-rose-500/80" : "bg-slate-400/70"}`}
+                                  />
+                                ))
+                              ) : (
+                                <span className="text-xs text-[var(--muted)]">Unavailable</span>
+                              )}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Live Score / Status</p>
-                      <p className="mt-2 text-sm text-[var(--foreground)]">
-                        {statsEnrichment.context.liveStats?.score ? String(statsEnrichment.context.liveStats.score) : statsEnrichment.event?.score ?? "Status unavailable"}
-                      </p>
-                      <p className="mt-2 text-sm text-[var(--foreground)]">
-                        {statsEnrichment.context.lastGames?.length ? statsEnrichment.context.lastGames.slice(0, 5).join(" • ") : "Recent matches unavailable"}
-                      </p>
-                    </div>
-                  </div>
+                  ) : null}
 
-                  <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Injuries / News</p>
-                    {statsEnrichment.context.injuries?.length ? (
+                  {isPopulatedText(statsEnrichment.context.liveStats?.score ? String(statsEnrichment.context.liveStats.score) : statsEnrichment.event?.score) || isPopulatedArray(statsLastGames) ? (
+                    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Live / Recent</p>
+                      {isPopulatedText(statsEnrichment.context.liveStats?.score ? String(statsEnrichment.context.liveStats.score) : statsEnrichment.event?.score) ? (
+                        <p className="mt-2 text-sm text-[var(--foreground)]">{statsEnrichment.context.liveStats?.score ? String(statsEnrichment.context.liveStats.score) : statsEnrichment.event?.score}</p>
+                      ) : null}
+                      {isPopulatedArray(statsLastGames) ? (
+                        <p className="mt-2 text-sm text-[var(--foreground)]">{statsLastGames.slice(0, 5).join(" • ")}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {isPopulatedArray(statsInjuries) ? (
+                    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Injuries / News</p>
                       <div className="mt-2 flex flex-wrap gap-2">
-                        {statsEnrichment.context.injuries.slice(0, 6).map((item) => (
+                        {statsInjuries.slice(0, 6).map((item) => (
                           <span key={item} className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--foreground)]">
                             {item}
                           </span>
                         ))}
                       </div>
-                    ) : (
-                      <p className="mt-2 text-sm text-[var(--muted)]">Stats unavailable</p>
-                    )}
-                  </div>
+                    </div>
+                  ) : null}
 
-                  <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Odds Comparison</p>
-                    {statsEnrichment.oddsComparison ? (
+                  {statsEnrichment.oddsComparison ? (
+                    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Odds Comparison</p>
                       <div className="mt-2 grid gap-2 sm:grid-cols-3">
                         <div className="rounded-lg border border-[var(--border)] px-3 py-2">
                           <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Bookmaker Avg</p>
@@ -884,14 +912,21 @@ export function MarketTradePanel({
                           </p>
                         </div>
                       </div>
-                    ) : (
-                      <p className="mt-2 text-sm text-[var(--muted)]">Stats unavailable</p>
-                    )}
-                  </div>
+                    </div>
+                  ) : null}
+
+                  {SHOW_ENRICHMENT_DEBUG ? (
+                    <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--muted)]">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Debug Summary</p>
+                      <p className="mt-2">Provider: {debugSummary?.provider ?? "none"}</p>
+                      <p>Match confidence: {debugSummary?.confidence ?? 0}%</p>
+                      <p>Reason: {debugSummary?.reason ?? "Unknown"}</p>
+                    </div>
+                  ) : null}
                 </>
               ) : (
                 <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--muted)]">
-                  Stats unavailable for this market.
+                  {sectionLabelForMarket(statsEnrichment?.marketType)}
                 </div>
               )}
             </div>
@@ -977,3 +1012,5 @@ export function MarketTradePanel({
     </>
   );
 }
+
+
