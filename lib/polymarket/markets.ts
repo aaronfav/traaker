@@ -1297,8 +1297,7 @@ export async function getLiveSportsMarketsApiPayload(params: MarketQueryParams =
   counts.displayedMarkets = collectedMarkets.length;
 
   const page = getMarketPage(discovery, { ...params, minVolume });
-  const markets = page.markets;
-  warmMarketOutcomeLogos(markets);
+  const markets = await enrichMarketOutcomeLogos(page.markets);
   const requestDurationMs = Date.now() - requestStartedAt;
 
   if (process.env.NODE_ENV !== "production") {
@@ -1752,15 +1751,15 @@ export async function fetchSportsMarkets(): Promise<TerminalMarket[]> {
   const startedAt = Date.now();
   const discovery = await fetchSportsMarketDiscovery();
   const markets = discovery.markets;
-  warmMarketOutcomeLogos(markets);
+  const enrichedMarkets = await enrichMarketOutcomeLogos(markets);
   if (logoDebugEnabled()) {
     console.info("[Traak] sports logo debug", {
       message: "sports_markets_total_time",
       durationMs: Date.now() - startedAt,
-      marketCount: markets.length,
+      marketCount: enrichedMarkets.length,
     });
   }
-  return markets;
+  return enrichedMarkets;
 }
 
 export async function getMarketById(id: string) {
