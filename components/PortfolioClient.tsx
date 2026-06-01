@@ -1,16 +1,17 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, ArrowDownRight, ArrowUpRight, Clock3, Loader2, RefreshCw } from "lucide-react";
+import { AlertCircle, ArrowDownRight, ArrowUpRight, CheckCircle2, Clock3, Loader2, RefreshCw, X } from "lucide-react";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { formatWalletAddress } from "@/src/lib/display";
 import { derivePortfolioPositions, type PortfolioPosition } from "@/src/lib/positions";
 import { resolveTradingWalletContext, type TradingWalletContext } from "@/lib/polymarket/tradeSetup";
+import { withdrawFromTradingWallet } from "@/lib/polymarket/withdraw";
 import { resolveTransactionTimestamp, type Transaction, type WalletSyncStatus } from "@/src/lib/storage";
 
 type PortfolioStateResponse = {
@@ -151,11 +152,133 @@ function PositionCard({ position }: { position: EnrichedOpenPosition }) {
   );
 }
 
-function EmptyState({ title, description }: { title: string; description: string }) {
+function EmptyState({ title, description }: { title: string; description?: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-950/50 p-6 text-center">
+    <div className="rounded-3xl border border-white/6 bg-slate-950/35 px-5 py-7 text-center shadow-[0_12px_36px_rgba(2,6,23,0.14)]">
       <p className="text-base font-semibold text-slate-100">{title}</p>
-      <p className="mt-2 text-sm leading-6 text-slate-400">{description}</p>
+      {description ? <p className="mt-2 text-sm leading-6 text-slate-400">{description}</p> : null}
+    </div>
+  );
+}
+
+type WithdrawModalProps = {
+  open: boolean;
+  availableBalance: number | null;
+  destinationAddress: string;
+  amount: string;
+  error: string;
+  success: string;
+  withdrawing: boolean;
+  canSubmit: boolean;
+  onClose: () => void;
+  onAmountChange: (value: string) => void;
+  onDestinationChange: (value: string) => void;
+  onSubmit: () => void;
+};
+
+function WithdrawModal({
+  open,
+  availableBalance,
+  destinationAddress,
+  amount,
+  error,
+  success,
+  withdrawing,
+  canSubmit,
+  onClose,
+  onAmountChange,
+  onDestinationChange,
+  onSubmit,
+}: WithdrawModalProps) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md">
+      <div className="flex min-h-full items-end justify-center p-3 sm:items-center sm:p-5">
+        <div className="w-full max-w-xl overflow-hidden rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.99))] shadow-[0_30px_120px_rgba(2,6,23,0.72)] max-h-[calc(100vh-1.5rem)] overflow-y-auto">
+          <div className="flex items-start justify-between gap-4 border-b border-white/8 px-5 py-4 sm:px-6">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Wallet withdrawal</p>
+              <h2 className="mt-1 text-lg font-semibold text-slate-50">Withdraw funds</h2>
+              <p className="mt-1 text-sm text-slate-400">Move available USDC from your trading wallet to another wallet address.</p>
+            </div>
+            <Button aria-label="Close withdraw dialog" onClick={onClose} size="icon" type="button" variant="ghost">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+
+          <div className="space-y-4 px-5 py-5 sm:px-6">
+            <div className="rounded-3xl border border-white/8 bg-white/[0.03] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Available balance</p>
+                  <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-50">
+                    {availableBalance === null ? "--" : `$${availableBalance.toFixed(2)}`}
+                  </p>
+                </div>
+                <Badge tone={availableBalance && availableBalance > 0 ? "green" : "slate"} className="uppercase tracking-[0.18em]">
+                  {availableBalance && availableBalance > 0 ? "Ready" : "No balance"}
+                </Badge>
+              </div>
+            </div>
+
+            {success ? (
+              <div className="flex gap-3 rounded-3xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-emerald-100">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{success}</p>
+                  <p className="mt-1 text-sm text-emerald-100/75">You can close this dialog and refresh the portfolio if needed.</p>
+                </div>
+              </div>
+            ) : null}
+
+            {error ? (
+              <div className="flex gap-3 rounded-3xl border border-rose-400/20 bg-rose-500/10 p-4 text-rose-100">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <p className="text-sm">{error}</p>
+              </div>
+            ) : null}
+
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1.5 block text-[11px] uppercase tracking-[0.2em] text-slate-500" htmlFor="withdraw-amount">
+                  Amount
+                </label>
+                <Input
+                  id="withdraw-amount"
+                  inputMode="decimal"
+                  onChange={(event) => onAmountChange(event.target.value)}
+                  placeholder="0.00"
+                  value={amount}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-[11px] uppercase tracking-[0.2em] text-slate-500" htmlFor="withdraw-destination">
+                  Destination wallet
+                </label>
+                <Input
+                  id="withdraw-destination"
+                  onChange={(event) => onDestinationChange(event.target.value)}
+                  placeholder="0x..."
+                  value={destinationAddress}
+                />
+                <p className="mt-2 text-xs leading-5 text-slate-500">Funds are sent directly to the address you enter.</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 border-t border-white/8 px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+            <Button onClick={onClose} type="button" variant="outline">
+              Cancel
+            </Button>
+            <Button disabled={success ? false : !canSubmit || withdrawing} onClick={success ? onClose : onSubmit} type="button">
+              {withdrawing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {success ? "Done" : "Confirm withdraw"}
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -172,14 +295,17 @@ export default function PortfolioClient() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [warnings, setWarnings] = useState<string[]>([]);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [withdrawDestination, setWithdrawDestination] = useState("");
+  const [withdrawError, setWithdrawError] = useState("");
+  const [withdrawSuccess, setWithdrawSuccess] = useState("");
+  const [withdrawing, setWithdrawing] = useState(false);
 
   const loadPortfolio = useCallback(
     async (mode: "initial" | "refresh" = "refresh") => {
-      const nextWarnings: string[] = [];
       setError("");
-      setWarnings([]);
       if (mode === "initial") setLoading(true);
       setRefreshing(true);
 
@@ -194,10 +320,7 @@ export default function PortfolioClient() {
                 walletClient,
                 address,
                 publicClient,
-              }).catch(() => {
-                nextWarnings.push("Live wallet details are unavailable until the connected wallet is ready on Polygon.");
-                return null;
-              })
+              }).catch(() => null)
             : Promise.resolve(null);
 
         const [portfolioData, resolvedTradingContext] = await Promise.all([portfolioRequest, walletContextPromise]);
@@ -210,15 +333,11 @@ export default function PortfolioClient() {
                 .then(async (response) => {
                   const data = (await response.json().catch(() => null)) as AccountResponse | null;
                   if (!response.ok || !data?.ok) {
-                    nextWarnings.push(data?.error ?? "Wallet balance is currently unavailable.");
                     return null;
                   }
                   return data;
                 })
-                .catch(() => {
-                  nextWarnings.push("Wallet balance is currently unavailable.");
-                  return null;
-                })
+                .catch(() => null)
             : Promise.resolve(null);
 
         const positionsRequest =
@@ -229,21 +348,16 @@ export default function PortfolioClient() {
                 .then(async (response) => {
                   const data = (await response.json().catch(() => null)) as PositionsResponse | null;
                   if (!response.ok || !data?.ok) {
-                    nextWarnings.push(data?.error ?? "Open positions are currently unavailable.");
                     return [];
                   }
                   return data.positions ?? [];
                 })
-                .catch(() => {
-                  nextWarnings.push("Open positions are currently unavailable.");
-                  return [];
-                })
+                .catch(() => [])
             : Promise.resolve([]);
 
         const [accountData, positionsData] = await Promise.all([accountRequest, positionsRequest]);
         setAccountState(accountData);
         setLivePositions(positionsData);
-        setWarnings(nextWarnings);
         setLastUpdatedAt(Date.now());
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to load portfolio data.");
@@ -303,6 +417,107 @@ export default function PortfolioClient() {
     return { connected, trading, deposit };
   }, [address, tradingContext]);
 
+  useEffect(() => {
+    if (!withdrawOpen) {
+      return;
+    }
+    setWithdrawDestination(address ?? "");
+  }, [address, withdrawOpen]);
+
+  const closeWithdrawModal = useCallback(() => {
+    setWithdrawOpen(false);
+    setWithdrawAmount("");
+    setWithdrawDestination("");
+    setWithdrawError("");
+    setWithdrawSuccess("");
+    setWithdrawing(false);
+  }, []);
+
+  const openWithdrawModal = useCallback(() => {
+    setWithdrawError("");
+    setWithdrawSuccess("");
+    setWithdrawAmount("");
+    setWithdrawDestination(address ?? "");
+    setWithdrawOpen(true);
+  }, [address]);
+
+  const handleWithdraw = useCallback(async () => {
+    if (!isConnected || chainId !== 137 || !walletClient || !publicClient || !address) {
+      setWithdrawError("Connect a Polygon wallet before withdrawing.");
+      return;
+    }
+    if (!tradingContext?.tradingWalletAddress) {
+      setWithdrawError("Trading wallet unavailable.");
+      return;
+    }
+    if (walletBalance === null) {
+      setWithdrawError("Wallet balance is not loaded yet.");
+      return;
+    }
+
+    setWithdrawError("");
+    setWithdrawSuccess("");
+    setWithdrawing(true);
+
+    try {
+      const result = await withdrawFromTradingWallet({
+        walletClient,
+        publicClient,
+        address,
+        destinationAddress: withdrawDestination.trim(),
+        amount: withdrawAmount.trim(),
+        availableBalanceRaw: accountState?.balance?.balance ?? null,
+      });
+      setWithdrawSuccess(`Withdrawal submitted to ${formatWalletAddress(result.destinationAddress)}.`);
+      await loadPortfolio("refresh");
+    } catch (err) {
+      setWithdrawError(err instanceof Error ? err.message : "Unable to withdraw funds.");
+    } finally {
+      setWithdrawing(false);
+    }
+  }, [
+    accountState?.balance?.balance,
+    address,
+    chainId,
+    isConnected,
+    loadPortfolio,
+    publicClient,
+    tradingContext?.tradingWalletAddress,
+    walletBalance,
+    walletClient,
+    withdrawAmount,
+    withdrawDestination,
+  ]);
+
+  const canSubmitWithdraw = useMemo(() => {
+    if (withdrawing) return false;
+    if (!withdrawAmount.trim() || !withdrawDestination.trim()) return false;
+    if (!isConnected || chainId !== 137 || !walletClient || !publicClient || !address) return false;
+    if (!tradingContext?.tradingWalletAddress) return false;
+    return true;
+  }, [
+    address,
+    chainId,
+    isConnected,
+    publicClient,
+    tradingContext?.tradingWalletAddress,
+    walletClient,
+    withdrawAmount,
+    withdrawDestination,
+    withdrawing,
+  ]);
+
+  const canOpenWithdraw = Boolean(
+    isConnected &&
+      chainId === 137 &&
+      walletClient &&
+      publicClient &&
+      address &&
+      tradingContext?.tradingWalletAddress &&
+      walletBalance !== null &&
+      walletBalance > 0,
+  );
+
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.08),transparent_32%),linear-gradient(180deg,#05070d_0%,#03040a_100%)] text-slate-100">
       <div className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-6 lg:px-8">
@@ -321,16 +536,6 @@ export default function PortfolioClient() {
           <div className="mb-4 flex gap-3 rounded-2xl border border-rose-400/25 bg-rose-950/35 p-4 text-sm text-rose-100">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{error}</span>
-          </div>
-        ) : null}
-
-        {warnings.length > 0 ? (
-          <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="h-2 w-2 shrink-0 rounded-full bg-cyan-300 shadow-[0_0_0_3px_rgba(34,211,238,0.12)]" />
-              <span className="min-w-0 truncate">Portfolio data is refreshing in the background.</span>
-            </div>
-            <span className="hidden text-xs text-slate-500 sm:inline">{warnings.length} update{warnings.length === 1 ? "" : "s"}</span>
           </div>
         ) : null}
 
@@ -353,7 +558,7 @@ export default function PortfolioClient() {
                   ))}
                 </div>
               ) : (
-                <EmptyState title="No open positions yet" description="Once you have active market exposure, it will appear here with current pricing and value." />
+                <EmptyState title="No open positions" />
               )}
             </CardContent>
           </Card>
@@ -361,8 +566,20 @@ export default function PortfolioClient() {
           <div className="space-y-6">
             <Card className="border-white/8 bg-[linear-gradient(180deg,rgba(15,23,42,0.95),rgba(2,6,23,0.98))] shadow-[0_24px_90px_rgba(2,6,23,0.3)]">
               <CardHeader className="border-b border-white/6 px-5 py-4">
-                <CardTitle className="text-base font-semibold text-slate-50">Wallet</CardTitle>
-                <CardDescription className="mt-1 text-sm text-slate-400">Balances and wallet addresses used for trading.</CardDescription>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <CardTitle className="text-base font-semibold text-slate-50">Wallet</CardTitle>
+                    <CardDescription className="mt-1 text-sm text-slate-400">Balances and wallet addresses used for trading.</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge tone={isConnected ? "green" : "slate"} className="uppercase tracking-[0.18em]">
+                      {isConnected ? "Connected" : "Disconnected"}
+                    </Badge>
+                    <Button disabled={!canOpenWithdraw} onClick={openWithdrawModal} size="sm" type="button" variant="outline">
+                      Withdraw
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="space-y-4 p-5">
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -379,27 +596,33 @@ export default function PortfolioClient() {
                     </div>
                     <div className="flex items-center gap-2 text-sm text-slate-400">
                       <Clock3 className="h-4 w-4" />
-                      <span>{lastUpdatedAt ? `Updated ${new Date(lastUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Waiting for refresh"}</span>
-                    </div>
+                    <span>{lastUpdatedAt ? `Updated ${new Date(lastUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Waiting for refresh"}</span>
                   </div>
+                </div>
                   <p className="mt-3 text-sm leading-6 text-slate-400">
                     {walletBalance === null
                       ? "Connect and refresh to load the live wallet balance."
-                      : "This is the live USDC balance used for trading readiness checks."}
+                      : "This is the live USDC balance available for withdrawals and trading."}
                   </p>
                 </div>
-
-                <div className="flex flex-wrap items-center gap-3">
-                  <Link href="/portfolio/connect" className="rounded-full border border-white/10 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/5">
-                    Manage wallets
-                  </Link>
-                </div>
-
-                <p className="text-xs text-slate-500">{isConnected ? "Connected wallet loaded." : "Connect a wallet to view balances and trading wallets."}</p>
               </CardContent>
             </Card>
           </div>
         </div>
+        <WithdrawModal
+          amount={withdrawAmount}
+          availableBalance={walletBalance}
+          canSubmit={canSubmitWithdraw}
+          destinationAddress={withdrawDestination}
+          error={withdrawError}
+          onAmountChange={setWithdrawAmount}
+          onClose={closeWithdrawModal}
+          onDestinationChange={setWithdrawDestination}
+          onSubmit={handleWithdraw}
+          open={withdrawOpen}
+          success={withdrawSuccess}
+          withdrawing={withdrawing}
+        />
       </div>
     </main>
   );
