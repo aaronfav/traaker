@@ -64,6 +64,45 @@ type SellState = {
   amount: string;
 };
 
+const PORTFOLIO_DEBUG = process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_PORTFOLIO_DEBUG === "1";
+
+const toLivePortfolioPosition = (position: LivePosition, updatedAt: string): EnrichedOpenPosition =>
+  ({
+    id: position.tokenId,
+    source: "wallet",
+    sourceType: "wallet",
+    sourceId: position.tokenId,
+    walletAddress: undefined,
+    connectedWalletAddress: undefined,
+    proxyWallet: undefined,
+    marketId: position.conditionId || position.tokenId,
+    marketTitle: position.title,
+    category: undefined,
+    side: "BUY",
+    outcome: position.outcome as "YES" | "NO",
+    shares: position.shares,
+    price: position.avgPrice ?? position.curPrice ?? 0,
+    fee: undefined,
+    timestamp: updatedAt,
+    createdAt: updatedAt,
+    updatedAt,
+    notes: undefined,
+    externalTradeId: position.tokenId,
+    rawSource: position,
+    positionKey: `${position.conditionId || position.tokenId}|${position.tokenId}|${position.outcome}`,
+    tradeCount: 1,
+    latestFillId: position.tokenId,
+    latestActivityTimestamp: updatedAt,
+    status: "open",
+    liveQuote: position.bestBid ?? position.curPrice ?? null,
+    currentValue: position.currentValue ?? null,
+    unrealizedPnl: null,
+    tokenId: position.tokenId,
+    negativeRisk: position.negativeRisk,
+    bestBid: position.bestBid ?? null,
+    curPrice: position.curPrice ?? null,
+  }) as EnrichedOpenPosition;
+
 const toUsd = (value: number | null | undefined) => {
   if (!Number.isFinite(value ?? Number.NaN)) return "--";
   return `$${(value as number).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -87,6 +126,11 @@ const formatCurrency = (value: number | null | undefined) => {
 const formatCents = (value: number | null | undefined) => {
   if (!Number.isFinite(value ?? Number.NaN)) return "--";
   return `${Math.round((value as number) * 100)}c`;
+};
+
+const portfolioDebugLog = (...args: unknown[]) => {
+  if (!PORTFOLIO_DEBUG) return;
+  console.info("[portfolio]", ...args);
 };
 
 function formatDateTime(value: string | undefined) {
@@ -484,6 +528,13 @@ export default function PortfolioClient() {
         setPortfolioState(portfolioData);
         setTradingContext(resolvedTradingContext);
         setWalletBalanceLoading(Boolean(resolvedTradingContext));
+        portfolioDebugLog("wallet context", {
+          connectedWallet: address ?? null,
+          resolvedTradingWallet: resolvedTradingContext?.tradingWalletAddress ?? null,
+          resolvedDepositWallet: resolvedTradingContext?.depositWalletAddress ?? null,
+          walletMode: resolvedTradingContext?.walletMode ?? null,
+          proxyWallet: resolvedTradingContext?.proxyWalletAddress ?? null,
+        });
 
         const positionsRequest =
           resolvedTradingContext?.tradingWalletAddress
@@ -502,11 +553,21 @@ export default function PortfolioClient() {
 
         const positionsData = await positionsRequest;
         setLivePositions(positionsData);
+        portfolioDebugLog("positions response", {
+          positionsQueryAddress: resolvedTradingContext?.tradingWalletAddress ?? null,
+          positionsCount: positionsData.length,
+        });
         setLastUpdatedAt(Date.now());
 
         if (resolvedTradingContext && publicClient) {
           const collateral = getPolymarketExchangeConfig(false).collateral as Address;
           const balanceTimeoutMs = 10000;
+          const balanceSourceAddress = resolvedTradingContext.tradingWalletAddress as Address;
+          portfolioDebugLog("balance lookup", {
+            balanceSourceAddress,
+            method: "erc20.balanceOf",
+            collateral,
+          });
           const balanceTimeout = new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error("Wallet balance request timed out.")), balanceTimeoutMs),
           );
@@ -516,12 +577,16 @@ export default function PortfolioClient() {
                 address: collateral,
                 abi: erc20Abi,
                 functionName: "balanceOf",
-                args: [resolvedTradingContext.tradingWalletAddress as Address],
+                args: [balanceSourceAddress],
               }) as Promise<bigint>,
               balanceTimeout,
             ]);
             setWalletBalanceRaw(typeof balance === "bigint" ? balance : null);
             setWalletBalanceError("");
+            portfolioDebugLog("balance result", {
+              balanceSourceAddress,
+              balance: typeof balance === "bigint" ? balance.toString() : null,
+            });
           } catch (balanceError) {
             try {
               const accountTimeout = new Promise<never>((_, reject) =>
@@ -539,11 +604,21 @@ export default function PortfolioClient() {
               if (accountResponse.ok && accountData?.ok && accountData.balance?.balance) {
                 setWalletBalanceRaw(BigInt(accountData.balance.balance));
                 setWalletBalanceError("");
+                portfolioDebugLog("balance fallback result", {
+                  balanceSourceAddress,
+                  balance: accountData.balance.balance,
+                  source: "/api/polymarket/account",
+                });
               } else {
                 setWalletBalanceRaw(null);
                 setWalletBalanceError(
                   balanceError instanceof Error ? balanceError.message : accountData?.error ?? "Wallet balance unavailable.",
                 );
+                portfolioDebugLog("balance unavailable", {
+                  balanceSourceAddress,
+                  reason:
+                    balanceError instanceof Error ? balanceError.message : accountData?.error ?? "Wallet balance unavailable.",
+                });
               }
             } catch (accountError) {
               setWalletBalanceRaw(null);
@@ -554,6 +629,15 @@ export default function PortfolioClient() {
                     ? accountError.message
                     : "Wallet balance unavailable.",
               );
+              portfolioDebugLog("balance unavailable", {
+                balanceSourceAddress,
+                reason:
+                  balanceError instanceof Error
+                    ? balanceError.message
+                    : accountError instanceof Error
+                      ? accountError.message
+                      : "Wallet balance unavailable.",
+              });
             } finally {
               setWalletBalanceLoading(false);
             }
@@ -564,12 +648,19 @@ export default function PortfolioClient() {
           setWalletBalanceRaw(null);
           setWalletBalanceError(isConnected ? "Trading wallet unavailable." : "");
           setWalletBalanceLoading(false);
+          portfolioDebugLog("balance unavailable", {
+            balanceSourceAddress: null,
+            reason: isConnected ? "Trading wallet unavailable." : "Wallet not connected.",
+          });
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to load portfolio data.");
         setWalletBalanceError(err instanceof Error ? err.message : "Unable to load wallet balance.");
         setWalletBalanceRaw(null);
         setWalletBalanceLoading(false);
+        portfolioDebugLog("portfolio load failed", {
+          reason: err instanceof Error ? err.message : "Unable to load portfolio data.",
+        });
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -594,8 +685,32 @@ export default function PortfolioClient() {
     return map;
   }, [livePositions]);
 
+  const liveOpenPositions = useMemo<EnrichedOpenPosition[]>(() => {
+    const updatedAt = lastUpdatedAt ? new Date(lastUpdatedAt).toISOString() : new Date().toISOString();
+    return livePositions
+      .map((position) => {
+        const value = toLivePortfolioPosition(position, updatedAt);
+        const shares = value.shares;
+        const quote = value.liveQuote ?? null;
+        const currentValue =
+          value.currentValue ?? (Number.isFinite(quote ?? Number.NaN) ? shares * (quote as number) : null);
+        const unrealizedPnl =
+          Number.isFinite(currentValue ?? Number.NaN) ? (currentValue as number) - shares * value.price : null;
+        return {
+          ...value,
+          currentValue,
+          unrealizedPnl,
+        };
+      })
+      .sort((left, right) => {
+        const leftTime = new Date(resolveTransactionTimestamp(left) ?? left.timestamp).getTime();
+        const rightTime = new Date(resolveTransactionTimestamp(right) ?? right.timestamp).getTime();
+        return rightTime - leftTime;
+      });
+  }, [lastUpdatedAt, livePositions]);
+
   const openPositions = useMemo<EnrichedOpenPosition[]>(() => {
-    return derivedPositions
+    const derivedOpenPositions = derivedPositions
       .map((position) => {
         const live =
           livePositionMap.get(`${position.marketTitle.trim().toLowerCase()}|${position.outcome.trim().toLowerCase()}`) ??
@@ -620,7 +735,8 @@ export default function PortfolioClient() {
         const rightTime = new Date(resolveTransactionTimestamp(right) ?? right.timestamp).getTime();
         return rightTime - leftTime;
       });
-  }, [derivedPositions, livePositionMap]);
+    return liveOpenPositions.length > 0 ? liveOpenPositions : derivedOpenPositions;
+  }, [derivedPositions, liveOpenPositions, livePositionMap]);
 
   const walletBalance = walletBalanceRaw === null ? null : Number(walletBalanceRaw) / 1_000_000;
   const walletBalanceDisplay = !isConnected
@@ -780,6 +896,10 @@ export default function PortfolioClient() {
       setWithdrawError("Wallet balance is not loaded yet.");
       return;
     }
+    if (walletBalanceRaw <= BigInt(0)) {
+      setWithdrawError("No withdrawable balance available.");
+      return;
+    }
 
     setWithdrawError("");
     setWithdrawSuccess("");
@@ -793,6 +913,12 @@ export default function PortfolioClient() {
         destinationAddress: withdrawDestination.trim(),
         amount: withdrawAmount.trim(),
         availableBalanceRaw: walletBalanceRaw?.toString() ?? null,
+      });
+      portfolioDebugLog("withdrawal mode selected", {
+        walletMode: result.walletMode,
+        tradingWalletAddress: result.tradingWalletAddress,
+        destinationAddress: result.destinationAddress,
+        amountRaw: result.amountRaw,
       });
       setWithdrawSuccess(`Withdrawal submitted to ${formatWalletAddress(result.destinationAddress)}.`);
       await loadPortfolio("refresh");
