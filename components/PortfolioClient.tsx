@@ -9,9 +9,17 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
+import { OrderType, placeMarketOrder, Side, isDepositWalletRequiredError } from "@/lib/polymarket/orders";
 import { formatWalletAddress } from "@/src/lib/display";
 import { derivePortfolioPositions, type PortfolioPosition } from "@/src/lib/positions";
-import { resolveTradingWalletContext, type TradingWalletContext } from "@/lib/polymarket/tradeSetup";
+import {
+  ensureTradingReady,
+  markDepositWalletRequired,
+  resolveTradingWalletContext,
+  type TradeProgress,
+  type TradingWalletContext,
+} from "@/lib/polymarket/tradeSetup";
 import { withdrawFromTradingWallet } from "@/lib/polymarket/withdraw";
 import { resolveTransactionTimestamp, type Transaction, type WalletSyncStatus } from "@/src/lib/storage";
 import { getPolymarketExchangeConfig } from "@/lib/polymarket/relayer";
@@ -45,6 +53,15 @@ type EnrichedOpenPosition = PortfolioPosition & {
   liveQuote?: number | null;
   currentValue?: number | null;
   unrealizedPnl?: number | null;
+  tokenId?: string | null;
+  negativeRisk?: boolean;
+  bestBid?: number | null;
+  curPrice?: number | null;
+};
+
+type SellState = {
+  position: EnrichedOpenPosition;
+  amount: string;
 };
 
 const toUsd = (value: number | null | undefined) => {
@@ -60,6 +77,16 @@ const toPrice = (value: number | null | undefined) => {
 const toShares = (value: number | null | undefined) => {
   if (!Number.isFinite(value ?? Number.NaN)) return "--";
   return (value as number).toLocaleString(undefined, { maximumFractionDigits: 4 });
+};
+
+const formatCurrency = (value: number | null | undefined) => {
+  if (!Number.isFinite(value ?? Number.NaN)) return "--";
+  return `$${(value as number).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+const formatCents = (value: number | null | undefined) => {
+  if (!Number.isFinite(value ?? Number.NaN)) return "--";
+  return `${Math.round((value as number) * 100)}c`;
 };
 
 function formatDateTime(value: string | undefined) {
@@ -85,11 +112,18 @@ function WalletField({ label, value }: { label: string; value: string }) {
   );
 }
 
-function PositionCard({ position }: { position: EnrichedOpenPosition }) {
+function PositionCard({
+  position,
+  onSell,
+}: {
+  position: EnrichedOpenPosition;
+  onSell: (position: EnrichedOpenPosition) => void;
+}) {
   const quote = position.liveQuote ?? null;
   const currentValue = position.currentValue ?? null;
   const pnl = position.unrealizedPnl ?? null;
   const positivePnl = Number.isFinite(pnl ?? Number.NaN) ? (pnl as number) >= 0 : null;
+  const canSell = Boolean(position.tokenId && Number.isFinite(quote ?? Number.NaN) && position.shares > 0);
 
   return (
     <div className="rounded-3xl border border-white/8 bg-slate-950/60 p-4 shadow-[0_18px_48px_rgba(2,6,23,0.22)]">
@@ -125,16 +159,28 @@ function PositionCard({ position }: { position: EnrichedOpenPosition }) {
 
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
           <span>Updated {formatDateTime(position.latestActivityTimestamp)}</span>
-          <span className="inline-flex items-center gap-2">
-            {positivePnl === null ? (
-              <span className="text-slate-500">PnL unavailable</span>
-            ) : (
-              <>
-                {positivePnl ? <ArrowUpRight className="h-3.5 w-3.5 text-emerald-300" /> : <ArrowDownRight className="h-3.5 w-3.5 text-rose-300" />}
-                <span className={positivePnl ? "text-emerald-200" : "text-rose-200"}>{toUsd(pnl)}</span>
-              </>
-            )}
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-2">
+              {positivePnl === null ? (
+                <span className="text-slate-500">PnL unavailable</span>
+              ) : (
+                <>
+                  {positivePnl ? <ArrowUpRight className="h-3.5 w-3.5 text-emerald-300" /> : <ArrowDownRight className="h-3.5 w-3.5 text-rose-300" />}
+                  <span className={positivePnl ? "text-emerald-200" : "text-rose-200"}>{toUsd(pnl)}</span>
+                </>
+              )}
+            </span>
+            <Button
+              className="h-8 rounded-full px-3 text-xs"
+              disabled={!canSell}
+              onClick={() => onSell(position)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Sell
+            </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -272,6 +318,120 @@ function WithdrawModal({
   );
 }
 
+type SellModalProps = {
+  open: boolean;
+  position: EnrichedOpenPosition | null;
+  amount: string;
+  estimatedProceeds: number | null;
+  selectedBid: number | null;
+  tradeProgress: TradeProgress;
+  submitting: boolean;
+  error: string;
+  onClose: () => void;
+  onAmountChange: (value: string) => void;
+  onSubmit: () => void;
+};
+
+function SellModal({
+  open,
+  position,
+  amount,
+  estimatedProceeds,
+  selectedBid,
+  tradeProgress,
+  submitting,
+  error,
+  onClose,
+  onAmountChange,
+  onSubmit,
+}: SellModalProps) {
+  if (!open || !position) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md">
+      <div className="flex min-h-full items-end justify-center p-3 sm:items-center sm:p-5">
+        <div className="w-full max-w-md rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.99))] shadow-[0_30px_120px_rgba(2,6,23,0.72)]">
+          <div className="flex items-start justify-between gap-4 border-b border-white/8 px-5 py-4 sm:px-6">
+            <div className="min-w-0">
+              <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Position trade</p>
+              <h2 className="mt-1 text-lg font-semibold text-slate-50">Sell shares</h2>
+              <p className="mt-1 line-clamp-2 text-sm text-slate-400">{position.marketTitle}</p>
+            </div>
+            <Button aria-label="Close sell dialog" onClick={onClose} size="icon" type="button" variant="ghost">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+
+          <div className="space-y-4 px-5 py-5 sm:px-6">
+            <div className="rounded-3xl border border-white/8 bg-white/[0.03] p-4">
+              <div className="flex justify-between gap-3 text-sm text-slate-300">
+                <span>Outcome</span>
+                <span className="font-semibold text-slate-100">{position.outcome}</span>
+              </div>
+              <div className="mt-2 flex justify-between gap-3 text-sm text-slate-300">
+                <span>Best bid</span>
+                <span className="font-semibold text-slate-100">{formatCents(selectedBid)}</span>
+              </div>
+              <div className="mt-2 flex justify-between gap-3 text-sm text-slate-300">
+                <span>Estimated proceeds</span>
+                <span className="font-semibold text-slate-100">{formatCurrency(estimatedProceeds)}</span>
+              </div>
+            </div>
+
+            {error ? (
+              <div className="flex gap-3 rounded-3xl border border-rose-400/20 bg-rose-500/10 p-4 text-rose-100">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <p className="text-sm">{error}</p>
+              </div>
+            ) : null}
+
+            {tradeProgress !== "idle" ? (
+              <p className="text-xs uppercase tracking-[0.18em] text-cyan-200">
+                {tradeProgress === "checking-wallet"
+                  ? "Checking wallet"
+                  : tradeProgress === "initializing-trading-wallet"
+                    ? "Initializing trading wallet"
+                    : tradeProgress === "checking-balance"
+                      ? "Checking balance"
+                      : tradeProgress === "approving-trading"
+                        ? "Approving trading"
+                        : tradeProgress === "refreshing-quote"
+                          ? "Refreshing quote"
+                          : "Submitting order"}
+              </p>
+            ) : null}
+
+            <label className="block text-sm">
+              <span className="text-slate-300">Shares to sell</span>
+              <Input
+                className="mt-2 border-slate-800 bg-black text-base font-semibold text-slate-50"
+                disabled={submitting}
+                max={position.shares}
+                min="0"
+                onChange={(event) => onAmountChange(event.target.value)}
+                step="0.0001"
+                type="number"
+                value={amount}
+              />
+              <span className="mt-1 block text-xs text-slate-500">Max {toShares(position.shares)} shares</span>
+            </label>
+          </div>
+
+          <div className="flex gap-3 border-t border-white/8 px-5 py-4 sm:px-6">
+            <Button className="flex-1" onClick={onClose} type="button" variant="outline">
+              Cancel
+            </Button>
+            <Button className="flex-1" disabled={submitting} onClick={onSubmit} type="button">
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Sell
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PortfolioClient() {
   const { address, chainId, isConnected } = useAccount();
   const { data: walletClient } = useWalletClient({ chainId: 137 });
@@ -283,10 +443,14 @@ export default function PortfolioClient() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [walletBalanceRaw, setWalletBalanceRaw] = useState<bigint | null>(null);
   const [walletBalanceLoading, setWalletBalanceLoading] = useState(true);
   const [walletBalanceError, setWalletBalanceError] = useState("");
+  const [sellState, setSellState] = useState<SellState | null>(null);
+  const [selling, setSelling] = useState(false);
+  const [tradeProgress, setTradeProgress] = useState<TradeProgress>("idle");
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [withdrawDestination, setWithdrawDestination] = useState("");
@@ -297,6 +461,7 @@ export default function PortfolioClient() {
   const loadPortfolio = useCallback(
     async (mode: "initial" | "refresh" = "refresh") => {
       setError("");
+      setNotice("");
       setWalletBalanceError("");
       if (mode === "initial") setLoading(true);
       setRefreshing(true);
@@ -335,34 +500,79 @@ export default function PortfolioClient() {
                 .catch(() => [])
             : Promise.resolve([]);
 
-        const balanceRequest =
-          resolvedTradingContext && publicClient
-            ? publicClient
-                .readContract({
-                  address: getPolymarketExchangeConfig(false).collateral as Address,
-                  abi: erc20Abi,
-                  functionName: "balanceOf",
-                  args: [resolvedTradingContext.tradingWalletAddress as Address],
-                })
-                .then((value) => (typeof value === "bigint" ? value : null))
-                .catch((balanceError) => {
-                  setWalletBalanceError(balanceError instanceof Error ? balanceError.message : "Unable to load wallet balance.");
-                  return null;
-                })
-            : Promise.resolve(null);
-
-        const [positionsData, balanceData] = await Promise.all([positionsRequest, balanceRequest]);
+        const positionsData = await positionsRequest;
         setLivePositions(positionsData);
-        setWalletBalanceRaw(balanceData);
         setLastUpdatedAt(Date.now());
+
+        if (resolvedTradingContext && publicClient) {
+          const collateral = getPolymarketExchangeConfig(false).collateral as Address;
+          const balanceTimeoutMs = 10000;
+          const balanceTimeout = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("Wallet balance request timed out.")), balanceTimeoutMs),
+          );
+          try {
+            const balance = await Promise.race([
+              publicClient.readContract({
+                address: collateral,
+                abi: erc20Abi,
+                functionName: "balanceOf",
+                args: [resolvedTradingContext.tradingWalletAddress as Address],
+              }) as Promise<bigint>,
+              balanceTimeout,
+            ]);
+            setWalletBalanceRaw(typeof balance === "bigint" ? balance : null);
+            setWalletBalanceError("");
+          } catch (balanceError) {
+            try {
+              const accountTimeout = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("Wallet balance fallback timed out.")), balanceTimeoutMs),
+              );
+              const accountResponse = (await Promise.race([
+                fetch("/api/polymarket/account", { cache: "no-store" }),
+                accountTimeout,
+              ])) as Response;
+              const accountData = (await accountResponse.json().catch(() => null)) as {
+                ok?: boolean;
+                balance?: { balance?: string } | null;
+                error?: string;
+              } | null;
+              if (accountResponse.ok && accountData?.ok && accountData.balance?.balance) {
+                setWalletBalanceRaw(BigInt(accountData.balance.balance));
+                setWalletBalanceError("");
+              } else {
+                setWalletBalanceRaw(null);
+                setWalletBalanceError(
+                  balanceError instanceof Error ? balanceError.message : accountData?.error ?? "Wallet balance unavailable.",
+                );
+              }
+            } catch (accountError) {
+              setWalletBalanceRaw(null);
+              setWalletBalanceError(
+                balanceError instanceof Error
+                  ? balanceError.message
+                  : accountError instanceof Error
+                    ? accountError.message
+                    : "Wallet balance unavailable.",
+              );
+            } finally {
+              setWalletBalanceLoading(false);
+            }
+          } finally {
+            setWalletBalanceLoading(false);
+          }
+        } else {
+          setWalletBalanceRaw(null);
+          setWalletBalanceError(isConnected ? "Trading wallet unavailable." : "");
+          setWalletBalanceLoading(false);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to load portfolio data.");
         setWalletBalanceError(err instanceof Error ? err.message : "Unable to load wallet balance.");
         setWalletBalanceRaw(null);
+        setWalletBalanceLoading(false);
       } finally {
         setLoading(false);
         setRefreshing(false);
-        setWalletBalanceLoading(false);
       }
     },
     [address, chainId, isConnected, publicClient, walletClient],
@@ -399,6 +609,10 @@ export default function PortfolioClient() {
           liveQuote: quote,
           currentValue,
           unrealizedPnl,
+          tokenId: live?.tokenId ?? null,
+          negativeRisk: live?.negativeRisk ?? false,
+          bestBid: live?.bestBid ?? null,
+          curPrice: live?.curPrice ?? null,
         };
       })
       .sort((left, right) => {
@@ -422,6 +636,112 @@ export default function PortfolioClient() {
     const deposit = tradingContext?.depositWalletAddress ? formatWalletAddress(tradingContext.depositWalletAddress) : "Unavailable";
     return { connected, trading, deposit };
   }, [address, tradingContext]);
+
+  const selectedSellAmount = Number(sellState?.amount ?? 0);
+  const selectedSellBid = sellState?.position.liveQuote ?? sellState?.position.bestBid ?? sellState?.position.curPrice ?? null;
+  const estimatedSellProceeds =
+    Number.isFinite(selectedSellAmount) && Number.isFinite(selectedSellBid ?? Number.NaN)
+      ? selectedSellAmount * (selectedSellBid as number)
+      : null;
+
+  const closeSellModal = useCallback(() => {
+    setSellState(null);
+    setTradeProgress("idle");
+    setSelling(false);
+  }, []);
+
+  const submitSell = useCallback(async () => {
+    if (!sellState || selling) return;
+    const amount = Number(sellState.amount);
+    const position = sellState.position;
+    const price = position.liveQuote ?? position.bestBid ?? position.curPrice;
+    const tokenId = position.tokenId ?? "";
+    const negativeRisk = Boolean(position.negativeRisk);
+
+    setError("");
+    setNotice("");
+
+    if (!isConnected || !walletClient || !address) {
+      setError("Connect a wallet before selling.");
+      return;
+    }
+    if (chainId !== 137) {
+      setError("Switch to Polygon mainnet before selling.");
+      return;
+    }
+    if (!publicClient) {
+      setError("Polygon client is unavailable.");
+      return;
+    }
+    if (!tokenId) {
+      setError("This position is missing a CLOB token id.");
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("Enter a share amount greater than 0.");
+      return;
+    }
+    if (amount > position.shares) {
+      setError("Sell amount cannot exceed available shares.");
+      return;
+    }
+    if (!Number.isFinite(price ?? Number.NaN) || (price as number) <= 0) {
+      setError("No sell quote is available for this position.");
+      return;
+    }
+
+    setSelling(true);
+    setTradeProgress("checking-wallet");
+    try {
+      const executeSell = async () => {
+        const setup = await ensureTradingReady({
+          walletClient,
+          address: address as Address,
+          publicClient,
+          side: "Sell",
+          tokenId,
+          amount,
+          price: price as number,
+          negRisk: negativeRisk,
+          onProgress: setTradeProgress,
+        });
+        const funderAddress = setup.tradingWalletAddress;
+        if (!funderAddress) {
+          throw new Error("Trading wallet unavailable.");
+        }
+        const client = await createSignerClient({
+          signer: walletClient,
+          signatureType: setup.signatureType === 2 ? SignatureTypeV2.POLY_GNOSIS_SAFE : SignatureTypeV2.POLY_1271,
+          funderAddress,
+        });
+        setTradeProgress("submitting-order");
+        return placeMarketOrder(client, {
+          tokenID: tokenId,
+          amount,
+          currentPrice: price as number,
+          maxSlippageBps: 300,
+          side: Side.SELL,
+          orderType: OrderType.FAK,
+          negRisk: negativeRisk,
+        });
+      };
+
+      const response = await executeSell().catch(async (err) => {
+        if (!isDepositWalletRequiredError(err) || !address) throw err;
+        markDepositWalletRequired(address as Address);
+        return executeSell();
+      });
+
+      setNotice(`Sell order ${(response as { status?: string }).status ?? "submitted"}.`);
+      closeSellModal();
+      await loadPortfolio("refresh");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to submit sell order.");
+    } finally {
+      setSelling(false);
+      setTradeProgress("idle");
+    }
+  }, [address, chainId, closeSellModal, isConnected, loadPortfolio, publicClient, sellState, selling, walletClient]);
 
   useEffect(() => {
     if (!withdrawOpen) {
@@ -545,6 +865,13 @@ export default function PortfolioClient() {
           </div>
         ) : null}
 
+        {notice ? (
+          <div className="mb-4 flex gap-3 rounded-2xl border border-cyan-400/25 bg-cyan-950/25 p-4 text-sm text-cyan-100">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{notice}</span>
+          </div>
+        ) : null}
+
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.92fr)]">
           <Card className="border-white/8 bg-[linear-gradient(180deg,rgba(15,23,42,0.95),rgba(2,6,23,0.98))] shadow-[0_24px_90px_rgba(2,6,23,0.3)]">
             <CardHeader className="border-b border-white/6 px-5 py-4">
@@ -560,7 +887,11 @@ export default function PortfolioClient() {
               ) : openPositions.length > 0 ? (
                 <div className="space-y-3">
                   {openPositions.map((position) => (
-                    <PositionCard key={position.positionKey} position={position} />
+                    <PositionCard
+                      key={position.positionKey}
+                      onSell={(selected) => setSellState({ position: selected, amount: String(selected.shares) })}
+                      position={position}
+                    />
                   ))}
                 </div>
               ) : (
@@ -630,6 +961,19 @@ export default function PortfolioClient() {
           open={withdrawOpen}
           success={withdrawSuccess}
           withdrawing={withdrawing}
+        />
+        <SellModal
+          amount={sellState?.amount ?? ""}
+          error={error}
+          estimatedProceeds={estimatedSellProceeds}
+          onAmountChange={(value) => setSellState((current) => (current ? { ...current, amount: value } : current))}
+          onClose={closeSellModal}
+          onSubmit={() => void submitSell()}
+          open={Boolean(sellState)}
+          position={sellState?.position ?? null}
+          selectedBid={selectedSellBid}
+          submitting={selling}
+          tradeProgress={tradeProgress}
         />
       </div>
     </main>
